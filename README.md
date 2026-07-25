@@ -1,13 +1,13 @@
-# Skills For Doing Your Own Money Admin
+# Skills For The Boring Bits
 
 [![skills.sh](https://skills.sh/b/luojiahai/skills)](https://skills.sh/luojiahai/skills)
 
-Agent skills for the paperwork you'd rather not hand to someone else — starting with an Australian individual tax return. They don't file anything on your behalf. They reconcile, reason and show their working, and you check every number and lodge it yourself.
+Agent skills for the life admin nobody else is going to do for you — tax, receipts, the shopping, the renewals. They don't act on your behalf. They read, reconcile, compute and show their working, and you check it and press the button yourself.
+
+First one out: an Australian individual tax return.
 
 > [!IMPORTANT]
 > `lodge-au-tax-return` is not tax advice, and its author is not a registered tax agent. It lodges nothing and never touches your ATO account — you hold the myGov credentials, you check every figure, you lodge. The full declaration is in the skill's [What this is, and what it is not](./skills/finance/lodge-au-tax-return/SKILL.md).
-
-I write about these at [luojiahai.com](https://luojiahai.com) ([RSS](https://luojiahai.com/feed)).
 
 ## Quickstart
 
