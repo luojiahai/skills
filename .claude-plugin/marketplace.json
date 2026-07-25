@@ -1,13 +1,23 @@
 {
   "name": "luojiahai",
-  "owner": { "name": "luojiahai" },
-  "description": "Claude Code skills.",
+  "owner": {
+    "name": "luojiahai",
+    "url": "https://luojiahai.com"
+  },
+  "description": "luojiahai's agent skills, as an installable Claude Code plugin.",
   "plugins": [
     {
-      "name": "lodge-au-tax-return",
-      "source": "./skills/lodge-au-tax-return",
-      "description": "Prepare an Australian individual tax return for self-lodgement in myTax — reconcile prefill, test every deduction, and produce a label-by-label worksheet.",
-      "author": { "name": "luojiahai" }
+      "name": "luojiahai-skills",
+      "source": "./",
+      "description": "Agent skills for the money admin you do yourself — starting with an Australian individual tax return, prepared label by label, every figure carrying its working and the document it came from.",
+      "category": "productivity",
+      "keywords": [
+        "skills",
+        "finance",
+        "tax",
+        "australia",
+        "ato"
+      ]
     }
   ]
 }
