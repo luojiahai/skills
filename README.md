@@ -7,8 +7,6 @@ Agent skills for the paperwork you'd rather not hand to someone else — startin
 > [!IMPORTANT]
 > `lodge-au-tax-return` is not tax advice, and its author is not a registered tax agent. It lodges nothing and never touches your ATO account — you hold the myGov credentials, you check every figure, you lodge. The full declaration is in the skill's [What this is, and what it is not](./skills/finance/lodge-au-tax-return/SKILL.md).
 
-I write about these at [luojiahai.com](https://luojiahai.com) ([RSS](https://luojiahai.com/feed)).
-
 ## Quickstart
 
 Install with the skills.sh CLI, into whichever agents you use:
