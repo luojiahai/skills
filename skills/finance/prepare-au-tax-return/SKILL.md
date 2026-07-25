@@ -1,5 +1,5 @@
 ---
-name: lodge-au-tax-return
+name: prepare-au-tax-return
 description: Prepare an Australian individual tax return for self-lodgement in myTax — reconcile prefill, test every deduction, and produce a label-by-label worksheet.
 disable-model-invocation: true
 ---
