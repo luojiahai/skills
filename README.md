@@ -2,7 +2,7 @@
 
 [![skills.sh](https://skills.sh/b/luojiahai/skills)](https://skills.sh/luojiahai/skills)
 
-Agent skills for the life admin nobody else is going to do for you — tax, receipts, the shopping, the renewals. They don't act on your behalf. They read, reconcile, compute and show their working, and you check it and press the button yourself.
+Agent skills for the life admin nobody else is going to do for you. They don't act on your behalf. They read, reconcile, compute and show their working, and you check it and press the button yourself.
 
 First one out: an Australian individual tax return.
 
