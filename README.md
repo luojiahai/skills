@@ -47,45 +47,7 @@ Two ways to install, two philosophies:
 
 ## Why These Skills Exist
 
-Money admin is the worst possible fit for a confident, fluent agent. The work is mostly arithmetic and lookup, which makes it look like a natural handoff — but the cost of a wrong number isn't a failing test, it's a penalty two years later, and every figure has to survive a question that arrives long after the conversation is gone. These skills exist to fix four specific ways that goes wrong.
-
-### #1: The Agent Made The Number Up
-
-**The Problem**. Ask an agent for a tax offset threshold and it will tell you, instantly and plausibly, a number from its training data. Thresholds move every income year. A figure that was right two years ago is indistinguishable, in the answer, from one that's right today — and it arrives with exactly the same confidence.
-
-**The Fix** is that no rate, threshold or cap is ever recalled. [`lodge-au-tax-return`](./skills/finance/lodge-au-tax-return/SKILL.md) fetches every one of them from ato.gov.au during the run, and records the URL it came from and the date it was fetched beside the figure it produced. With no way to reach the ATO, the skill says so and stops rather than answering from memory. That's also why it survives an income year rolling over: nothing is baked in to go stale.
-
-### #2: Every Figure Needs Its Working, Not Just Its Answer
-
-**The Problem**. An agent hands you a deduction total. Eighteen months later the ATO asks how you arrived at it. The conversation is gone, the reasoning with it, and what you're left with is a number you can't defend.
-
-**The Fix** is a **worksheet** as the deliverable — one Markdown file per person, in a directory you nominate, which is both the output and the resume point:
-
-| myTax section | Label | Amount | Working | Source document |
-|---|---|---|---|---|
-| Salary, wages | | | | |
-| Interest | | | | |
-| Dividends — franked | | | | |
-
-Empty here; filled in with you, section by section, in myTax's own order. Every deduction has to pass three tests — nexus, apportionment, substantiation — and the working for each is written down beside the amount, along with the document it came from. The number you type into myTax and the reason it's that number live in the same row.
-
-This matters more than it looks. The penalty safe harbour that covers a registered agent's client doesn't extend to someone lodging their own return, however carefully it was prepared. What stands in its place is having taken reasonable care — and the working and the receipts are what show it.
-
-### #3: You Lodged With Gaps Still Open
-
-**The Problem**. A return is assembled over weeks, often across two people, in sessions that get interrupted. Somewhere in there is a figure you meant to check and a receipt you meant to find. The pressure to just submit is what turns those into an amendment.
-
-**The Fix** is that anything unresolved reads `TBC` and **blocks lodgement** until it's settled. The worksheet opens with an Outstanding register that decides whether the return can be lodged at all. And because the file is the resume point, picking the work back up in three weeks starts with being told exactly where the return stands and what it's waiting on — not with reconstructing it.
-
-### #4: An Opinion Where A Binding Answer Was Available
-
-**The Problem**. Some questions genuinely have no clear answer — is this contractor income or employment income, is this trip deductible, was this really your main residence. An agent will happily produce a confident view. That view protects you from nothing.
-
-**The Fix** is to route genuine uncertainty to an ATO **private ruling** — made on your facts, and binding on the ATO where it applies to you — rather than to an opinion. Knowing which questions to stop on is most of the value here; the skill is built to stop rather than to sound sure.
-
-### Summary
-
-The through-line is that the agent does the legwork and never holds the risk. It reads, reconciles, computes and documents. You check it, and you lodge it.
+TODO
 
 ## Reference
 
