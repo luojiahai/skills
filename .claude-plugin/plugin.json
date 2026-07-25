@@ -1,8 +1,23 @@
 {
   "name": "luojiahai-skills",
   "version": "0.1.0",
-  "description": "Claude Code skills.",
-  "author": { "name": "luojiahai" },
-  "license": "Apache-2.0",
-  "repository": "https://github.com/luojiahai/skills"
+  "description": "Agent skills for the money admin you do yourself — starting with an Australian individual tax return, prepared label by label, every figure carrying its working and the document it came from.",
+  "author": {
+    "name": "luojiahai",
+    "url": "https://luojiahai.com"
+  },
+  "homepage": "https://luojiahai.com",
+  "repository": "https://github.com/luojiahai/skills",
+  "license": "MIT",
+  "keywords": [
+    "skills",
+    "finance",
+    "tax",
+    "australia",
+    "ato",
+    "mytax"
+  ],
+  "skills": [
+    "./skills/finance/lodge-au-tax-return"
+  ]
 }
