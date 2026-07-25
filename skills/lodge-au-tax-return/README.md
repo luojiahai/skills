@@ -46,7 +46,7 @@ claude plugin install lodge-au-tax-return@luojiahai
 <details>
 <summary>Other ways to install</summary>
 
-With the `skills` CLI:
+With the `skills` CLI, which installs into the directory you run it from rather than globally:
 
 ```sh
 npx skills add luojiahai/skills --skill lodge-au-tax-return -y
@@ -56,8 +56,11 @@ Or by hand:
 
 ```sh
 git clone https://github.com/luojiahai/skills.git luojiahai-skills
+mkdir -p ~/.claude/skills
 cp -r luojiahai-skills/skills/lodge-au-tax-return ~/.claude/skills/
 ```
+
+The `mkdir` is not optional. Where `~/.claude/skills` does not exist yet, `cp` exits 0 and writes the skill's *contents* to that path instead of a directory inside it — leaving `~/.claude/skills/SKILL.md` and no installed skill.
 </details>
 
 Then run `/lodge-au-tax-return`. It does not start on its own — you type it.
