@@ -1,0 +1,8 @@
+{
+  "name": "luojiahai-skills",
+  "version": "0.1.0",
+  "description": "Claude Code skills.",
+  "author": { "name": "luojiahai" },
+  "license": "Apache-2.0",
+  "repository": "https://github.com/luojiahai/skills"
+}
