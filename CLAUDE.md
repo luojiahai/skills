@@ -8,6 +8,8 @@ Skills are organized into bucket folders under `skills/`:
 
 Only `finance/` exists today. Create a bucket the first time a skill belongs in it — an empty bucket with a `README.md` listing nothing is a doc that lies.
 
+A skill folder is named as a **gerund phrase naming the activity** — `preparing-tax-return` — not a bare verb (`prepare-…`) and not a bare noun. Scope qualifiers — jurisdiction, product, platform — live in the **description**, not the name; for a user-invoked skill the description is human-facing and appears beside the name wherever the skill is listed, so that is where a reader meets the scope. A skill whose name is generic owes its scope a stated line in `SKILL.md` and in both `README.md`s, and a sentence the agent says out loud on the first run.
+
 Every skill in a **promoted** bucket (`finance/`, and any future topical bucket) must have a reference in the top-level `README.md` and an entry in `.claude-plugin/plugin.json`'s `skills` array — the Claude Code plugin ships exactly the promoted set. Skills in `in-progress/`, `deprecated/`, `misc/` and `personal/` must not appear in either.
 
 The repo is its own single-plugin Claude Code marketplace: `.claude-plugin/marketplace.json` lists the one `luojiahai-skills` plugin, sourced from `./`. Run `claude plugin validate . --strict` after touching either manifest.
@@ -22,7 +24,7 @@ Each bucket folder has a `README.md` that lists every skill in the bucket with a
 
 Every `SKILL.md` is either user-invoked (`disable-model-invocation: true` plus `policy.allow_implicit_invocation: false` in `agents/openai.yaml`, reachable only by the human) or model-invoked (model- or user-reachable). See [.agents/invocation.md](./.agents/invocation.md).
 
-To (re)link every skill into the local harness skill directories (`~/.claude/skills`, `~/.agents/skills`), run `scripts/link-skills.sh`. Each entry is a symlink into this repo, so a `git pull` keeps installed skills current; re-run the script after adding, removing, or renaming a skill.
+To (re)link every skill into the local harness skill directories (`~/.claude/skills`, `~/.agents/skills`), run `scripts/link-skills.sh`. Each entry is a symlink into this repo, so a `git pull` keeps installed skills current; re-run the script after adding, removing, or renaming a skill. It only ever adds links — after a rename or removal, delete the stale symlink in each destination by hand, or the old name keeps resolving to a dangling target.
 
 ## Agent skills
 

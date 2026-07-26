@@ -1,5 +1,0 @@
-interface:
-  display_name: "Prepare AU Tax Return"
-  short_description: "Prepare an Australian individual tax return"
-policy:
-  allow_implicit_invocation: false

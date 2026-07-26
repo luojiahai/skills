@@ -1,0 +1,5 @@
+interface:
+  display_name: "Preparing Your Own Australian Tax Return"
+  short_description: "Australia only — prepare an individual tax return"
+policy:
+  allow_implicit_invocation: false
