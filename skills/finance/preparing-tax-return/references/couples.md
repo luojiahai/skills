@@ -12,7 +12,7 @@ A **spouse** for tax purposes includes a de facto partner — someone the person
 
 **3. Private health insurance rebate.** The rebate **tier** for a couple is set by combined income, so both incomes are needed before either return's rebate is right. One policy statement usually covers the household; each spouse claims their share, and the split can be varied between them as long as the total does not exceed the policy. Getting the tier wrong at the insurer during the year is the usual cause of an unexpected reconciliation here.
 
-**4. Medicare levy reduction and SAPTO.** Both use family income. The seniors and pensioners tax offset also allows an unused portion to transfer between spouses.
+**4. Medicare levy reduction and SAPTO.** Both turn on a couple-level income figure, but not the same one. The Medicare levy reduction uses combined **family taxable income**, with a component for dependent children. SAPTO turns on **rebate income** — taxable income plus reportable fringe benefits, reportable employer super contributions, and net financial investment and rental losses — tested against the couple's **combined rebate income**, and it allows an unused portion to transfer between spouses where both are eligible. Since the transfer changes the receiving spouse's tax, settle it before either estimate is final.
 
 ## Two things worth claiming that only exist for couples
 
@@ -23,11 +23,13 @@ A **spouse** for tax purposes includes a de facto partner — someone the person
 
 The circularity resolves in one pass if the steps are done in this order across both returns at once:
 
-1. Steps 2–5 on **both** returns — personalise, prefill, income, deductions. Both taxable incomes now exist.
-2. Step 6 on both — offsets, Medicare, private health — now that family income is known.
-3. Steps 7–8 on both.
+1. Steps 2–3 on **both** returns — personalise, and build both bundles plus `joint/bundle/`, where a document naming both people lives.
+2. **Settle every ownership split in `joint/shared.md`** off those joint documents, as part of step 3. Before step 4, not after: a joint account reported in full to one holder is the standard prefill correction, and it cannot be made without the split.
+3. Steps 4–6 on both — prefill, income, deductions. Both taxable incomes now exist.
+4. Step 7 on both — offsets, Medicare, private health. The combined and family income figures are worked here, once, in `shared.md`, and each return copies its share.
+5. Steps 8–9 on both. Step 9 reads the readiness gate in `shared.md`: neither return is handed over until both taxable incomes are settled, both registers are empty, and both sets of shares reconcile.
 
-Do not finalise either return's Medicare or private health section before both taxable incomes are settled. If one return is blocked on an Outstanding document, the other's step 6 is blocked too — record that dependency in both registers so a later session does not quietly finalise the unblocked one on a provisional figure.
+If one return is blocked on an Outstanding document, the other's step 7 is blocked too — the gate holds both, which is the point of it being one gate rather than a check written into each worksheet. An Outstanding entry for a **joint** document goes in both registers, so neither session can finalise around it.
 
 ## Joint assets must agree across the two worksheets
 
@@ -37,7 +39,7 @@ The most common couple error is two returns that split a joint item differently,
 - **Jointly owned rental property** — the split follows the **legal ownership share on the title**, and it applies to rent and to every expense alike. Joint tenants are 50/50; tenants in common take their stated shares. The split cannot be varied to put deductions with the higher earner, and a rental worksheet must appear on both returns with matching shares.
 - **Jointly held shares** — dividends, franking credits, and any capital gain split the same way, and a disposal must appear on both returns.
 
-Cross-check every joint item across the two worksheets before either is lodged, and record the shares once so both worksheets cite the same figure.
+The shares are recorded once, in `joint/shared.md`, and each worksheet copies its own from there. That is what stops the two returns splitting an item differently: there is one authority for the total and one for each share, so a cross-check that does not sum is fixed in `shared.md` and re-copied rather than argued between two files.
 
 ## What is not available
 
@@ -45,4 +47,6 @@ Employment income cannot be moved between spouses. Neither can a deduction that 
 
 ## Recording it
 
-Each worksheet's header names the other spouse's worksheet file, so a session that opens one knows the other exists. Where a figure on one return depends on the other — spouse taxable income, family income, the rebate tier — cite it as coming from that file, so a later change on one side is traceable to what it breaks on the other.
+Each worksheet's header names the other spouse's worksheet and `../joint/shared.md`, so a session that opens one knows the other exists and where the shared figures live. Both are saved state: a resumed session reads the worksheet **and** `shared.md` before doing any work.
+
+Where a figure on one return depends on the other — spouse taxable income, family income, the rebate tier — cite it as coming from `shared.md`, so a later change to a shared figure is traceable to every share copied from it.

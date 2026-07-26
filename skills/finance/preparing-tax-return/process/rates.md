@@ -1,6 +1,6 @@
-# Current-year figures — where each one lives
+# Current-year rates — where each one lives
 
-Fetch every figure on the run. Never carry a rate from memory or from a previous run's notes.
+Fetch every rate on the run. A rate carried from memory, or from a previous run's notes, is a wrong rate.
 
 `YYYY` below is the income year ending 30 June (the year ended 30 June 2026 is `2026`).
 
@@ -12,7 +12,7 @@ curl -sS -A "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 
 
 `WebFetch` returns 403 for ato.gov.au. ATO's own search box is a JavaScript app and does not respond to curl.
 
-**When a URL 404s** — and deep ATO URLs are reorganised often — run `WebSearch` with `allowed_domains: ["ato.gov.au"]` for the page title, then curl the URL it returns. Confirm a 200 before trusting a page; a 404 body still parses as text and will look like a missing figure rather than a broken link.
+**When a URL 404s** — and deep ATO URLs are reorganised often — run `WebSearch` with `allowed_domains: ["ato.gov.au"]` for the page title, then curl the URL it returns. Confirm a 200 before trusting a page; a 404 body still parses as text and will look like a missing rate rather than a broken link.
 
 ## Stable entry points
 
@@ -45,11 +45,11 @@ YYYY/{tax-offsets,medicare-and-private-health-insurance,adjustments,
       tax-losses-of-earlier-income-years,how-to-personalise-your-tax-return}
 ```
 
-## Figures to pull
+## Rates to pull
 
 Pull only the ones the return actually uses.
 
-| Figure | Where |
+| Rate | Where |
 |---|---|
 | Income tax rates and brackets | Resident income tax rates |
 | Medicare levy rate; low-income reduction thresholds | myTax `YYYY/medicare-and-private-health-insurance` |
@@ -64,6 +64,6 @@ Pull only the ones the return actually uses.
 | CGT discount percentage; indexation availability | Capital gains tax |
 | Foreign exchange rates for foreign income | Search "foreign exchange rates" — use the ATO's published annual average or the daily rate, consistently |
 
-## Recording a figure
+## Recording a rate
 
-Every figure that lands in the worksheet carries the URL it came from and the date fetched. When the user or the ATO later questions a number, that line is the answer.
+Every rate that lands in the worksheet carries the URL it came from and the date fetched, in **Rates used**. When the user or the ATO later questions a number, that line is the answer.
