@@ -12,74 +12,35 @@ Every question put to the user comes from [interview.md](process/interview.md), 
 
 ## What this is, and what it is not
 
-**Australia only.** This prepares the Australian individual tax return, lodged through the ATO's myTax. The name carries no jurisdiction, so a user may well arrive with a return from somewhere else — nothing here transfers, and the step-1 statement below is where they find out.
+**Australia only.** This prepares the Australian individual tax return, lodged through the ATO's myTax. The name carries no jurisdiction, so a user may well arrive with a return from somewhere else — nothing here transfers, and the step-1 statement is where they find out.
 
 This skill is not tax advice, and its author is not a registered tax agent. It does not lodge anything and never touches the user's ATO account. The division of labour is fixed: the user holds the myGov credentials and does the lodging; you do the reconciling, the arithmetic, and the substantiation record.
 
-Five properties hold that line. They are the design, not a caveat:
-
-- The user types every number into myTax themselves. Nothing is submitted on their behalf.
-- Every figure carries its working and its source document.
-- Genuine uncertainty routes to a private ruling, binding on the ATO, rather than to an opinion.
-- Every gap sits on the Outstanding register and blocks lodgement until it closes; a figure not yet settled reads `TBC`, never a placeholder.
-- Documents are read only as the user hands them over, copied rather than moved, and every copy stays beside the worksheet on the user's own disk.
-
 **One consequence the user must hear, because getting it wrong costs money.** The penalty safe harbour in TAA 1953 Sch 1 s 284-75(6) requires a *registered* agent, both engaged and making the statement — so a self-lodger using this skill cannot have it, whatever care was taken. What they have instead is the general reasonable-care exception in s 284-75(5), and the substantiation discipline at step 6 is what supports it.
-
-**Say this to the user at step 1, in your own words, in plain English — four or five sentences, once per return.** Australian returns only, through the ATO and myTax; not tax advice; you will ask them for one document at a time, read only what they hand over, and copy each one into a folder beside the worksheet; they check and lodge it themselves; and the penalty protection that covers a registered agent's client does not extend to them, so the working and the receipts are what protect them instead. Keep the section numbers out of it unless they ask why — then they are above.
 
 ## The income year
 
-The Australian income year runs 1 July – 30 June. The return in play is the year ending on the 30 June most recently passed; confirm it with the user, because they may be catching up on an older year. That year number goes in every ATO URL below (`.../mytax-instructions/2026/...` is the year ended 30 June 2026).
+The Australian income year runs 1 July – 30 June. The return in play is the year ending on the 30 June most recently passed; confirm it with the user, because they may be catching up on an older year. That year number goes in every ATO URL (`.../mytax-instructions/2026/...` is the year ended 30 June 2026).
 
-**Verified against the 2026 income year.** The stamp names the income year whose published myTax instructions the section list at step 2 was checked against, item by item — the section index at `.../mytax-instructions/<year>/`, which is the authority the list is drawn from. It dates that list and the interview batches that walk it, and nothing else: rates and thresholds do not go stale, because every one is fetched on this run, and dead ATO URLs self-heal through the search fallback below. It is one literal, deliberately: bump it when the section list is re-checked, and nothing else needs touching.
+**Verified against the 2026 income year.** The stamp dates one thing: the section list at step 2, checked item by item against the ATO's published section index for that year. Rates do not go stale, because every one is fetched on this run, and dead ATO URLs self-heal through the search fallback. Bump the stamp when the section list is re-checked, and nothing else needs touching.
 
 So once the return year is settled at step 1, compare it against the stamp and say so unprompted when they differ. **Later than the stamp** — the section list may be missing a category that now exists, and the interview will not ask about it, so watch step 2 and say that is what you are watching for. **Earlier** — it may name a section that year did not have, which wastes time rather than costing money.
 
 ## Every rate comes from the ATO on this run
 
-Rates, thresholds and caps change annually, so a rate recalled from memory is a wrong rate. Fetch each one.
+Rates, thresholds and caps change annually, so fetch each one on the run rather than recalling it. [rates.md](process/rates.md) holds the entry points, the rates to pull from each, the fetch technique — ato.gov.au 403s `WebFetch`, so it takes curl — and the search fallback for ATO deep URLs, which are reorganised often and 404 silently.
 
-This makes web access a precondition rather than a convenience: with no way to reach ato.gov.au there are no rates and no fallback. Say so and stop, rather than answering from memory.
-
-`WebFetch` gets a 403 from ato.gov.au. Use curl with a browser user-agent:
-
-```bash
-curl -sS -A "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36" "<url>"
-```
-
-ATO deep URLs are reorganised often and 404 silently. When a URL fails, find the current one with `WebSearch` scoped to `allowed_domains: ["ato.gov.au"]`, then curl it. [rates.md](process/rates.md) holds the stable entry points and the rates to pull from each.
+Web access is therefore a precondition rather than a convenience: with no way to reach ato.gov.au there are no rates and no fallback. Say so and stop.
 
 ## Getting a binding answer when a rule is unclear
 
-Where the law's application to the user's facts is genuinely uncertain, the answer is not to guess and not to hand the return to someone else. It is to **apply for a private ruling** — made on the user's own stated facts, and **legally binding on the ATO where it applies to them and they rely on it**. An accountant's opinion binds nobody, which makes a ruling the stronger instrument, not merely the cheaper one. Individuals apply on the private ruling application form. Two practical points: the ATO aims to answer within **28 calendar days of having all the information it needs**, so an incomplete application quietly restarts the clock — raise it in August, not late October; and where the ruling turns on a **valuation**, the valuer's fee can be passed on to the applicant. An edited version of every ruling is later published in the public register, so keep identifying detail out of the facts where it is not needed. For SMSF questions the equivalent is **SMSF specific advice**.
+Where the law's application to the user's facts is genuinely uncertain, the answer is not to guess and not to hand the return to someone else. It is to **apply for a private ruling** — made on the user's own stated facts, and **legally binding on the ATO where it applies to them and they rely on it**. An accountant's opinion binds nobody, which makes a ruling the stronger instrument, not merely the cheaper one.
 
-So when research does not settle a position: set out the facts, draft the ruling application with the user, and park the affected label as Outstanding until the answer lands.
-
-## What myTax cannot lodge
-
-This is a scope fact about the form, not a judgement about difficulty. myTax lodges an **individual** return. These need their own return, lodged separately:
-
-- A **trust**, including a deceased estate or testamentary trust — trust tax return.
-- A **company** — company tax return.
-- An **SMSF** — SMSF annual return, and the law requires it to be audited by an **approved SMSF auditor** before lodging. That audit cannot be self-performed at any level of skill.
-- A **partnership** — partnership return.
-
-The individual return of someone who is a beneficiary, partner or shareholder of one of those **is** in scope, and this skill handles it: the distribution, share of net income, or dividend flows through to their own return once the entity's return is done.
-
-Everything an individual return can contain is documented in the branch references. Where a question falls outside them, research it against ATO sources using the fetch technique above and say that is what you are doing, rather than answering from memory.
-
-## Timing
-
-Prefill arrives progressively through July as employers finalise income statements and banks, funds, health insurers and share registries report. It is usually complete in the first half of August. Building the worksheet early is fine; lodging against incomplete prefill earns an ATO amendment later. **Self-lodgers must lodge by 31 October.** Records are kept for five years from the lodgement date.
-
-**If no return is required at all** — income under the threshold, no tax withheld, no other trigger — the user still tells the ATO, by lodging a **non-lodgment advice** through ATO online services. Silence looks like a missed lodgement and generates demands. Confirm with the ATO's "Do I need to lodge a tax return?" tool rather than reasoning from the tax-free threshold alone, because tax withheld, a study loan, business income or a capital gain each force a return on their own. Someone with an active ABN carrying on a business cannot use a non-lodgment advice.
-
-**If a return is already lodged and something turns out wrong**, the fix is an amendment through myTax, not a second return. Individuals generally have **two years** from the day after the assessment issues; sole traders have **four years** for 2024–25 and later income years, two for earlier ones. Amend voluntarily rather than waiting — the ATO reduces penalties for a voluntary disclosure, and a missing income amount it finds first is treated very differently from one the user reports. Past the amendment window the route is an **objection**, which the taxpayer lodges themselves through ATO online services — it needs the grounds set out in writing and the evidence attached, which is work this skill can do.
+So when research does not settle a position: set out the facts, draft the ruling application with the user, and park the affected label as Outstanding until the answer lands. [lodging.md](process/lodging.md) has how to apply and how long the ATO takes.
 
 ## Saving and resuming
 
-A return is assembled over weeks, not in one sitting. Prefill completes through July, a managed fund's annual tax statement can arrive in September, and a broker's or exchange's annual report later still. Stopping part-way is the normal case, not the exception.
+A return is assembled over weeks, not in one sitting — prefill fills in through July, a managed fund's annual tax statement can arrive in September, and a broker's or exchange's annual report later still. Stopping part-way is the normal case, not the exception.
 
 The worksheet is the return's saved state and its deliverable; for a couple, `joint/shared.md` is saved state too. Each is updated as its step lands rather than written up at the end.
 
@@ -105,7 +66,7 @@ Inside a git working tree, add `tax-*/` to the repo root's `.gitignore` — the 
 
 **Identity numbers live in the bundle, not the worksheet.** The worksheet carries figures, labels and working. A TFN, a full account number, a health fund member number stays on the document that already holds it, and myTax prefills identity anyway. Where a label needs one of those numbers typed in, name the file in `bundle/` it is printed on and let the user read it from there.
 
-Anything blocked goes in the worksheet's **Outstanding** register, and every entry is one of two kinds: the **document** is missing, or only its **copy** is — the figures having already been read back off a paste or a link. A label whose figure is not yet settled reads `TBC`, so a placeholder can never be typed into myTax as a number; a label read off a paste carries its real figure, and its entry waits on the file rather than the number. Each entry names what is missing and which of the two kinds it is, the section it feeds, who it comes from, and when it is expected. **The return is ready to lodge only when the register is empty.**
+Anything blocked goes in the worksheet's **Outstanding** register, and every entry is one of two kinds: the **document** is missing, or only its **copy** is — the figures having already been read back off a paste or a link. A label whose figure is not yet settled reads `TBC`, so a placeholder can never be typed into myTax as a number. Each entry names what is missing and which of the two kinds it is, the section it feeds, who it comes from, and when it is expected. **The return is ready to lodge only when the register is empty.**
 
 ---
 
@@ -119,7 +80,9 @@ Establish **whose** return and **which year**. Where returns already exist, list
 
 **Found the one** — read the worksheet in full, and `../joint/shared.md` too where it exists. Report back before doing any work: what is settled, what the Outstanding register is waiting on, what is sitting in `inbox/`, and which step comes next. Resume at that step. Settled sections are re-opened only if the user asks or a newly arrived document contradicts them.
 
-**Found none for this person and year** — before creating anything, say what this skill is and is not, from *What this is, and what it is not* above: three or four sentences, plain English, no section numbers. Then name the exact path you are about to write — the tree in *Saving and resuming* above, rooted at `tax-<YYYY>/` — say what will be written there, and ask whether that place will still exist in five years: records are kept for five years from lodgement, and a working directory inside a code project is not durable by default. On confirmation, create the year root and the person's folder, copy [WORKSHEET.md](templates/WORKSHEET.md) to `worksheet.md`, create an empty `inbox/`, and add the ignore line if this is a git working tree.
+**Found none for this person and year** — before creating anything, say what this skill is and is not, in your own words, in plain English, four or five sentences, once per return: Australian returns only, through the ATO and myTax; not tax advice; you will ask them for one document at a time, read only what they hand over, and copy each one into a folder beside the worksheet; they check and lodge it themselves; and the penalty protection that covers a registered agent's client does not extend to them, so the working and the receipts are what protect them instead. Keep the section numbers out of it unless they ask why — then they are in *What this is, and what it is not* above.
+
+Then name the exact path you are about to write — the tree in *Saving and resuming* above, rooted at `tax-<YYYY>/` — say what will be written there, and ask whether that place will still exist in five years: records are kept for five years from lodgement, and a working directory inside a code project is not durable by default. On confirmation, create the year root and the person's folder, copy [WORKSHEET.md](templates/WORKSHEET.md) to `worksheet.md`, create an empty `inbox/`, and add the ignore line if this is a git working tree.
 
 Then ask **batch 0** of [interview.md](process/interview.md) — whether there was a spouse. It fires here rather than earlier because the answer is recorded in the worksheet as it comes in, and the worksheet now exists.
 
@@ -131,7 +94,7 @@ Then ask **batch 0** of [interview.md](process/interview.md) — whether there w
 
 Walk the whole section list with the user and mark every section in or out. It is the ATO's own index of the myTax sections for the year, so working through it here means no surprises at step 8.
 
-myTax's own "personalise" screen groups these differently — it groups some, selects others for you from prefill, and displays a few unconditionally. Do not try to make the two lists correspond one to one. This list is the exhaustive one; matching it to the screen is step 8's job, not this step's.
+myTax's own "personalise" screen groups these differently — it groups some, selects others for you from prefill, and displays a few unconditionally. Work this list, which is the exhaustive one; matching it to the screen is step 8's job.
 
 **Income** — salary, wages or other income on an income statement or payment summary · Australian income or losses from investments or property (interest, dividends, rent, capital gains) · Australian super or annuity payments · managed fund or trust distributions · sole trader and business income or losses and partnership distributions · foreign income · taxable payments and grants · other income · amounts you do not pay tax on
 
@@ -141,7 +104,9 @@ myTax's own "personalise" screen groups these differently — it groups some, se
 
 Get there by asking **batch 1** of [interview.md](process/interview.md) — the fixed situation scan — rather than reading the section list aloud. Its questions are worded around life events, because those are what the user recognises; each answer maps to sections they would not have thought to name.
 
-Load the branch reference for each section that is in: [investments.md](references/investments.md), [rental.md](references/rental.md), [sole-trader.md](references/sole-trader.md), [ess.md](references/ess.md) for shares or options from an employer, [small-business-cgt.md](references/small-business-cgt.md) when a business or business asset was sold.
+**myTax lodges an individual return.** A **trust** (including a deceased estate or testamentary trust), a **company**, an **SMSF**, or a **partnership** each needs its own return, lodged separately — and the law requires an SMSF's annual return to be audited by an **approved SMSF auditor** first, which cannot be self-performed at any level of skill. The individual return of someone who is a beneficiary, partner or shareholder of one of those **is** in scope, and this skill handles it: the distribution, share of net income, or dividend flows through to their own return once the entity's return is done.
+
+Load the branch reference for each section that is in: [investments.md](references/investments.md), [rental.md](references/rental.md), [sole-trader.md](references/sole-trader.md), [ess.md](references/ess.md) for shares or options from an employer, [small-business-cgt.md](references/small-business-cgt.md) when a business or business asset was sold. Where a question falls outside them, research it against ATO sources and say that is what you are doing.
 
 **Settle residency first** where the person arrived, left, or spent significant time outside Australia during the year — [residency.md](references/residency.md). It decides what is taxed at all, so it is not a section like the others; a wrong answer here invalidates every figure below it. The conclusion reached here is provisional until the travel record is read at step 3: where that record is not in the bundle, the residency determination itself reads `TBC`, and given what rests on it that `TBC` is worth more than most.
 
@@ -149,17 +114,17 @@ Load the branch reference for each section that is in: [investments.md](referenc
 
 ## 3. Build the bundle
 
-The **bundle** is the indexed set of documents the user could hand to the ATO: every document the return cites, copied in, filed by what it feeds, and read. Step 2 wrote the documents the return needs into the worksheet's **Documents** table. That table is this step's worklist, and each row is updated as its document is asked for and arrives — a return is assembled over weeks and this step now costs a round trip per document, so a resumed session finds its place by reading down that table for the first row still blank.
+The bundle this step builds is what the user could hand to the ATO. Step 2 wrote the documents the return needs into the worksheet's **Documents** table, and that table is this step's worklist — each row updated as its document is asked for and arrives. A return is assembled over weeks and this step costs a round trip per document, so a resumed session finds its place by reading down that table for the first row still blank.
 
 **Ask for one document at a time.** Name the document, say what it feeds, and let the user hand it over however suits them — pasted into the session, a file dragged in, a path, a link to wherever it sits (Notion, Drive, a fund's portal), a myGov download, or dropped into `inbox/`. Any channel is fine, and paper goes the same way as a photograph or a scan. The point is the document, not where it was kept.
 
-Never go looking of your own accord. You read what the user puts in front of you and nothing else, so their hand-over is what bounds your reach. Where what comes back is a **folder** rather than a document, list it first — name the files you would open and what each one feeds — and read only the ones the user confirms.
+You read what the user puts in front of you and nothing else: their hand-over is what bounds your reach, and there is no going looking of your own accord. Where what comes back is a **folder** rather than a document, list it first — name the files you would open and what each one feeds — and read only the ones the user confirms.
 
 **A document you can read but cannot copy** — pasted into the session, or behind a link this session has no way to download from — is read now rather than deferred: read the figures back and write the index row, then ask for the file itself so a copy lands in `bundle/`. Until it does, an Outstanding entry holds the gap with `copy` in its **Kind** column, and the label keeps the real figure — see *Saving and resuming* above. That entry is what keeps the bundle-complete check at step 9 honest.
 
 Some documents only the user can produce, because they sit behind their myGov login or have not been issued yet — the prefill report, an income statement that is not yet **Tax ready**, the private health statement. Ask for those by name. One that has not been downloaded yet opens an Outstanding entry like any other missing document.
 
-**These three come as files, not as pastes** — step 4 opens the prefill report from `bundle/income/` by its dated name, and reads a second download against the first, so a paste with no name and no date breaks the reconciliation. For a couple, each spouse downloads their own: a report behind one spouse's myGov cannot be produced by the other, and the Outstanding entry names which of them it waits on.
+**These come as files, not as pastes** — step 4 opens the prefill report from `bundle/income/` by its dated name, and reads a second download against the first, so a paste with no name and no date breaks the reconciliation. For a couple, each spouse downloads their own: a report behind one spouse's myGov cannot be produced by the other, and the Outstanding entry names which of them it waits on.
 
 **The read-back.** A figure that lands on a myTax **label** — gross payments, tax withheld, interest, franked and unfranked dividends, rent — is read back to the user field by field, per document, before it is written. A **pile** — many documents whose lines sum to one figure at one label, like a stack of receipts or a broker CSV — is read back in aggregate: the count, the total, and every line you could not read. A **logbook** is read back as its total kilometres, its work kilometres, and the percentage they give.
 
@@ -170,13 +135,15 @@ Read [documents.md](process/documents.md) before filing anything: it holds which
 **Done when** all of these hold:
 
 - Every row of the worksheet's **Documents** table has been asked for, and is either a copy in `bundle/<section>/`, listed in that section's `index.md` with the figures read off it, or an Outstanding entry naming what is missing, whether that is the document or only its copy, and who it comes from.
-- Every label figure has had its read-back confirmed field by field; every pile as a count and a total; every logbook as its kilometres and its percentage.
+- Every read-back is confirmed: label figures field by field, piles as a count and a total, logbooks as kilometres and percentage.
 - Every field that could not be read has been read out by the user, or reads `TBC` against an Outstanding entry.
 - `inbox/` is at zero.
 - The worksheet's Bundle table has a row for every section folder under `./bundle/`.
 - For a couple, every ownership split in `joint/shared.md` is settled off the joint documents in `joint/bundle/` — the prefill reconciliation at step 4 cannot correct a joint account reported in full to one holder without them.
 
 ## 4. Reconcile the prefill
+
+Prefill arrives progressively through July as employers finalise income statements and banks, funds, health insurers and share registries report, and is usually complete in the first half of August. Building the worksheet before then is fine; lodging against incomplete prefill earns an ATO amendment later.
 
 Open the prefill report from `bundle/income/` and reconcile it against what step 3 read. The section indexes hold figures the user has already confirmed, so reconcile against those rather than re-opening the documents — a second read can differ from the confirmed first one without anyone noticing.
 
@@ -216,7 +183,7 @@ A claim failing a test is dropped, or cut back to the portion that passes. Carry
 
 **The $300 rule** is a record-keeping concession, not an allowance: if total work-related expenses come to $300 or less you need records showing how you worked the claim out, and above $300 you need written evidence for **every** claim — not merely the amount above $300. Either way the expense must have been real and must pass all three tests. Claiming $300 you did not spend is a false statement.
 
-Four categories sit **outside** the $300 total and carry their own evidence rules: car expenses, meal allowance expenses, award transport payments, and travel allowance expenses. Do not count them toward the threshold when deciding whether it has been crossed.
+Four categories sit **outside** the $300 total and carry their own evidence rules: car expenses, meal allowance expenses, award transport payments, and travel allowance expenses. Test the threshold on what remains once those four are set aside.
 
 [deductions.md](references/deductions.md) has the catalogue: car, travel, clothing and laundry, self-education, working from home, tools and equipment, and the rest — with the method choices and what each one needs as evidence.
 
@@ -255,6 +222,8 @@ Read the finished worksheet back against these:
 - HELP, VSL or other study loan balances are reflected.
 - **The bundle is complete** — every document the worksheet cites is a copy under `bundle/`, listed in its section's `index.md`.
 
-Then hand over: the user logs in to myGov, opens myTax, enters the worksheet, and lodges. Tell them the estimate myTax shows should match the worksheet's, and that a difference means a label went in wrong — worth finding before they submit.
+Then hand over: the user logs in to myGov, opens myTax, enters the worksheet, and lodges. **Self-lodgers must lodge by 31 October.** Tell them the estimate myTax shows should match the worksheet's, and that a difference means a label went in wrong — worth finding before they submit.
+
+Two cases go somewhere other than a return, and [lodging.md](process/lodging.md) has both: no return is required at all, which still takes a **non-lodgment advice**; or one is already lodged and something turns out wrong, which takes an **amendment**.
 
 **Done when** every check above passes — the first two on lodgeability are not waivable, since an unresolved `TBC` is what blocks lodgement — or is explicitly waived by the user, and the user has the worksheet and the bundle in hand.

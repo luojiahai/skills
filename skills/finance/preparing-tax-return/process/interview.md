@@ -26,8 +26,6 @@ One call, one question, single-select. Fires once the worksheet exists, so the a
 
 The spouse question is asked in this wording every run because a de facto partner and a spouse separated part-way through the year both count, and the user may not think of their situation as being "a spouse" for tax.
 
-Nothing here asks how the user keeps their records. Documents are asked for one at a time at step 3, once step 2 has named which ones the return needs, and each is handed over however suits the user in the moment.
-
 ## Batch 1 — Situation scan (step 2)
 
 Two calls — four questions, then three. Ask both in full every run, including for a returning user — last year's answer is not this year's.
