@@ -24,12 +24,12 @@ A **spouse** for tax purposes includes a de facto partner — someone the person
 The circularity resolves in one pass if the steps are done in this order across both returns at once:
 
 1. Steps 2–3 on **both** returns — personalise, and build both bundles plus `joint/bundle/`, where a document naming both people lives.
-2. **Settle every ownership split in `joint/shared.md`** off those joint documents, as part of step 3. Before step 4, not after: a joint account reported in full to one holder is the standard prefill correction, and it cannot be made without the split.
+2. **Settle every ownership split in `joint/shared.md`** off those joint documents, as part of step 2. Before step 3, not after: a joint account reported in full to one holder is the standard prefill correction, and it cannot be made without the split.
 3. Steps 4–6 on both — prefill, income, deductions. Both taxable incomes now exist.
 4. Step 7 on both — offsets, Medicare, private health. The combined and family income figures are worked here, once, in `shared.md`, and each return copies its share.
 5. Steps 8–9 on both. Step 9 reads the readiness gate in `shared.md`: neither return is handed over until both taxable incomes are settled, both registers are empty, and both sets of shares reconcile.
 
-If one return is blocked on an Outstanding document, the other's step 7 is blocked too — the gate holds both, which is the point of it being one gate rather than a check written into each worksheet. An Outstanding entry for a **joint** document goes in both registers, so neither session can finalise around it.
+If one return is blocked on an Outstanding document, the other's step 6 is blocked too — the gate holds both, which is the point of it being one gate rather than a check written into each worksheet. An Outstanding entry for a **joint** document goes in both registers, so neither session can finalise around it.
 
 ## Joint assets must agree across the two worksheets
 

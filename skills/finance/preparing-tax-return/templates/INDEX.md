@@ -1,18 +1,22 @@
 # <section> — read record
 
-What was read off each document in this folder, from which file, and when it was read back to the user.
+What was read off each document in this folder, and the date the user confirmed it.
 
 `worksheet.md` is the authority for what goes into myTax. This file records what each page said. After the prefill reconciliation the two legitimately differ — a joint account reported in full to one holder is the standard case — and that difference is the working.
 
 ## Documents
 
-| Document | Original name | Field | As read | Read back on |
-|---|---|---|---|---|
-| | | | | |
+| Document | Field | As read | Confirmed |
+|---|---|---|---|
+| | | | |
 
-Every row carries either a figure or an Outstanding entry. Where a field could not be read and the user could not supply it, the row says so and its label reads `TBC` against that entry.
+A row is written once the user confirms the read-back, so every row here is a figure they have agreed to. Where a field could not be read and the user could not supply it, the row says so and its label reads `TBC` against an Outstanding entry.
 
-A record made during the run — a logbook written up from a calendar, a reconstructed crypto history — gets a row whose **Field** says what it was built from, and **Read back on** the date it was built. In `other/`, **Field** says what the document is and why it is filed here.
+A record made during the run — a logbook written up from a calendar, a reconstructed crypto history — gets a row whose **Field** says what it was built from. In `other/`, **Field** says what the document is and why it is filed here.
+
+## Working
+
+The arithmetic and the cross-checks behind the figures above — what the worksheet's per-label **Working** cell is too narrow to hold. A reconciliation that shows no document is missing, a total that ties to a second source, an apparent discrepancy explained so it is not chased twice, a cost base recorded now because the year it matters is a later one.
 
 ## Pile
 
@@ -32,5 +36,5 @@ Files in the pile that could not be read, listed so the count reconciles:
 
 Delete this section unless the folder holds a logbook or a diary. Its read-back is not a total but a fraction, and that fraction is what the deduction turns on.
 
-| Record | Covers | Total km / hours | Work km / hours | Work-use % | Read back on |
+| Record | Covers | Total km / hours | Work km / hours | Work-use % | Confirmed |
 |---|---|---|---|---|---|

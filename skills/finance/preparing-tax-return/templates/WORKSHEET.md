@@ -5,14 +5,12 @@
 | **Status** | in progress / ready to lodge / lodged <date> |
 | **Last updated** | <date> |
 | **Outstanding** | <n> items — see below |
-| **Steps done** | 2 personalise · 3 bundle · 4 prefill · 5 income · 6 deductions · 7 offsets · 8 worksheet · 9 review |
+| **Steps done** | <n> |
 | **Resume at** | step <n> |
 | **Residency** | resident / foreign resident / part-year <period> — or `TBC` pending the travel record |
 | **Spouse** | <name> — `../<spouse>/worksheet.md`, shared figures in `../joint/shared.md`, or *none this year* |
 
-This file is the saved state of the return. Reopening it is how work resumes — read the Outstanding register first, and leave settled sections alone.
-
-This file is also the authority for what goes into myTax. Every figure carries a working and a source. Where a rate was used, the URL and fetch date are in **Rates used**. A figure reading `TBC` is waiting on something in the Outstanding register and **must not be entered into myTax**.
+This file is the authority for what goes into myTax. Every figure carries a working and a source. A figure reading `TBC` is waiting on something in the Outstanding register and **must not be entered into myTax**.
 
 Not tax advice, and not prepared by a registered tax agent. Every figure below is yours to check before it goes into myTax — the penalty protection that covers a registered agent's client does not extend to a self-lodger.
 
@@ -22,11 +20,9 @@ Not tax advice, and not prepared by a registered tax agent. Every figure below i
 
 The register that decides whether this return can be lodged. Empty means ready.
 
-| # | Waiting on | Kind | Feeds | From whom | Expected | Chased |
-|---|---|---|---|---|---|---|
-| 1 | | | | | | |
-
-**Kind** is `document` or `copy`. `document` — nothing has been read, and the label reads `TBC`. `copy` — the figures were read back off a paste or a link and the label carries them; what is waiting is the file, and it comes from the user rather than an issuer, so **From whom**, **Expected** and **Chased** stay empty.
+| # | Waiting on | Feeds | From whom | Expected |
+|---|---|---|---|---|
+| 1 | | | | |
 
 Cleared items, kept so the next session knows they were dealt with:
 
@@ -37,29 +33,16 @@ Cleared items, kept so the next session knows they were dealt with:
 
 ## Documents
 
-Step 2 names these; step 3 works down the list in its order, one ask at a time. One row per document the return needs — this is what a session resuming mid-step-3 reads to find its place.
+One row per document the return needs, added as each is named and completed as each is filed.
 
-| Document | Feeds | Asked on | Arrived as | Copy filed |
-|---|---|---|---|---|
-
-**Arrived as** is a file, a path, a link or a paste, and is blank where nothing has arrived — a row blank from **Asked on** rightwards is step 3's next ask. A row that arrived as a paste or a link with no **Copy filed** is a `copy` entry on the Outstanding register above.
-
----
-
-## Bundle
-
-One row per section folder under `./bundle/`. The section's `index.md` is the read record — what each document said; this worksheet is what the return claims.
-
-| Section | Index | Documents | Read back on |
+| Document | Feeds | Asked on | Copy filed |
 |---|---|---|---|
-| income | `bundle/income/index.md` | <n> | <date, or *part* — which are still to confirm> |
-| | | | |
 
 ---
 
 ## Interview answers
 
-What was asked and what came back, so a resumed session re-asks nothing. Batches are from `interview.md`.
+What was asked and what came back.
 
 | Batch | Asked on | Selected | Not selected |
 |---|---|---|---|
@@ -81,8 +64,6 @@ Prose confirmations, recorded verbatim:
 ---
 
 ## Prefill reconciliation
-
-Reconciled against the section indexes, not by re-reading the documents.
 
 | Prefill line | Prefill | Ours | Outcome | Reason |
 |---|---|---|---|---|
@@ -155,7 +136,7 @@ Recording these matters: it stops the same claim being re-litigated next year, a
 | Earlier-year losses applied | | |
 | Spouse details / income tests | | |
 
-**For a couple**, every figure above that either return also claims is copied from `../joint/shared.md`, and that file's readiness gate is where the two sides are checked against each other — it can see both shares at once, which no single worksheet can.
+**For a couple**, every figure above that either return also claims is copied from `../joint/shared.md`.
 
 ---
 
