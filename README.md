@@ -62,7 +62,7 @@ The money admin you do yourself.
 
   **You'll need** a myGov account linked to the ATO (you download your own prefill report, and you lodge), working web access, and an Australian *individual* return — a trust, company, SMSF or partnership return is a separate lodgement this doesn't do, though the individual return of someone who's a beneficiary, partner or shareholder of one **is** in scope.
 
-  **How it gets your documents.** You name where your records live — a folder on your machine, or an app it already has access to — and it reads only there, and only the files it has named to you first. Each document is copied into a bundle beside the worksheet, and every figure that lands on a myTax label is read back to you before it is written down.
+  **How it gets your documents.** It asks for one document at a time, saying what each one feeds, and you hand it over however suits you — pasted into the session, a file dragged in, a path, a link, or dropped in a folder it watches. It never goes looking on its own; it reads what you put in front of it and nothing else. Each document is copied into a bundle beside the worksheet, and every figure that lands on a myTax label is read back to you before it is written down.
 
   **When to run it.** Prefill fills in through July as employers, banks, funds and health insurers report, and is usually complete in the first half of August. Building the worksheet earlier is fine; lodging against incomplete prefill earns an amendment later. Self-lodgers must lodge by **31 October**.
 

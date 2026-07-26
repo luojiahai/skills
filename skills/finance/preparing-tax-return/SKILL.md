@@ -107,6 +107,8 @@ Inside a git working tree, add `tax-*/` to the repo root's `.gitignore` — the 
 
 Anything blocked on a document goes in the worksheet's **Outstanding** register, and its figure at the label reads `TBC` so a placeholder can never be typed into myTax as a number. Each entry names the document, the section it feeds, who it comes from, and when it is expected. **The return is ready to lodge only when the register is empty.**
 
+One entry is the exception to the `TBC` half of that rule and to nothing else: a document that was **read but not copied**, where the figures are settled and only the file is missing. Its label carries the real figure, because the figure was read back and confirmed like any other. The entry still sits in the register and still blocks lodgement — what it is waiting on is the bundle copy, not the number.
+
 ---
 
 # Steps
@@ -122,8 +124,6 @@ Establish **whose** return and **which year**. Where returns already exist, list
 **Found none for this person and year** — before creating anything, say what this skill is and is not, from *What this is, and what it is not* above: three or four sentences, plain English, no section numbers. Then name the exact path you are about to write — the tree in *Saving and resuming* above, rooted at `tax-<YYYY>/` — say what will be written there, and ask whether that place will still exist in five years: records are kept for five years from lodgement, and a working directory inside a code project is not durable by default. On confirmation, create the year root and the person's folder, copy [WORKSHEET.md](templates/WORKSHEET.md) to `worksheet.md`, create an empty `inbox/`, and add the ignore line if this is a git working tree.
 
 Then ask **batch 0** of [interview.md](process/interview.md) — whether there was a spouse. It fires here rather than earlier because the answer is recorded in the worksheet as it comes in, and the worksheet now exists.
-
-Nothing at this step asks about documents. They are asked for one at a time at step 3, once step 2 has said which ones the return needs.
 
 **Where there was a spouse** at any point in the year, married or de facto, both returns are prepared together rather than one after the other: each return needs the other's taxable income, and the Medicare and private health figures run off the couple's combined income. Read [couples.md](references/couples.md) before going further. Name the second person's folder and `joint/` and confirm them as you did the first, then create a folder, worksheet and `inbox/` for each of them plus a `joint/` holding [SHARED.md](templates/SHARED.md) as `shared.md`, and carry both returns through the steps side by side.
 
@@ -153,11 +153,11 @@ Load the branch reference for each section that is in: [investments.md](referenc
 
 The **bundle** is the indexed set of documents the user could hand to the ATO: every document the return cites, copied in, filed by what it feeds, and read. Step 2 named which documents the return needs. That list is this step's worklist.
 
-**Ask for one document at a time.** Name the document, say what it feeds, and let the user hand it over however suits them — pasted into the session, a file dragged in, a path, a link to wherever it sits, or dropped into `inbox/`. Any channel is fine, and paper goes the same way as a photograph or a scan. The point is the document, not where it was kept.
+**Ask for one document at a time.** Name the document, say what it feeds, and let the user hand it over however suits them — pasted into the session, a file dragged in, a path, a link to wherever it sits (Notion, Drive, a fund's portal), a myGov download, or dropped into `inbox/`. Any channel is fine, and paper goes the same way as a photograph or a scan. The point is the document, not where it was kept.
 
 Never go looking of your own accord. You read what the user puts in front of you and nothing else, so their hand-over is what bounds your reach. Where what comes back is a **folder** rather than a document, list it first — name the files you would open and what each one feeds — and read only the ones the user confirms.
 
-**A document you can read but cannot copy** — pasted into the session, or behind a link this session has no way to download from — is read now rather than deferred: read the figures back and write the index row, then ask for the file itself so a copy lands in `bundle/`. Until it does, an Outstanding entry holds the gap and says which kind of gap it is — the figures are settled and only the copy is missing. That entry is what keeps the bundle-complete check at step 9 honest.
+**A document you can read but cannot copy** — pasted into the session, or behind a link this session has no way to download from — is read now rather than deferred: read the figures back and write the index row, then ask for the file itself so a copy lands in `bundle/`. Until it does, an Outstanding entry holds the gap and says it is the **copy** that is missing, not the document. Its label keeps the real figure — see *Saving and resuming* above — and the entry is what keeps the bundle-complete check at step 9 honest.
 
 Some documents only the user can produce, because they sit behind their myGov login or have not been issued yet — the prefill report, an income statement that is not yet **Tax ready**, the private health statement. Ask for those by name. One that has not been downloaded yet opens an Outstanding entry like any other missing document.
 
@@ -169,7 +169,7 @@ Read [documents.md](process/documents.md) before filing anything: it holds which
 
 **Done when** all of these hold:
 
-- Every document step 2 named has been asked for, and is either a copy in `bundle/<section>/`, listed in that section's `index.md` with the figures read off it, or an Outstanding entry naming the document and who it comes from.
+- Every document step 2 named has been asked for, and is either a copy in `bundle/<section>/`, listed in that section's `index.md` with the figures read off it, or an Outstanding entry naming the document, who it comes from, and whether what is missing is the document or only its copy.
 - Every label figure has had its read-back confirmed field by field; every pile as a count and a total; every logbook as its kilometres and its percentage.
 - Every field that could not be read has been read out by the user, or reads `TBC` against an Outstanding entry.
 - `inbox/` is at zero.

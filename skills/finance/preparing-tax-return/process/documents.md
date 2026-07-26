@@ -27,7 +27,7 @@ A document naming **two people** — a joint bank statement, a household private
 
 **Records made during the run** rather than found — a logbook written up from a calendar, a four-week working-from-home diary, a reconstructed crypto history — file in the section they support like any other document. Their authority is the worksheet's working, which is where the reconstruction is shown; their index row says in **Field** what they were built from, and carries the date they were built.
 
-**A document read but not copied** — pasted into the session, or behind a link this session cannot download from — gets its index row as soon as it is read, like any other. What it does not yet have is a file. The section then holds an index row with nothing beside it, and the missing copy sits in the worksheet's Outstanding register until the user supplies the file; filing and naming it are unchanged when it arrives.
+**A document read but not copied** — the case step 3 describes — gets its index row in full as soon as it is read: what was read off it, and the date it was read back. The only column it cannot fill is **Original name**, because there is no file yet. Say so in that column rather than leaving it blank, so the row is not mistaken for a careless one. The missing copy sits in the worksheet's Outstanding register until the user supplies the file; filing and naming it then run as they do for anything else.
 
 **A document arriving after the return is lodged** is filed exactly as any other, and its figures reconciled against what was lodged. Where they differ, the route is an amendment, not an edit to a lodged return — see *Timing* in `SKILL.md`.
 
