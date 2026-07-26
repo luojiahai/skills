@@ -7,7 +7,7 @@ Agent skills for the life admin nobody else is going to do for you. They don't a
 First one out: an Australian individual tax return.
 
 > [!IMPORTANT]
-> `prepare-au-tax-return` is not tax advice, and its author is not a registered tax agent. It lodges nothing and never touches your ATO account — you hold the myGov credentials, you check every figure, you lodge. The full declaration is in the skill's [What this is, and what it is not](./skills/finance/prepare-au-tax-return/SKILL.md).
+> **`preparing-tax-return` is Australia only.** It prepares an Australian individual return through the ATO's myTax; nothing in it transfers to another country's return. It is not tax advice, and its author is not a registered tax agent. It lodges nothing and never touches your ATO account — you hold the myGov credentials, you check every figure, you lodge. The full declaration is in the skill's [What this is, and what it is not](./skills/finance/preparing-tax-return/SKILL.md).
 
 ## Quickstart
 
@@ -17,7 +17,7 @@ Install with the skills.sh CLI, into whichever agents you use:
 npx skills@latest add luojiahai/skills
 ```
 
-Pick the skills you want and the agents to install them on, then type the skill's name — `/prepare-au-tax-return`. None of these start on their own.
+Pick the skills you want and the agents to install them on, then type the skill's name — `/preparing-tax-return`. None of these start on their own.
 
 ## Install as a Claude Code plugin
 
@@ -48,7 +48,7 @@ TODO
 
 ## Reference
 
-Skills split on one axis — who can invoke them. **User-invoked** skills are reachable only when you type them (e.g. `/prepare-au-tax-return`); their job is to orchestrate. **Model-invoked** skills can be invoked by you *or* reached for automatically by the agent when the task fits.
+Skills split on one axis — who can invoke them. **User-invoked** skills are reachable only when you type them (e.g. `/preparing-tax-return`); their job is to orchestrate. **Model-invoked** skills can be invoked by you *or* reached for automatically by the agent when the task fits.
 
 ### Finance
 
@@ -56,7 +56,7 @@ The money admin you do yourself.
 
 **User-invoked**
 
-- **[prepare-au-tax-return](./skills/finance/prepare-au-tax-return/SKILL.md)** — Prepare an Australian individual tax return for self-lodgement in myTax: reconcile the ATO prefill, test every deduction for nexus, apportionment and substantiation, and produce a label-by-label worksheet you check and type in yourself. *Not tax advice — see the callout above.*
+- **[preparing-tax-return](./skills/finance/preparing-tax-return/SKILL.md)** — **Australia only** — prepare an individual tax return for self-lodgement in myTax: reconcile the ATO prefill, test every deduction for nexus, apportionment and substantiation, and produce a label-by-label worksheet you check and type in yourself. *Not tax advice — see the callout above.*
 
   *Verified against the 2026 income year.* An older stamp doesn't mean stale figures — every rate and threshold is fetched from ato.gov.au on each run. It means the myTax walkthrough may lag a section that has been renamed or added since.
 

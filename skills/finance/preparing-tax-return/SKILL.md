@@ -1,16 +1,18 @@
 ---
-name: prepare-au-tax-return
-description: Prepare an Australian individual tax return for self-lodgement in myTax — reconcile prefill, test every deduction, and produce a label-by-label worksheet.
+name: preparing-tax-return
+description: Australia only — prepare an individual tax return for self-lodgement in myTax: reconcile prefill, test every deduction, and produce a label-by-label worksheet.
 disable-model-invocation: true
 ---
 
-# Lodging your own Australian tax return
+# Preparing your own Australian tax return
 
 This skill produces one thing: a **worksheet** that gives, label by label, the number to type into myTax, the working behind it, and the document it came from — assembled with the user, checked by the user, lodged by the user.
 
 Every question put to the user comes from [interview.md](process/interview.md), asked in its order and its wording. A return is assembled across weeks and often across two people, so the interview has to look the same each time it is picked up — an improvised question set makes a resumed session feel like starting over, and quietly drops the categories that run happened not to think of.
 
 ## What this is, and what it is not
+
+**Australia only.** This prepares the Australian individual tax return, lodged through the ATO's myTax. The name carries no jurisdiction, so a user may well arrive with a return from somewhere else — nothing here transfers, and the step-1 statement below is where they find out.
 
 This skill is not tax advice, and its author is not a registered tax agent. It does not lodge anything and never touches the user's ATO account. The division of labour is fixed: the user holds the myGov credentials and does the lodging; you do the reconciling, the arithmetic, and the substantiation record.
 
@@ -23,7 +25,7 @@ Four properties hold that line. They are the design, not a caveat:
 
 **One consequence the user must hear, because getting it wrong costs money.** The penalty safe harbour in TAA 1953 Sch 1 s 284-75(6) requires a *registered* agent, both engaged and making the statement — so a self-lodger using this skill cannot have it, whatever care was taken. What they have instead is the general reasonable-care exception in s 284-75(5), and the substantiation discipline at step 5 is what supports it.
 
-**Say this to the user at step 1, in your own words, in plain English — two or three sentences, once per return.** Not tax advice; they check and lodge it themselves; and the penalty protection that covers a registered agent's client does not extend to them, so the working and the receipts are what protect them instead. Keep the section numbers out of it unless they ask why — then they are above.
+**Say this to the user at step 1, in your own words, in plain English — three or four sentences, once per return.** Australian returns only, through the ATO and myTax; not tax advice; they check and lodge it themselves; and the penalty protection that covers a registered agent's client does not extend to them, so the working and the receipts are what protect them instead. Keep the section numbers out of it unless they ask why — then they are above.
 
 ## The income year
 
@@ -98,7 +100,7 @@ Establish **whose** return and **which year**. Where worksheets already exist, l
 
 **Found the one** — read it in full. Report back before doing any work: what is settled, what the Outstanding register is waiting on, what has arrived since, and which step comes next. Resume at that step. Settled sections are re-opened only if the user asks or a newly arrived document contradicts them.
 
-**Found none for this person and year** — before creating anything, say what this skill is and is not, from *What this is, and what it is not* above: two or three sentences, plain English, no section numbers. Then name the exact path you are about to write — `tax-return-<name>-<YYYY>.md` in the working directory — and confirm it, saying what the file will hold. On confirmation, copy [WORKSHEET.md](templates/WORKSHEET.md) to it, add the ignore line if this is a git working tree, and continue to step 2.
+**Found none for this person and year** — before creating anything, say what this skill is and is not, from *What this is, and what it is not* above: three or four sentences, plain English, no section numbers. Then name the exact path you are about to write — `tax-return-<name>-<YYYY>.md` in the working directory — and confirm it, saying what the file will hold. On confirmation, copy [WORKSHEET.md](templates/WORKSHEET.md) to it, add the ignore line if this is a git working tree, and continue to step 2.
 
 Then ask whether the person had a **spouse** at any point in the year — married or de facto. If so, both returns are prepared together rather than one after the other: each return needs the other's taxable income, and the Medicare and private health figures run off the couple's combined income. Read [couples.md](references/couples.md) before going further, open a worksheet for each of them, and carry both through the steps side by side.
 
