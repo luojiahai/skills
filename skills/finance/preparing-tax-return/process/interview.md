@@ -16,7 +16,7 @@ Record every answer in the worksheet as it comes in. A resumed session reads the
 
 ## Batch 0 — Records and spouse (step 1)
 
-One call, two questions. `Records` is `multiSelect: true`; `Spouse` is single-select. Fires once the worksheet exists, so both answers have somewhere to land.
+One call, two questions. `Records` is `multiSelect: true`; `Spouse` is single-select. Fires once the worksheet exists, so both answers have somewhere to land. Where `Spouse` is anything but "No", `Records` is asked again for the spouse once their worksheet exists — two people rarely keep their records in one place, and step 3 reads only the places named for the return it is building.
 
 Then plain conversation for the path, link or folder behind each `Records` answer — a path is a free-text fact, not a choice.
 
@@ -52,7 +52,9 @@ Two calls — four questions, then three. Ask both in full every run, including 
 
 **Routing.** `Equity` anything but "No" → load [ess.md](../references/ess.md), including for "Not sure", because a plan the person cannot describe is exactly the one that gets mis-costed. `Sold` → a business or business asset → load [small-business-cgt.md](../references/small-business-cgt.md) and test eligibility before treating the gain as ordinary CGT. `Overseas` → anything but "None" → load [residency.md](../references/residency.md) **before** working any income figure, since residency decides what is taxable at all, and its travel record is read at step 3.
 
-Nothing here asks how complete the records are. Step 3 finds that by looking: each document step 2 named that is not in the bundle opens an Outstanding entry naming the place looked in. A **reconstruction** — a crypto history, a rental property's capital works costs, a logbook written up from a calendar — is the outcome of that looking, not of a question asked in advance.
+`Changes` → married, separated, or started living with a partner, where batch 0's `Spouse` was "No" → re-ask `Spouse` and open the second return. The life-event wording here reaches people the batch-0 wording did not.
+
+A **reconstruction** — a crypto history, a rental property's capital works costs, a logbook written up from a calendar — is what step 3 does where a record is missing rather than late, and it is filed like any other document.
 
 ## Batch 2 — Deduction scan (step 6)
 
@@ -92,3 +94,9 @@ Ask these in prose, every run, and record the answer verbatim in the worksheet:
 1. "Is there any income this year that we have not talked about — cash work, a side platform, something sold at a gain, anything from overseas?" (step 4, after prefill)
 2. "Here is the record I have for this claim — what did you actually spend, and is there another record I have not seen?" (step 6, per claim — the bundle already holds what step 3 found, so this asks what it is missing)
 3. "Are you happy to lodge on these numbers?" (step 9, before hand-off)
+4. "Records are kept five years from lodgement. Where should this folder live for the long run?" (step 1, before creating anything)
+5. "These are the files I'd open in <place>, and what each one feeds: <list>. Shall I read those?" (step 3, per place)
+6. "Here is what <document> says — <field>: <value>, <field>: <value>. Does that match?" (step 3, per document carrying a label figure)
+7. "That is <n> receipts totalling $<x>, and <m> I could not read. Does that sound right?" (step 3, per pile)
+8. "<document> is one only you can get — the prefill report, your income statement, your private health statement. Can you download it into `inbox/`?" (step 3, per document behind myGov)
+9. "I can't read every digit of <field> on <document>. Can you read it out?" (step 3, per bad read)

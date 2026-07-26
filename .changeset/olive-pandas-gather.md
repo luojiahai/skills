@@ -12,13 +12,16 @@ Until now the skill told you to download your prefill report and statements and 
 
 ```
 tax-2026/
-  sam/worksheet.md · inbox/ · bundle/
-  alex/worksheet.md · inbox/ · bundle/      a couple lodges two returns
-  joint/shared.md · bundle/                 the figures both returns share
+  sam/
+    worksheet.md              the deliverable, and the saved state
+    inbox/                    arrived, not yet filed
+    bundle/<section>/         the documents, filed by what they feed
+  alex/                       a couple lodges two returns, never one joint one
+  joint/                      a couple only
+    shared.md                 the figures both returns share, worked once
+    bundle/<section>/
 ```
 
 `tax-*/` is added to `.gitignore` when you are in a git working tree, because the folder now holds copies of your income statement and bank statements rather than one markdown file. Identity numbers stay on the documents that carry them and are never written into the worksheet.
 
-**Couples.** Combined income, family income for the surcharge and rebate tier, and every joint ownership split are worked once in `joint/shared.md`, and each return copies its share from there. It also carries a readiness gate: neither return is handed over until both taxable incomes are settled and both registers are empty, which stops one spouse lodging on the other's estimated income.
-
-Also: `figure` and `rate` are now distinct words — "every **rate** comes from the ATO on this run" was never about the amounts on your statements.
+**Couples.** Combined income, family income for the surcharge and rebate tier, and every joint ownership split are worked once in `joint/shared.md`, and each return copies its share from there. It also carries a readiness gate: neither return is handed over until both taxable incomes are settled and both registers are empty, which stops one spouse lodging on the other's estimated income. Two couple figures were also corrected — the dependent-child uplift applies to the family *threshold* rather than to family income, and SAPTO turns on rebate income rather than family income.

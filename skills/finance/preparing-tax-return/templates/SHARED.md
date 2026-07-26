@@ -1,8 +1,8 @@
 # Shared figures — <name> and <name>, income year ended 30 June <YYYY>
 
-Australia has no joint return. This is not a third return: it is the figures both returns need to agree on, worked once here so neither worksheet is the authority for something the other also claims.
+Australia has no joint return. This file holds the figures both returns need to agree on, worked once here so one place is **the authority** for anything both returns claim.
 
-Each worksheet cites this file for its share. A share that does not match here is fixed **here** and re-copied — never edited in a worksheet.
+Each worksheet copies its share from the authority. Where a share does not match, fix it here and re-copy.
 
 | | |
 |---|---|
@@ -11,15 +11,15 @@ Each worksheet cites this file for its share. A share that does not match here i
 
 ---
 
-## Settled at step 5 — ownership splits
+## Settled at step 3 — ownership splits
 
-These come off the joint documents in `bundle/`, and they must be settled before either return works its income labels. A split settled afterwards means correcting a label that has already gone in.
+These come off the joint documents in `bundle/` as they are read, and they must be settled before step 4 reconciles either prefill: a joint account reported in full to one holder is the standard prefill correction, and it cannot be made without the split.
 
 | Joint item | Total | Basis of the split | <name>'s share | <name>'s share | Source document |
 |---|---|---|---|---|---|
 | Joint account interest | | | | | |
 | Jointly owned property — rent | | ownership share on title | | | |
-| Jointly owned property — each expense | | ownership share on title | | | |
+| Jointly owned property — expenses | | ownership share on title | | | *one row per expense — or cite the rental worksheet, which carries them all at the same share* |
 | Jointly held shares — dividends | | | | | |
 | Jointly held shares — franking credits | | | | | |
 | Jointly held shares — capital gain or loss | | | | | |
@@ -36,18 +36,32 @@ These cannot exist until both returns have finished income and deductions.
 |---|---|---|
 | <name> taxable income | | |
 | <name> taxable income | | |
-| Combined income | | |
-| Family income for the Medicare levy surcharge | | incl. threshold uplift for dependent children |
-| Family income for the private health rebate tier | | |
+| **Family income for surcharge purposes** | | the couple's combined income for surcharge purposes — drives **both** the Medicare levy surcharge and the private health rebate tier, so it is one figure, not two |
+| Family threshold that applies to it | | the threshold, not the income, rises for each dependent child after the first — fetch both the base threshold and the per-child uplift |
 | Rebate tier that applies | | |
 | Private health rebate — <name>'s share | | |
-| Private health rebate — <name>'s share | | must not exceed the policy total |
-| Medicare levy reduction — family income used | | |
-| SAPTO — unused portion transferred | | |
+| Private health rebate — <name>'s share | | the two shares sum to the policy total |
+| Medicare levy reduction — family taxable income | | a different measure from surcharge purposes: the combined **taxable** income, plus the dependent-children component |
+| SAPTO — combined **rebate income** | | rebate income, not family income: taxable income plus reportable fringe benefits, reportable employer super contributions, and net financial investment and rental losses |
+| SAPTO — unused portion transferred | | only where both spouses are eligible; the transfer changes the receiving spouse's tax, so settle it before either estimate is final |
+
+---
+
+## Joint bundle
+
+Documents naming both people. One row per section folder under `./bundle/`; neither worksheet's Bundle table covers these.
+
+| Section | Index | Documents | Read back on |
+|---|---|---|---|
+| | | | |
+
+An Outstanding entry for a joint document goes in **both** registers, so neither session can quietly finalise around it.
 
 ---
 
 ## Rates used
+
+A rate used by one return only stays in that worksheet; a rate driving a shared figure lives here.
 
 | Rate | Value | Source URL | Fetched |
 |---|---|---|---|

@@ -12,7 +12,7 @@ A **spouse** for tax purposes includes a de facto partner — someone the person
 
 **3. Private health insurance rebate.** The rebate **tier** for a couple is set by combined income, so both incomes are needed before either return's rebate is right. One policy statement usually covers the household; each spouse claims their share, and the split can be varied between them as long as the total does not exceed the policy. Getting the tier wrong at the insurer during the year is the usual cause of an unexpected reconciliation here.
 
-**4. Medicare levy reduction and SAPTO.** Both use family income. The seniors and pensioners tax offset also allows an unused portion to transfer between spouses.
+**4. Medicare levy reduction and SAPTO.** Both turn on a couple-level income figure, but not the same one. The Medicare levy reduction uses combined **family taxable income**, with a component for dependent children. SAPTO turns on **rebate income** — taxable income plus reportable fringe benefits, reportable employer super contributions, and net financial investment and rental losses — tested against the couple's **combined rebate income**, and it allows an unused portion to transfer between spouses where both are eligible. Since the transfer changes the receiving spouse's tax, settle it before either estimate is final.
 
 ## Two things worth claiming that only exist for couples
 
@@ -24,12 +24,12 @@ A **spouse** for tax purposes includes a de facto partner — someone the person
 The circularity resolves in one pass if the steps are done in this order across both returns at once:
 
 1. Steps 2–3 on **both** returns — personalise, and build both bundles plus `joint/bundle/`, where a document naming both people lives.
-2. **Settle every ownership split in `joint/shared.md`** off those joint documents, before either return works an income label. A split settled afterwards means correcting a label that has already gone in.
+2. **Settle every ownership split in `joint/shared.md`** off those joint documents, as part of step 3. Before step 4, not after: a joint account reported in full to one holder is the standard prefill correction, and it cannot be made without the split.
 3. Steps 4–6 on both — prefill, income, deductions. Both taxable incomes now exist.
 4. Step 7 on both — offsets, Medicare, private health. The combined and family income figures are worked here, once, in `shared.md`, and each return copies its share.
 5. Steps 8–9 on both. Step 9 reads the readiness gate in `shared.md`: neither return is handed over until both taxable incomes are settled, both registers are empty, and both sets of shares reconcile.
 
-If one return is blocked on an Outstanding document, the other's step 7 is blocked too — the gate holds both, which is the point of it being one gate rather than a check written into each worksheet.
+If one return is blocked on an Outstanding document, the other's step 7 is blocked too — the gate holds both, which is the point of it being one gate rather than a check written into each worksheet. An Outstanding entry for a **joint** document goes in both registers, so neither session can finalise around it.
 
 ## Joint assets must agree across the two worksheets
 
