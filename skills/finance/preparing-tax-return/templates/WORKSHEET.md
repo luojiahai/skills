@@ -22,16 +22,27 @@ Not tax advice, and not prepared by a registered tax agent. Every figure below i
 
 The register that decides whether this return can be lodged. Empty means ready.
 
-| # | Waiting on | Feeds | From whom | Place looked in | Expected | Chased |
+| # | Waiting on | Kind | Feeds | From whom | Expected | Chased |
 |---|---|---|---|---|---|---|
 | 1 | | | | | | |
 
-**Place looked in** is where the document was not found — a folder, a page, `inbox/`, or "behind myGov" for one only the user can download. Every entry has one: an entry with no place looked in is a document nobody has looked for yet.
+**Kind** is `document` or `copy`. `document` — nothing has been read, and the label reads `TBC`. `copy` — the figures were read back off a paste or a link and the label carries them; what is waiting is the file, and it comes from the user rather than an issuer, so **From whom**, **Expected** and **Chased** stay empty.
 
 Cleared items, kept so the next session knows they were dealt with:
 
 | Waiting on | Resolved | How |
 |---|---|---|
+
+---
+
+## Documents
+
+Step 2 names these; step 3 works down the list in its order, one ask at a time. One row per document the return needs — this is what a session resuming mid-step-3 reads to find its place.
+
+| Document | Feeds | Asked on | Arrived as | Copy filed |
+|---|---|---|---|---|
+
+**Arrived as** is a file, a path, a link or a paste, and is blank where nothing has arrived — a row blank from **Asked on** rightwards is step 3's next ask. A row that arrived as a paste or a link with no **Copy filed** is a `copy` entry on the Outstanding register above.
 
 ---
 
@@ -52,16 +63,11 @@ What was asked and what came back, so a resumed session re-asks nothing. Batches
 
 | Batch | Asked on | Selected | Not selected |
 |---|---|---|---|
-| 0 Records and spouse | | | |
+| 0 Spouse | | | |
 | 1 Situation scan | | | |
 | 2 Deduction scan | | | |
 | 3 Method choices | | | |
 | 4 Pre-worksheet | | | |
-
-Where the records live. Batch 0 fills the first two columns; step 3 fills the last two as it reaches each place, or says in **Reached with** why it could not.
-
-| Place named | Path, link or folder | Reached with | Read on |
-|---|---|---|---|
 
 Prose confirmations, recorded verbatim:
 
