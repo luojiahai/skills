@@ -16,13 +16,13 @@ Every question put to the user comes from [interview.md](process/interview.md), 
 
 This skill is not tax advice, and its author is not a registered tax agent. It does not lodge anything and never touches the user's ATO account. The division of labour is fixed: the user holds the myGov credentials and does the lodging; you do the reconciling, the arithmetic, and the substantiation record.
 
-Four properties hold that line. They are the design, not a caveat:
+Five properties hold that line. They are the design, not a caveat:
 
 - The user types every number into myTax themselves. Nothing is submitted on their behalf.
 - Every figure carries its working and its source document.
 - Genuine uncertainty routes to a private ruling, binding on the ATO, rather than to an opinion.
-- Anything unresolved reads `TBC` and blocks lodgement until it is settled.
-- Documents are read only where the user points, copied rather than moved, and every copy stays beside the worksheet on the user's own disk.
+- Every gap sits on the Outstanding register and blocks lodgement until it closes; a figure not yet settled reads `TBC`, never a placeholder.
+- Documents are read only as the user hands them over, copied rather than moved, and every copy stays beside the worksheet on the user's own disk.
 
 **One consequence the user must hear, because getting it wrong costs money.** The penalty safe harbour in TAA 1953 Sch 1 s 284-75(6) requires a *registered* agent, both engaged and making the statement — so a self-lodger using this skill cannot have it, whatever care was taken. What they have instead is the general reasonable-care exception in s 284-75(5), and the substantiation discipline at step 6 is what supports it.
 
@@ -105,9 +105,7 @@ Inside a git working tree, add `tax-*/` to the repo root's `.gitignore` — the 
 
 **Identity numbers live in the bundle, not the worksheet.** The worksheet carries figures, labels and working. A TFN, a full account number, a health fund member number stays on the document that already holds it, and myTax prefills identity anyway. Where a label needs one of those numbers typed in, name the file in `bundle/` it is printed on and let the user read it from there.
 
-Anything blocked on a document goes in the worksheet's **Outstanding** register, and its figure at the label reads `TBC` so a placeholder can never be typed into myTax as a number. Each entry names the document, the section it feeds, who it comes from, and when it is expected. **The return is ready to lodge only when the register is empty.**
-
-One entry is the exception to the `TBC` half of that rule and to nothing else: a document that was **read but not copied**, where the figures are settled and only the file is missing. Its label carries the real figure, because the figure was read back and confirmed like any other. The entry still sits in the register and still blocks lodgement — what it is waiting on is the bundle copy, not the number.
+Anything blocked goes in the worksheet's **Outstanding** register, and every entry is one of two kinds: the **document** is missing, or only its **copy** is — the figures having already been read back off a paste or a link. A label whose figure is not yet settled reads `TBC`, so a placeholder can never be typed into myTax as a number; a label read off a paste carries its real figure, and its entry waits on the file rather than the number. Each entry names what is missing and which of the two kinds it is, the section it feeds, who it comes from, and when it is expected. **The return is ready to lodge only when the register is empty.**
 
 ---
 
@@ -147,19 +145,21 @@ Load the branch reference for each section that is in: [investments.md](referenc
 
 **Settle residency first** where the person arrived, left, or spent significant time outside Australia during the year — [residency.md](references/residency.md). It decides what is taxed at all, so it is not a section like the others; a wrong answer here invalidates every figure below it. The conclusion reached here is provisional until the travel record is read at step 3: where that record is not in the bundle, the residency determination itself reads `TBC`, and given what rests on it that `TBC` is worth more than most.
 
-**Done when** every section on the list above is marked in or out, and each "in" section names the documents that will support it. That list of documents is step 3's worklist, and the Outstanding register opens there — one entry for each document the user could not produce when asked.
+**Done when** every section on the list above is marked in or out, and each "in" section names the documents that will support it, written into the worksheet's **Documents** table. That table is step 3's worklist.
 
 ## 3. Build the bundle
 
-The **bundle** is the indexed set of documents the user could hand to the ATO: every document the return cites, copied in, filed by what it feeds, and read. Step 2 named which documents the return needs. That list is this step's worklist.
+The **bundle** is the indexed set of documents the user could hand to the ATO: every document the return cites, copied in, filed by what it feeds, and read. Step 2 wrote the documents the return needs into the worksheet's **Documents** table. That table is this step's worklist, and each row is updated as its document is asked for and arrives — a return is assembled over weeks and this step now costs a round trip per document, so a resumed session finds its place by reading down that table for the first row still blank.
 
 **Ask for one document at a time.** Name the document, say what it feeds, and let the user hand it over however suits them — pasted into the session, a file dragged in, a path, a link to wherever it sits (Notion, Drive, a fund's portal), a myGov download, or dropped into `inbox/`. Any channel is fine, and paper goes the same way as a photograph or a scan. The point is the document, not where it was kept.
 
 Never go looking of your own accord. You read what the user puts in front of you and nothing else, so their hand-over is what bounds your reach. Where what comes back is a **folder** rather than a document, list it first — name the files you would open and what each one feeds — and read only the ones the user confirms.
 
-**A document you can read but cannot copy** — pasted into the session, or behind a link this session has no way to download from — is read now rather than deferred: read the figures back and write the index row, then ask for the file itself so a copy lands in `bundle/`. Until it does, an Outstanding entry holds the gap and says it is the **copy** that is missing, not the document. Its label keeps the real figure — see *Saving and resuming* above — and the entry is what keeps the bundle-complete check at step 9 honest.
+**A document you can read but cannot copy** — pasted into the session, or behind a link this session has no way to download from — is read now rather than deferred: read the figures back and write the index row, then ask for the file itself so a copy lands in `bundle/`. Until it does, an Outstanding entry holds the gap with `copy` in its **Kind** column, and the label keeps the real figure — see *Saving and resuming* above. That entry is what keeps the bundle-complete check at step 9 honest.
 
 Some documents only the user can produce, because they sit behind their myGov login or have not been issued yet — the prefill report, an income statement that is not yet **Tax ready**, the private health statement. Ask for those by name. One that has not been downloaded yet opens an Outstanding entry like any other missing document.
+
+**These three come as files, not as pastes** — step 4 opens the prefill report from `bundle/income/` by its dated name, and reads a second download against the first, so a paste with no name and no date breaks the reconciliation. For a couple, each spouse downloads their own: a report behind one spouse's myGov cannot be produced by the other, and the Outstanding entry names which of them it waits on.
 
 **The read-back.** A figure that lands on a myTax **label** — gross payments, tax withheld, interest, franked and unfranked dividends, rent — is read back to the user field by field, per document, before it is written. A **pile** — many documents whose lines sum to one figure at one label, like a stack of receipts or a broker CSV — is read back in aggregate: the count, the total, and every line you could not read. A **logbook** is read back as its total kilometres, its work kilometres, and the percentage they give.
 
@@ -169,7 +169,7 @@ Read [documents.md](process/documents.md) before filing anything: it holds which
 
 **Done when** all of these hold:
 
-- Every document step 2 named has been asked for, and is either a copy in `bundle/<section>/`, listed in that section's `index.md` with the figures read off it, or an Outstanding entry naming the document, who it comes from, and whether what is missing is the document or only its copy.
+- Every row of the worksheet's **Documents** table has been asked for, and is either a copy in `bundle/<section>/`, listed in that section's `index.md` with the figures read off it, or an Outstanding entry naming what is missing, whether that is the document or only its copy, and who it comes from.
 - Every label figure has had its read-back confirmed field by field; every pile as a count and a total; every logbook as its kilometres and its percentage.
 - Every field that could not be read has been read out by the user, or reads `TBC` against an Outstanding entry.
 - `inbox/` is at zero.

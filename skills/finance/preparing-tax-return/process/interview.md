@@ -97,5 +97,5 @@ Ask these in prose, every run, and record the answer verbatim in the worksheet:
 5. "I need <document> — it feeds <label or section>. Paste it here, drag the file in, give me a path or a link, or drop it in `inbox/` — whichever is easiest." (step 3, per document. Where what comes back is a folder rather than a document: "These are the files I'd open in it, and what each one feeds: <list>. Shall I read those?")
 6. "Here is what <document> says — <field>: <value>, <field>: <value>. Does that match?" (step 3, per document carrying a label figure)
 7. "That is <n> receipts totalling $<x>, and <m> I could not read. Does that sound right?" (step 3, per pile)
-8. "<document> is one only you can get — the prefill report, your income statement, your private health statement. Can you download it and hand it over the same way as the rest?" (step 3, per document behind myGov)
+8. "<document> is one only you can get — the prefill report, your income statement, your private health statement. Can you download the file and drop it in `inbox/`?" (step 3, per document behind myGov. These come as files rather than pastes, because step 4 opens the prefill report by its dated name. For a couple, each spouse downloads their own.)
 9. "I can't read every digit of <field> on <document>. Can you read it out?" (step 3, per bad read)

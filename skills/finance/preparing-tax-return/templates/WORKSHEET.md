@@ -22,16 +22,27 @@ Not tax advice, and not prepared by a registered tax agent. Every figure below i
 
 The register that decides whether this return can be lodged. Empty means ready.
 
-| # | Waiting on | Feeds | From whom | Expected | Chased |
-|---|---|---|---|---|---|
-| 1 | | | | | |
+| # | Waiting on | Kind | Feeds | From whom | Expected | Chased |
+|---|---|---|---|---|---|---|
+| 1 | | | | | | |
 
-**Waiting on** says which kind of gap this is. Usually the document itself. Where it was pasted or read from a link, the figures are already settled and what is missing is only the file — say so, because that entry clears by the user supplying the file rather than by anything arriving from an issuer.
+**Kind** is `document` or `copy`. `document` — nothing has been read, and the label reads `TBC`. `copy` — the figures were read back off a paste or a link and the label carries them; what is waiting is the file, and it comes from the user rather than an issuer, so **From whom**, **Expected** and **Chased** stay empty.
 
 Cleared items, kept so the next session knows they were dealt with:
 
 | Waiting on | Resolved | How |
 |---|---|---|
+
+---
+
+## Documents
+
+Step 2 names these; step 3 works down the list in its order, one ask at a time. One row per document the return needs — this is what a session resuming mid-step-3 reads to find its place.
+
+| Document | Feeds | Asked on | Arrived as | Copy filed |
+|---|---|---|---|---|
+
+**Arrived as** is a file, a path, a link or a paste, and is blank where nothing has arrived — a row blank from **Asked on** rightwards is step 3's next ask. A row that arrived as a paste or a link with no **Copy filed** is a `copy` entry on the Outstanding register above.
 
 ---
 
