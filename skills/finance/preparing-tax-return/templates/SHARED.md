@@ -11,9 +11,9 @@ Each worksheet copies its share from the authority. Where a share does not match
 
 ---
 
-## Settled at step 3 — ownership splits
+## Settled at step 2 — ownership splits
 
-These come off the joint documents in `bundle/` as they are read, and they must be settled before step 4 reconciles either prefill: a joint account reported in full to one holder is the standard prefill correction, and it cannot be made without the split.
+These come off the joint documents in `bundle/` as they are read, and they must be settled before step 3 reconciles either prefill: a joint account reported in full to one holder is the standard prefill correction, and it cannot be made without the split.
 
 | Joint item | Total | Basis of the split | <name>'s share | <name>'s share | Source document |
 |---|---|---|---|---|---|
@@ -28,7 +28,7 @@ The property split follows the **legal ownership share on the title** and applie
 
 ---
 
-## Settled at step 7 — combined figures
+## Settled at step 6 — combined figures
 
 These cannot exist until both returns have finished income and deductions.
 
@@ -49,11 +49,7 @@ These cannot exist until both returns have finished income and deductions.
 
 ## Joint bundle
 
-Documents naming both people. One row per section folder under `./bundle/`; neither worksheet's Bundle table covers these.
-
-| Section | Index | Documents | Read back on |
-|---|---|---|---|
-| | | | |
+Documents naming both people live in `joint/bundle/<section>/`, filed and indexed exactly as either person's own.
 
 An Outstanding entry for a joint document goes in **both** registers, so neither session can quietly finalise around it.
 
@@ -68,7 +64,7 @@ A rate used by one return only stays in that worksheet; a rate driving a shared 
 
 ---
 
-## Readiness — read at step 9
+## Readiness — read at step 8
 
 Neither return is handed over until every line passes. One spouse lodging on the other's estimated income is how a couple earns an amendment.
 

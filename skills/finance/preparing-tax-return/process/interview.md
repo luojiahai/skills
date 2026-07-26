@@ -47,13 +47,13 @@ Two calls — four questions, then three. Ask both in full every run, including 
 | `Changes` | Did any of these happen during the year? | Changed, left or started a job · Married, separated, or started living with a partner · Had a baby, or dependants changed · None of these |
 | `Overseas` | Any of these? | Lived or worked overseas · Moved to or from Australia during the year · Hold foreign bank accounts, property or shares · None of these |
 
-**Routing.** `Equity` anything but "No" → load [ess.md](../references/ess.md), including for "Not sure", because a plan the person cannot describe is exactly the one that gets mis-costed. `Sold` → a business or business asset → load [small-business-cgt.md](../references/small-business-cgt.md) and test eligibility before treating the gain as ordinary CGT. `Overseas` → anything but "None" → load [residency.md](../references/residency.md) **before** working any income figure, since residency decides what is taxable at all, and its travel record is read at step 3.
+**Routing.** `Equity` anything but "No" → load [ess.md](../references/ess.md), including for "Not sure", because a plan the person cannot describe is exactly the one that gets mis-costed. `Sold` → a business or business asset → load [small-business-cgt.md](../references/small-business-cgt.md) and test eligibility before treating the gain as ordinary CGT. `Overseas` → anything but "None" → load [residency.md](../references/residency.md) **before** working any income figure, since residency decides what is taxable at all, and its travel record is gathered at step 2.
 
 `Changes` → married, separated, or started living with a partner, where batch 0's `Spouse` was "No" → re-ask `Spouse` and open the second return. The life-event wording here reaches people the batch-0 wording did not.
 
-A **reconstruction** — a crypto history, a rental property's capital works costs, a logbook written up from a calendar — is what step 3 does where a record is missing rather than late, and it is filed like any other document.
+A **reconstruction** — a crypto history, a rental property's capital works costs, a logbook written up from a calendar — is what step 2 does where a record is missing rather than late, and it is filed like any other document.
 
-## Batch 2 — Deduction scan (step 6)
+## Batch 2 — Deduction scan (step 5)
 
 One call, four questions, all `multiSelect: true`. Ask in full even when the person says "I don't really have deductions" — this batch is how under-claiming gets caught, and the categories people forget are exactly the ones they would not raise unprompted.
 
@@ -64,7 +64,7 @@ One call, four questions, all `multiSelect: true`. Ask in full even when the per
 | `Ongoing` | Any of these ongoing costs? | Union or professional association fees · Subscriptions, journals, licences, registrations · Income protection insurance paid outside super · Work phone or internet |
 | `Other` | Last group — any of these? | Donations to charity · Last year's tax agent or tax software fee · Investment costs — margin loan interest, portfolio fees · None of these |
 
-## Batch 3 — Method choices (step 6, conditional)
+## Batch 3 — Method choices (step 5, conditional)
 
 Fire only for a category the user selected in batch 2. Single-select, one call, as many of these as apply.
 
@@ -75,7 +75,7 @@ Fire only for a category the user selected in batch 2. Single-select, one call, 
 
 Where the user picks "work out both", do exactly that and present the two numbers with the difference before entering one.
 
-## Batch 4 — Before writing the worksheet (step 8)
+## Batch 4 — Before writing the worksheet (step 7)
 
 One call, single-select, only where the situation raised it.
 
@@ -88,12 +88,12 @@ One call, single-select, only where the situation raised it.
 
 Ask these in prose, every run, and record the answer verbatim in the worksheet:
 
-1. "Is there any income this year that we have not talked about — cash work, a side platform, something sold at a gain, anything from overseas?" (step 4, after prefill)
-2. "Here is the record I have for this claim — what did you actually spend, and is there another record I have not seen?" (step 6, per claim — the bundle already holds what step 3 found, so this asks what it is missing)
-3. "Are you happy to lodge on these numbers?" (step 9, before hand-off)
+1. "Is there any income this year that we have not talked about — cash work, a side platform, something sold at a gain, anything from overseas?" (step 3, after prefill)
+2. "Here is the record I have for this claim — what did you actually spend, and is there another record I have not seen?" (step 5, per claim — the bundle already holds what step 2 found, so this asks what it is missing)
+3. "Are you happy to lodge on these numbers?" (step 8, before hand-off)
 4. "Records are kept five years from lodgement. Where should this folder live for the long run?" (step 1, before creating anything)
-5. "I need <document> — it feeds <label or section>. Paste it here, drag the file in, give me a path or a link, or drop it in `inbox/` — whichever is easiest." (step 3, per document. Where what comes back is a folder rather than a document: "These are the files I'd open in it, and what each one feeds: <list>. Shall I read those?")
-6. "Here is what <document> says — <field>: <value>, <field>: <value>. Does that match?" (step 3, per document carrying a label figure)
-7. "That is <n> receipts totalling $<x>, and <m> I could not read. Does that sound right?" (step 3, per pile)
-8. "<document> is one only you can get — the prefill report, your income statement, your private health statement. Can you download the file and drop it in `inbox/`?" (step 3, per document behind myGov. These come as files rather than pastes, because step 4 opens the prefill report by its dated name. For a couple, each spouse downloads their own.)
-9. "I can't read every digit of <field> on <document>. Can you read it out?" (step 3, per bad read)
+5. "I need <document> — it feeds <label or section>." (step 2, per document. Where what comes back is a folder rather than a document: "These are the files I'd open in it, and what each one feeds: <list>. Shall I read those?")
+6. "Here is what <document> says — <field>: <value>, <field>: <value>. Does that match?" (step 2, per document carrying a label figure)
+7. "That is <n> receipts totalling $<x>, and <m> I could not read. Does that sound right?" (step 2, per pile)
+8. "<document> is one only you can get — the prefill report, your income statement, your private health statement. Can you download the file and give me the path?" (step 2, per document behind myGov. These come as files rather than pastes, because step 3 opens the prefill report by its dated name. For a couple, each spouse downloads their own.)
+9. "I can't read every digit of <field> on <document>. Can you read it out?" (step 2, per bad read)

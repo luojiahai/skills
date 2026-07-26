@@ -1,6 +1,6 @@
 # Lodging, amending, and asking the ATO
 
-The routes that are not a normal return. Reached from step 9, and from [documents.md](documents.md) when a document arrives after the return is lodged.
+The routes that are not a normal return. Reached from step 8, and from [documents.md](documents.md) when a document arrives after the return is lodged.
 
 ## If no return is required at all
 
