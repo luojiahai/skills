@@ -56,11 +56,11 @@ The money admin you do yourself.
 
 **User-invoked**
 
-- **[preparing-tax-return](./skills/finance/preparing-tax-return/SKILL.md)** — **Australia only** — prepare an individual tax return for self-lodgement in myTax: reconcile the ATO prefill, test every deduction for nexus, apportionment and substantiation, and produce a label-by-label worksheet you check and type in yourself. *Not tax advice — see the callout above.*
+- **[preparing-tax-return](./skills/finance/preparing-tax-return/SKILL.md)** — **Australia only** — prepare an individual tax return for self-lodgement in myTax: gather your documents, reconcile the ATO prefill, test every deduction for nexus, apportionment and substantiation, and produce a label-by-label worksheet you check and type in yourself. *Not tax advice — see the callout above.*
 
   *Verified against the 2026 income year.* An older stamp doesn't mean stale figures — every rate and threshold is fetched from ato.gov.au on each run. It means the myTax walkthrough may lag a section that has been renamed or added since.
 
-  **You'll need** a myGov account linked to the ATO (you download your own prefill report, and you lodge), working web access, and an Australian *individual* return — a trust, company, SMSF or partnership return is a separate lodgement this doesn't do, though the individual return of someone who's a beneficiary, partner or shareholder of one **is** in scope.
+  **You'll need** a myGov account linked to the ATO (you download your own prefill report, and you lodge), working web access, your documents somewhere it can read them — a folder on your machine, or an app it already has access to; it copies each one into a bundle beside the worksheet, reads the figures off them and reads them back to you before writing any down — and an Australian *individual* return — a trust, company, SMSF or partnership return is a separate lodgement this doesn't do, though the individual return of someone who's a beneficiary, partner or shareholder of one **is** in scope.
 
   **When to run it.** Prefill fills in through July as employers, banks, funds and health insurers report, and is usually complete in the first half of August. Building the worksheet earlier is fine; lodging against incomplete prefill earns an amendment later. Self-lodgers must lodge by **31 October**.
 
