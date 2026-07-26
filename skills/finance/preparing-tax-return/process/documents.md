@@ -29,7 +29,7 @@ A document naming **two people** — a joint bank statement, a household private
 
 **A document read but not copied** — the case step 3 describes — gets its index row in full as soon as it is read: what was read off it, and the date it was read back. The only column it cannot fill is **Original name**, because there is no file yet. Say so in that column rather than leaving it blank, so the row is not mistaken for a careless one. The missing copy sits in the worksheet's Outstanding register as a `copy` entry until the user supplies the file; filing and naming it then run as they do for anything else. A transcript you write out yourself is not that copy — the bundle holds the issuer's own file, which is what substantiation rests on.
 
-**A document arriving after the return is lodged** is filed exactly as any other, and its figures reconciled against what was lodged. Where they differ, the route is an amendment, not an edit to a lodged return — see *Timing* in `SKILL.md`.
+**A document arriving after the return is lodged** is filed exactly as any other, and its figures reconciled against what was lodged. Where they differ, the route is an amendment, not an edit to a lodged return — see [lodging.md](lodging.md).
 
 ## Naming
 
