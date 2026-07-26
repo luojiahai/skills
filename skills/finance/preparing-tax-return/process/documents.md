@@ -1,6 +1,6 @@
 # Filing the bundle
 
-Where a copy lands, what it is called, and what its index records. Step 3 reaches the documents and reads them back; this file is what happens to each one afterwards.
+Where a copy lands, what it is called, and what its index records. Step 3 asks for the documents and reads them back; this file is what happens to each one afterwards.
 
 ## From the inbox
 
@@ -26,6 +26,8 @@ A document feeding **two sections** lives where its primary figure lands and is 
 A document naming **two people** — a joint bank statement, a household private health statement — lives in `joint/bundle/<section>/` and is cited from both worksheets. It is filed once, not copied into each.
 
 **Records made during the run** rather than found — a logbook written up from a calendar, a four-week working-from-home diary, a reconstructed crypto history — file in the section they support like any other document. Their authority is the worksheet's working, which is where the reconstruction is shown; their index row says in **Field** what they were built from, and carries the date they were built.
+
+**A document read but not copied** — pasted into the session, or behind a link this session cannot download from — gets its index row as soon as it is read, like any other. What it does not yet have is a file. The section then holds an index row with nothing beside it, and the missing copy sits in the worksheet's Outstanding register until the user supplies the file; filing and naming it are unchanged when it arrives.
 
 **A document arriving after the return is lodged** is filed exactly as any other, and its figures reconciled against what was lodged. Where they differ, the route is an amendment, not an edit to a lodged return — see *Timing* in `SKILL.md`.
 

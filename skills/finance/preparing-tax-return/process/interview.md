@@ -14,20 +14,19 @@ Record every answer in the worksheet as it comes in. A resumed session reads the
 
 ---
 
-## Batch 0 — Records and spouse (step 1)
+## Batch 0 — Spouse (step 1)
 
-One call, two questions. `Records` is `multiSelect: true`; `Spouse` is single-select. Fires once the worksheet exists, so both answers have somewhere to land. Where `Spouse` is anything but "No", `Records` is asked again for the spouse once their worksheet exists — two people rarely keep their records in one place, and step 3 reads only the places named for the return it is building.
-
-Then plain conversation for the path, link or folder behind each `Records` answer — a path is a free-text fact, not a choice.
+One call, one question, single-select. Fires once the worksheet exists, so the answer has somewhere to land.
 
 | Header | Question | Options |
 |---|---|---|
-| `Records` | Where do your records for the year live? | A folder on this machine · In an app — Notion, Drive, Dropbox or similar · In email · Scattered, or on paper |
 | `Spouse` | Did you have a spouse at any point in the year — married, or living with a partner on a genuine domestic basis? | Yes, all year · Yes, part of the year · No |
 
-**Routing.** Each `Records` answer names a place step 3 reaches; record the path or link beside it in the worksheet. `Spouse` → anything but "No" → read [couples.md](../references/couples.md), open a worksheet for each of them plus `joint/shared.md`, and carry both returns through the steps side by side; where it is part of the year, record the **period**, because the family thresholds are applied for that part of the year.
+**Routing.** `Spouse` → anything but "No" → read [couples.md](../references/couples.md), open a worksheet for each of them plus `joint/shared.md`, and carry both returns through the steps side by side; where it is part of the year, record the **period**, because the family thresholds are applied for that part of the year.
 
 The spouse question is asked in this wording every run because a de facto partner and a spouse separated part-way through the year both count, and the user may not think of their situation as being "a spouse" for tax.
+
+Nothing here asks how the user keeps their records. Documents are asked for one at a time at step 3, once step 2 has named which ones the return needs, and each is handed over however suits the user in the moment.
 
 ## Batch 1 — Situation scan (step 2)
 
@@ -95,7 +94,7 @@ Ask these in prose, every run, and record the answer verbatim in the worksheet:
 2. "Here is the record I have for this claim — what did you actually spend, and is there another record I have not seen?" (step 6, per claim — the bundle already holds what step 3 found, so this asks what it is missing)
 3. "Are you happy to lodge on these numbers?" (step 9, before hand-off)
 4. "Records are kept five years from lodgement. Where should this folder live for the long run?" (step 1, before creating anything)
-5. "These are the files I'd open in <place>, and what each one feeds: <list>. Shall I read those?" (step 3, per place)
+5. "I need <document> — it feeds <label or section>. Paste it here, drag the file in, give me a path or a link, or drop it in `inbox/` — whichever is easiest." (step 3, per document. Where what comes back is a folder rather than a document: "These are the files I'd open in it, and what each one feeds: <list>. Shall I read those?")
 6. "Here is what <document> says — <field>: <value>, <field>: <value>. Does that match?" (step 3, per document carrying a label figure)
 7. "That is <n> receipts totalling $<x>, and <m> I could not read. Does that sound right?" (step 3, per pile)
 8. "<document> is one only you can get — the prefill report, your income statement, your private health statement. Can you download it into `inbox/`?" (step 3, per document behind myGov)

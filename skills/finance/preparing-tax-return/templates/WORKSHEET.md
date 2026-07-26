@@ -22,11 +22,11 @@ Not tax advice, and not prepared by a registered tax agent. Every figure below i
 
 The register that decides whether this return can be lodged. Empty means ready.
 
-| # | Waiting on | Feeds | From whom | Place looked in | Expected | Chased |
-|---|---|---|---|---|---|---|
-| 1 | | | | | | |
+| # | Waiting on | Feeds | From whom | Expected | Chased |
+|---|---|---|---|---|---|
+| 1 | | | | | |
 
-**Place looked in** is where the document was not found — a folder, a page, `inbox/`, or "behind myGov" for one only the user can download. Every entry has one: an entry with no place looked in is a document nobody has looked for yet.
+**Waiting on** says which kind of gap this is. Usually the document itself. Where it was pasted or read from a link, the figures are already settled and what is missing is only the file — say so, because that entry clears by the user supplying the file rather than by anything arriving from an issuer.
 
 Cleared items, kept so the next session knows they were dealt with:
 
@@ -52,16 +52,11 @@ What was asked and what came back, so a resumed session re-asks nothing. Batches
 
 | Batch | Asked on | Selected | Not selected |
 |---|---|---|---|
-| 0 Records and spouse | | | |
+| 0 Spouse | | | |
 | 1 Situation scan | | | |
 | 2 Deduction scan | | | |
 | 3 Method choices | | | |
 | 4 Pre-worksheet | | | |
-
-Where the records live. Batch 0 fills the first two columns; step 3 fills the last two as it reaches each place, or says in **Reached with** why it could not.
-
-| Place named | Path, link or folder | Reached with | Read on |
-|---|---|---|---|
 
 Prose confirmations, recorded verbatim:
 
