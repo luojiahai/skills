@@ -15,6 +15,9 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SKILL_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
+# Symlinks resolved as well, so a symlinked install still compares equal to a
+# working directory sitting inside it.
+SKILL_REAL="$(cd "${SCRIPT_DIR}/.." && pwd -P)"
 
 # The skill directory is pure source and may live anywhere — a plugin dir, a
 # read-only checkout — so nothing mutable hangs off it. Session state is
@@ -24,8 +27,37 @@ STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/douyin-downloader"
 PROFILE_DIR="${STATE_DIR}/profile"
 COOKIE_FILE="${STATE_DIR}/cookies.txt"
 
-GIT_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || true)"
-DOWNLOADS="${GIT_ROOT:-$PWD}/downloads"
+# <project>/.claude/skills/<skill> and <project>/.agents/skills/<skill> are the
+# two install layouts that name their own project. Prints nothing for any other.
+project_from_install() {
+  local skills harness
+  skills="$(dirname "$SKILL_REAL")"
+  harness="$(dirname "$skills")"
+  [[ "$(basename "$skills")" == skills ]] || return 0
+  case "$(basename "$harness")" in
+    .claude | .agents) dirname "$harness" ;;
+  esac
+}
+
+# The project is the current directory — unless the current directory is inside
+# the skill. Told to run `scripts/download.sh`, an agent tends to cd here first,
+# and then the cwd names the skill rather than the project: a whole archive
+# lands inside an installed skill folder, which the next update replaces. So a
+# cwd in here counts for nothing, and the project is recovered from the install
+# path instead; if that cannot name one either, DOWNLOADS stays empty and the
+# run stops below rather than guessing.
+PWD_REAL="$(pwd -P)"
+if [[ "$PWD_REAL" == "$SKILL_REAL" || "$PWD_REAL" == "$SKILL_REAL"/* ]]; then
+  PROJECT_ROOT="$(project_from_install)"
+else
+  PROJECT_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || true)"
+  PROJECT_ROOT="${PROJECT_ROOT:-$PWD}"
+fi
+
+DOWNLOADS=""
+if [[ -n "$PROJECT_ROOT" ]]; then
+  DOWNLOADS="${PROJECT_ROOT}/downloads"
+fi
 
 NAME=""
 URL=""
@@ -45,7 +77,8 @@ Options:
                         matching the account identity in cursor.json.
       --user URL        Accepted as an alias for a positional profile URL.
       --downloads DIR   Root download directory
-                        (default: <git root, else cwd>/downloads)
+                        (default: <git root, else cwd>/downloads — required
+                        when run from inside the skill directory)
       --profile DIR     Playwright session profile
                         (default: ~/.local/state/douyin-downloader/profile)
   -h, --help            Show this help
@@ -71,6 +104,14 @@ if [[ -z "$URL" ]]; then
   usage
   echo >&2
   echo "error: no URL given" >&2
+  exit 2
+fi
+
+if [[ -z "$DOWNLOADS" ]]; then
+  echo "error: cannot tell which project these downloads belong to." >&2
+  echo "The working directory is inside the skill (${PWD}), and a skill" >&2
+  echo "directory is replaced by the next update — an archive there is lost." >&2
+  echo "Re-run from the project directory, or pass --downloads DIR." >&2
   exit 2
 fi
 

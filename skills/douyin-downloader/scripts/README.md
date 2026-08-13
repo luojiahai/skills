@@ -90,6 +90,16 @@ paths are never derived from its location.
 | downloads | `<git root of cwd, else cwd>/downloads/` | project-level: an archive belongs beside the work it is part of |
 | Chromium binaries | `~/Library/Caches/ms-playwright` | shared across every project, so the ~150MB is paid once |
 
+**A cwd inside the skill is not a project.** Asked to run `scripts/download.sh`,
+an agent tends to cd here first — and in a project that is not a git repository,
+`cwd/downloads` was then the skill's own folder. Whole archives landed in
+`<project>/.claude/skills/douyin-downloader/downloads/`, where the next update
+deletes them. So a cwd under the skill directory is discarded: the project is
+recovered from the install path (`<project>/.claude/skills/<skill>` or
+`.agents/`), and where that names none, the run stops and asks for
+`--downloads`. Guessing is the one thing it must not do — a wrong root splits
+`.archive.txt` and silently re-downloads everything.
+
 `paths.mjs` is the only place these rules are written; shell scripts recompute
 the same two roots inline. `../setup.sh` installs into the state directory and
 is safe to re-run — the skill's `package.json` is the version manifest, copied
