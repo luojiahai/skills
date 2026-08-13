@@ -66,6 +66,20 @@ The money admin you do yourself.
 
   **When to run it.** Prefill fills in through July as employers, banks, funds and health insurers report, and is usually complete in the first half of August. Building the worksheet earlier is fine; lodging against incomplete prefill earns an amendment later. Self-lodgers must lodge by **31 October**.
 
+### Media
+
+Keeping copies of things you'd otherwise lose.
+
+**User-invoked**
+
+- **[douyin-downloader](./skills/media/douyin-downloader/SKILL.md)** — download every video from a Douyin account, or a single video, into `./downloads/`. Re-runs fetch only what is new, so an account can be re-archived later without pulling down what you already have.
+
+  **You'll need** [yt-dlp](https://github.com/yt-dlp/yt-dlp) and Node installed, and a one-off Douyin sign-in — a browser opens, you sign in, and the session is reused from then on. The skill's `setup.sh` checks the rest and tells you what's missing.
+
+  **Why it needs a browser.** yt-dlp has no Douyin account extractor, and Douyin's feed API refuses unsigned requests, so the list of an account's videos can only be read out of a real page. The downloading itself is yt-dlp's.
+
+  **It fetches; it doesn't publish.** Videos land in a folder in your project and nothing is uploaded anywhere. What you may keep, and what you may do with it, is between you, Douyin's terms and the uploader's copyright — that call is yours, not the agent's. The pauses between requests are deliberate: a run with them removed gets cut off partway.
+
 ## Maintenance
 
 Best effort. Issues are read; fixes land when they land.

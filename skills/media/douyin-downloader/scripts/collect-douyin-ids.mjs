@@ -1,0 +1,331 @@
+#!/usr/bin/env node
+/**
+ * collect-douyin-ids.mjs — collect every video ID from a Douyin profile.
+ *
+ * Douyin's profile feed API (/aweme/v1/web/aweme/post/) requires an `a_bogus`
+ * signature computed by obfuscated page JS, and returns HTTP 200 with an empty
+ * body without it. So rather than calling the API, this drives a real browser:
+ * the page signs its own requests, and we read the IDs it renders.
+ *
+ * The browser runs in a dedicated profile directory (not your everyday Chrome,
+ * which Chrome 136+ refuses to expose to automation). The profile persists, so
+ * the douyin session you establish on the first run is reused afterwards.
+ *
+ * Usage:
+ *   node scripts/collect-douyin-ids.mjs <profile-url> [options]
+ *
+ * Options:
+ *   -o, --output FILE   Where to write URLs (default: urls.txt)
+ *       --headless      Run without a visible window (only once the profile
+ *                       has a working session; see --login)
+ *       --login         Open the browser and wait for you to press Enter,
+ *                       so you can visit douyin.com / clear a check
+ *       --limit N       Stop after collecting N videos
+ *       --profile DIR   Browser profile directory
+ *                       (default: ~/.local/state/douyin-downloader/profile)
+ *   -h, --help
+ */
+import { writeFile } from 'node:fs/promises';
+import { createInterface } from 'node:readline/promises';
+import { loadPlaywright, PROFILE_DIR } from './paths.mjs';
+
+const SCROLL_DELAY_MS = 1200;
+const STABLE_ROUNDS = 6; // consecutive no-new-ID rounds before we call it done
+const MAX_ROUNDS = 1000; // hard stop, so a broken page cannot spin forever
+
+function parseArgs(argv) {
+  const opts = {
+    url: '',
+    output: 'urls.txt',
+    headless: false,
+    login: false,
+    limit: Infinity,
+    profileDir: PROFILE_DIR,
+    meta: '',
+  };
+  const rest = [];
+
+  for (let i = 0; i < argv.length; i++) {
+    const arg = argv[i];
+    switch (arg) {
+      case '-o':
+      case '--output':
+        opts.output = argv[++i];
+        break;
+      case '--headless':
+        opts.headless = true;
+        break;
+      case '--login':
+        opts.login = true;
+        break;
+      case '--limit':
+        opts.limit = Number(argv[++i]);
+        break;
+      case '--profile':
+        opts.profileDir = argv[++i];
+        break;
+      case '--meta':
+        opts.meta = argv[++i];
+        break;
+      case '-h':
+      case '--help':
+        return { help: true, ...opts };
+      default:
+        if (arg.startsWith('-')) {
+          throw new Error(`unknown option '${arg}' (try --help)`);
+        }
+        rest.push(arg);
+    }
+  }
+
+  opts.url = rest[0] ?? '';
+  return opts;
+}
+
+function usage() {
+  console.log(`Usage: node scripts/collect-douyin-ids.mjs <profile-url> [options]
+
+Collects every video ID from a Douyin user profile and writes them as
+https://www.douyin.com/video/<id> URLs, one per line.
+
+Options:
+  -o, --output FILE   Where to write URLs (default: urls.txt)
+      --headless      Run without a visible window (only once the profile has
+                      a working session; establish one with --login first)
+      --login         Open the browser and wait, so you can visit douyin.com
+                      or clear a verification check, then press Enter
+      --limit N       Stop after collecting N videos
+      --profile DIR   Browser profile directory
+                      (default: ~/.local/state/douyin-downloader/profile)
+  -h, --help          Show this help
+
+Examples:
+  # first time: establish a session in the dedicated profile
+  node scripts/collect-douyin-ids.mjs --login "https://www.douyin.com/user/MS4w..."
+
+  # afterwards
+  node scripts/collect-douyin-ids.mjs "https://www.douyin.com/user/MS4w..." -o urls.txt`);
+}
+
+/**
+ * Runs in the page. Cards link as /video/<id>; the modal overlay uses
+ * ?modal_id=<id>. Both appear depending on layout, so harvest each.
+ *
+ * The page footer carries SEO recommendation links (tagged
+ * `?source=Baiduspider`) pointing at *other* accounts' videos — those must be
+ * excluded or you collect strangers' uploads. Grid class names are obfuscated
+ * and rotate, so filter by structure rather than matching them.
+ */
+function harvestInPage() {
+  const found = [];
+  for (const a of document.querySelectorAll('a[href]')) {
+    const href = a.getAttribute('href') || '';
+    if (a.closest('footer')) continue;
+    if (/[?&]source=Baiduspider/.test(href)) continue;
+    const m = href.match(/\/video\/(\d+)/) || href.match(/modal_id=(\d+)/);
+    if (m) found.push(m[1]);
+  }
+  return found;
+}
+
+/**
+ * Reads the profile header, which carries everything needed to identify the
+ * account before a single card is scrolled: 抖音号 (the stable public handle),
+ * the nickname, and 作品 <n> (the video count).
+ *
+ * The count is what distinguishes "collected everything" from "stopped early" —
+ * a stalled feed and a finished one look identical from inside the scroll loop.
+ */
+function readProfileMetaInPage() {
+  const text = document.body.innerText;
+
+  const countMatch = text.match(/作品\s*([\d.]+)\s*(万|亿)?/);
+  let worksCount = null;
+  if (countMatch) {
+    let n = parseFloat(countMatch[1]);
+    if (countMatch[2] === '万') n *= 1e4;
+    if (countMatch[2] === '亿') n *= 1e8;
+    worksCount = Math.round(n);
+  }
+
+  return {
+    douyinId: (text.match(/抖音号[:：]\s*([A-Za-z0-9_.-]+)/) || [])[1] ?? null,
+    nickname: document.querySelector('h1')?.innerText?.trim() ?? null,
+    worksCount,
+  };
+}
+
+/** The profile may scroll the window or an inner div; drive whichever has overflow. */
+function scrollInPage() {
+  const doc = document.scrollingElement || document.documentElement;
+  let best = doc;
+  let bestOverflow = doc.scrollHeight - doc.clientHeight;
+  for (const el of document.querySelectorAll('div, main, section')) {
+    const overflow = el.scrollHeight - el.clientHeight;
+    if (overflow <= bestOverflow) continue;
+    if (!/(auto|scroll)/.test(getComputedStyle(el).overflowY)) continue;
+    best = el;
+    bestOverflow = overflow;
+  }
+  best.scrollTop = best.scrollHeight;
+  window.scrollTo(0, document.body.scrollHeight);
+}
+
+async function main() {
+  const opts = parseArgs(process.argv.slice(2));
+
+  if (opts.help) {
+    usage();
+    return 0;
+  }
+  if (!opts.url) {
+    usage();
+    console.error('\nerror: no profile URL given');
+    return 2;
+  }
+  if (!/^https?:\/\/(www\.)?douyin\.com\/user\//.test(opts.url)) {
+    console.error(`error: not a Douyin profile URL: ${opts.url}`);
+    console.error('Expected https://www.douyin.com/user/MS4wLjABAAAA...');
+    return 2;
+  }
+  if (!Number.isFinite(opts.limit) && opts.limit !== Infinity) {
+    console.error('error: --limit must be a number');
+    return 2;
+  }
+
+  const { chromium } = await loadPlaywright();
+  const profileDir = opts.profileDir;
+  console.log(`[douyin] profile: ${profileDir}`);
+
+  const context = await chromium.launchPersistentContext(profileDir, {
+    headless: opts.headless && !opts.login,
+    viewport: { width: 1280, height: 900 },
+    locale: 'zh-CN',
+  });
+
+  try {
+    const page = context.pages()[0] ?? (await context.newPage());
+
+    console.log('[douyin] opening profile…');
+    await page.goto(opts.url, { waitUntil: 'domcontentloaded', timeout: 60000 });
+
+    if (opts.login) {
+      console.log(
+        '\n[douyin] Browser is open. Visit douyin.com, log in or clear any\n' +
+          '         verification, then come back here and press Enter.\n',
+      );
+      const rl = createInterface({ input: process.stdin, output: process.stdout });
+      await rl.question('Press Enter when ready… ');
+      rl.close();
+      await page.goto(opts.url, { waitUntil: 'domcontentloaded', timeout: 60000 });
+    }
+
+    // Give the feed a chance to render before deciding it is empty.
+    await page.waitForTimeout(3000);
+
+    const meta = await page.evaluate(readProfileMetaInPage);
+    const expected = meta.worksCount;
+    const secUid = (opts.url.match(/\/user\/([^/?#]+)/) || [])[1] ?? null;
+
+    if (meta.douyinId) {
+      console.log(
+        `[douyin] ${meta.nickname ?? '?'} (抖音号 ${meta.douyinId})` +
+          (expected !== null ? ` — ${expected} video(s)` : ''),
+      );
+    }
+
+    const ids = new Set();
+    let stable = 0;
+    let rounds = 0;
+
+    // Harvest before each scroll: the feed is virtualised, so cards scrolled
+    // far off-screen get removed from the DOM.
+    while (stable < STABLE_ROUNDS && rounds < MAX_ROUNDS && ids.size < opts.limit) {
+      const before = ids.size;
+
+      for (const id of await page.evaluate(harvestInPage)) {
+        if (ids.size >= opts.limit) break;
+        ids.add(id);
+      }
+
+      await page.evaluate(scrollInPage);
+      await page.waitForTimeout(SCROLL_DELAY_MS);
+      rounds++;
+
+      if (ids.size === before) {
+        stable++;
+      } else {
+        stable = 0;
+        process.stdout.write(`\r[douyin] ${ids.size} videos…`);
+      }
+    }
+    for (const id of await page.evaluate(harvestInPage)) {
+      if (ids.size >= opts.limit) break;
+      ids.add(id);
+    }
+    process.stdout.write('\n');
+
+    if (rounds >= MAX_ROUNDS) {
+      console.warn('[douyin] hit the round limit — the list may be incomplete');
+    }
+
+    if (ids.size === 0) {
+      console.error(
+        '[douyin] found 0 videos in the profile grid.\n' +
+          (expected
+            ? `  The profile reports ${expected} video(s), so the grid exists but did\n` +
+              '  not render — almost certainly a login wall.\n'
+            : '') +
+          '  Re-run with --login, sign in to Douyin in the window that opens,\n' +
+          '  then press Enter. The session persists for later runs.',
+      );
+      return 1;
+    }
+
+    // A gap here is usually structural, not a failure: posts that are private,
+    // deleted, or region-locked are counted in 作品 but never render as cards.
+    // Measured on a 284-video account, this reports 282 every run.
+    if (expected !== null && ids.size < expected) {
+      console.log(
+        `[douyin] note: ${ids.size} of ${expected} — ${expected - ids.size} post(s) ` +
+          'counted but not shown (private, deleted, or region-locked)',
+      );
+    }
+
+    const text =
+      [...ids].map((id) => `https://www.douyin.com/video/${id}`).join('\n') + '\n';
+    await writeFile(opts.output, text, 'utf8');
+    console.log(`[douyin] wrote ${ids.size} video URLs to ${opts.output}`);
+
+    if (opts.meta) {
+      await writeFile(
+        opts.meta,
+        JSON.stringify(
+          {
+            sec_uid: secUid,
+            douyin_id: meta.douyinId,
+            nickname: meta.nickname,
+            collected_count: ids.size,
+            reported_works_count: expected,
+            // Deliberately no "newest" field: grid order puts pinned posts
+            // first, so position 0 is not reliably the newest upload. The
+            // cursor derives that from downloaded files' upload dates.
+          },
+          null,
+          2,
+        ) + '\n',
+        'utf8',
+      );
+    }
+    return 0;
+  } finally {
+    await context.close();
+  }
+}
+
+main()
+  .then((code) => process.exit(code))
+  .catch((err) => {
+    console.error(`error: ${err.message}`);
+    process.exit(1);
+  });
