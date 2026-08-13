@@ -44,7 +44,15 @@ async function readCursor(folder) {
  * by identity rather than by guessing the path.
  */
 async function resolve(opts) {
-  const downloads = opts.downloads || downloadsRoot();
+  let downloads = opts.downloads;
+  if (!downloads) {
+    try {
+      downloads = downloadsRoot();
+    } catch (err) {
+      console.error(`error: ${err.message}`);
+      process.exit(2);
+    }
+  }
   const { douyin_id: douyinId, sec_uid: secUid, name } = opts;
 
   if (!douyinId && !secUid) {

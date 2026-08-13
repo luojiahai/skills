@@ -8,8 +8,12 @@ disable-model-invocation: true
 Run `scripts/download.sh` with the URL the user gave you, as it is given:
 
 ```bash
-scripts/download.sh <url> [--name NAME]
+<skill-dir>/scripts/download.sh <url> [--name NAME]
 ```
+
+Run it **from the user's working directory** — call it by its full path, do not
+`cd` into the skill first. Downloads land relative to where you run it, and a
+skill directory is replaced by the next update.
 
 It auto-detects a `/user/` profile URL (every video from the account) from a
 `/video/` URL (just that one). `--user` is accepted as an alias; `--name` sets a
@@ -64,7 +68,9 @@ several of them verified the hard way. Read it before modifying anything in
 ## State
 
 Downloads land in `<git root of the current directory, else cwd>/downloads/`,
-one folder per account:
+one folder per account. A working directory inside the skill itself is not a
+project: the run stops and asks for `--downloads DIR` instead of archiving into
+a folder the next update deletes.
 
 - `videos/` — the media, named `<upload_date> - <title> [<id>].<ext>`
 - `.archive.txt` — yt-dlp's record of what has landed, and what makes a run
