@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * plan.mjs — the confirm step: what a run *would* download, decided before it
- * downloads anything.
+ * downloads anything. Also every block this skill prints.
  *
  * Collecting an account's video list takes a browser and about half a minute,
  * so the number a user is asked to approve cannot be known without doing that
@@ -18,6 +18,11 @@
  * landed, and a plan that is missing, stale or written for another account or
  * root is refused rather than repaired.
  *
+ * The rendering lives here too, and nowhere else. The block a user approves and
+ * the block a finished run reports have to agree — same columns, same rule for
+ * counting what is on disk — and they only reliably agree by being the same
+ * code. An earlier version hand-aligned two further copies of it in shell.
+ *
  * Subcommands:
  *   build --meta FILE --urls FILE --folder DIR --downloads ROOT
  *       Diffs the collected list against the archive, prints the status block,
@@ -28,11 +33,21 @@
  *        --out FILE [--ttl-hours N] [--remedy TEXT]
  *       Validates the plan and writes its pending URLs to FILE.
  *
+ *   count --folder DIR
+ *       Prints how many videos the archive records — the one counting rule.
+ *
+ *   summary --folder DIR --before N --after N [--exit-status N]
+ *       Prints what a finished run delivered.
+ *
+ *   video --folder DIR --douyin-id ID --video ID
+ *       Prints where a single video would land, and whether it is already here.
+ *
  *   clear --folder DIR
  *       Removes the plan, once its downloads have all landed.
  */
-import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import { optString, parseArgs, readJson, readText, requireOpts } from './cli.mjs';
 
 export const PLAN_FILE = '.plan.json';
 export const DEFAULT_TTL_HOURS = 24;
@@ -49,6 +64,11 @@ export function videoIdFrom(url) {
 /**
  * yt-dlp writes `<extractor> <id>` per line. The id is the last field, which
  * holds whether or not the extractor name ever changes.
+ *
+ * This is the only place the archive is counted or searched. Counting its lines
+ * instead — which shell makes tempting — disagrees with this the moment a line
+ * is blank or a trailing newline is missing, and then the total a run reports
+ * contradicts the number the user approved.
  */
 export function archivedIds(text) {
   const ids = new Set();
@@ -131,7 +151,10 @@ export function validatePlan(plan, { secUid, douyinId, folder, downloadsRoot, no
   }
 
   const age = now.getTime() - new Date(plan.created_at).getTime();
-  if (!Number.isFinite(age) || age > ttlHours * 3600 * 1000) {
+  if (!Number.isFinite(age)) {
+    return { message: `the plan at ${folder} has no readable timestamp — it is corrupt` };
+  }
+  if (age > ttlHours * 3600 * 1000) {
     return {
       message:
         `the plan is ${ageLabel(age)} old — the account may have posted since ` +
@@ -146,14 +169,32 @@ export function validatePlan(plan, { secUid, douyinId, folder, downloadsRoot, no
   return null;
 }
 
-/**
- * The block a user is asked to approve. It is also what a finished run reports,
- * so the numbers confirmed and the numbers delivered are read off the same
- * rendering.
- */
+// ---- rendering -------------------------------------------------------------
+// `account` is anything carrying `nickname` and `douyin_id` — a plan, a cursor
+// and the collector's metadata all qualify, which is why it is passed whole
+// rather than unpicked into arguments at every call site.
+
+const row = (label, value) => ` ${label.padEnd(LABEL_WIDTH)} ${value}`;
+const box = (lines) => [RULE, ...lines, RULE].join('\n');
+
+function headline(account) {
+  const id = account?.douyin_id ?? '?';
+  return account?.nickname ? ` ${account.nickname} (抖音号 ${id})` : ` 抖音号 ${id}`;
+}
+
+/** Why the count in the profile header and the number of cards never match. */
+function hiddenPostRows(collected, reported) {
+  if (reported === null || reported === undefined) return [];
+  if (!(collected < reported)) return [];
+  return [
+    row('note', `${reported - collected} post(s) counted but not shown`),
+    ` ${''.padEnd(LABEL_WIDTH)} (private, deleted, or region-locked)`,
+  ];
+}
+
+/** The block a user is asked to approve. */
 export function statusBlock({
-  nickname,
-  douyinId,
+  account,
   folder,
   previousRoot,
   downloadsRoot,
@@ -162,71 +203,57 @@ export function statusBlock({
   onDisk,
   pending,
 }) {
-  const lines = [RULE];
-  lines.push(` ${nickname ? `${nickname} (抖音号 ${douyinId})` : `抖音号 ${douyinId}`}`);
-
-  const row = (label, value) => lines.push(` ${label.padEnd(LABEL_WIDTH)} ${value}`);
-
-  row('folder', folder);
+  const lines = [headline(account), row('folder', folder)];
   if (previousRoot && downloadsRoot && previousRoot !== downloadsRoot) {
-    row('note', `last run used ${previousRoot}`);
+    lines.push(row('note', `last run used ${previousRoot}`));
   }
-  row('collected', reported === null ? `${collected}` : `${collected} of ${reported} reported`);
-  if (reported !== null && collected < reported) {
-    row('note', `${reported - collected} post(s) counted but not shown`);
-    lines.push(` ${''.padEnd(LABEL_WIDTH)} (private, deleted, or region-locked)`);
+  lines.push(
+    row('collected', reported === null ? `${collected}` : `${collected} of ${reported} reported`),
+    ...hiddenPostRows(collected, reported),
+    row('on disk', `${onDisk}`),
+    row('to fetch', pending === 0 ? '0 — already up to date' : `${pending} new`),
+  );
+  return box(lines);
+}
+
+/** The block a finished run reports, in the columns it was approved in. */
+export function summaryBlock({ account, folder, collected, reported, downloaded, total, failed }) {
+  const lines = [
+    headline(account),
+    row('folder', folder),
+    row('collected', reported === null ? `${collected}` : `${collected} of ${reported} reported`),
+    ...hiddenPostRows(collected, reported),
+    row('downloaded', `${downloaded} new, ${total} total`),
+  ];
+  if (failed) {
+    lines.push(row('warning', 'some downloads failed — re-run --go to retry only those'));
   }
-  row('on disk', `${onDisk}`);
-  row('to fetch', pending === 0 ? '0 — already up to date' : `${pending} new`);
-  lines.push(RULE);
-  return lines.join('\n');
+  return box(lines);
+}
+
+/** Where a single named video would land, and whether it is already there. */
+export function videoBlock({ account, folder, videoId, onDisk }) {
+  return box([
+    headline(account),
+    row('folder', folder),
+    row('video', videoId),
+    row('to fetch', onDisk ? '0 — already downloaded' : '1 new'),
+  ]);
 }
 
 // ---- CLI -------------------------------------------------------------------
 
-function parseArgs(argv) {
-  const opts = {};
-  for (let i = 0; i < argv.length; i++) {
-    const key = argv[i].replace(/^--/, '').replace(/-/g, '_');
-    opts[key] = argv[++i];
-  }
-  return opts;
-}
-
-async function readJson(file) {
-  try {
-    return JSON.parse(await readFile(file, 'utf8'));
-  } catch {
-    return null;
-  }
-}
-
-async function readText(file) {
-  try {
-    return await readFile(file, 'utf8');
-  } catch {
-    return '';
-  }
-}
-
-function requireOpts(opts, ...keys) {
-  for (const key of keys) {
-    if (!opts[key]) {
-      console.error(`error: ${key.replace(/_/g, '-')} is required`);
-      process.exit(2);
-    }
-  }
-}
+const archivePath = (folder) => path.join(folder, '.archive.txt');
+const planPath = (folder) => path.join(folder, PLAN_FILE);
 
 async function build(opts) {
   requireOpts(opts, 'meta', 'urls', 'folder', 'downloads');
   const meta = (await readJson(opts.meta)) ?? {};
   const collected = (await readText(opts.urls)).split('\n').filter((line) => line.trim());
-  const archive = await readText(path.join(opts.folder, '.archive.txt'));
+  const archive = await readText(archivePath(opts.folder));
   const cursor = await readJson(path.join(opts.folder, 'cursor.json'));
 
   const pending = pendingUrls(collected, archive);
-  const planPath = path.join(opts.folder, PLAN_FILE);
 
   if (pending.length) {
     const plan = buildPlan({
@@ -238,17 +265,16 @@ async function build(opts) {
       now: new Date(),
     });
     await mkdir(opts.folder, { recursive: true });
-    await writeFile(planPath, JSON.stringify(plan, null, 2) + '\n');
+    await writeFile(planPath(opts.folder), JSON.stringify(plan, null, 2) + '\n');
   } else {
     // A plan left over from an earlier run would otherwise outlive the work it
     // described, and --go would happily download it.
-    await rm(planPath, { force: true });
+    await rm(planPath(opts.folder), { force: true });
   }
 
   console.log(
     statusBlock({
-      nickname: meta.nickname ?? null,
-      douyinId: meta.douyin_id ?? '?',
+      account: meta,
       folder: opts.folder,
       previousRoot: cursor?.downloads_root ?? null,
       downloadsRoot: opts.downloads,
@@ -262,39 +288,74 @@ async function build(opts) {
 
 async function load(opts) {
   requireOpts(opts, 'folder', 'downloads', 'out');
-  const plan = await readJson(path.join(opts.folder, PLAN_FILE));
+  const plan = await readJson(planPath(opts.folder));
   const error = validatePlan(plan, {
-    secUid: opts.sec_uid ?? null,
-    douyinId: opts.douyin_id ?? null,
+    secUid: optString(opts, 'sec_uid') || null,
+    douyinId: optString(opts, 'douyin_id') || null,
     folder: opts.folder,
     downloadsRoot: opts.downloads,
     now: new Date(),
-    ttlHours: Number(opts.ttl_hours ?? DEFAULT_TTL_HOURS),
+    ttlHours: Number(optString(opts, 'ttl_hours') || DEFAULT_TTL_HOURS),
   });
 
   if (error) {
     console.error(`error: ${error.message}`);
-    if (opts.remedy) console.error(`  run: ${opts.remedy}`);
+    const remedy = optString(opts, 'remedy');
+    if (remedy) console.error(`  run: ${remedy}`);
     process.exit(2);
   }
 
   await writeFile(opts.out, plan.pending.join('\n') + '\n');
 }
 
+async function count(opts) {
+  requireOpts(opts, 'folder');
+  console.log(archivedIds(await readText(archivePath(opts.folder))).size);
+}
+
+async function summary(opts) {
+  requireOpts(opts, 'folder', 'before', 'after');
+  const plan = (await readJson(planPath(opts.folder))) ?? {};
+  console.log(
+    summaryBlock({
+      account: plan,
+      folder: opts.folder,
+      collected: plan.collected_count ?? '?',
+      reported: plan.reported_works_count ?? null,
+      downloaded: Number(opts.after) - Number(opts.before),
+      total: Number(opts.after),
+      failed: Number(optString(opts, 'exit_status') || 0) !== 0,
+    }),
+  );
+}
+
+async function video(opts) {
+  requireOpts(opts, 'folder', 'douyin_id', 'video');
+  const archive = await readText(archivePath(opts.folder));
+  console.log(
+    videoBlock({
+      account: { douyin_id: opts.douyin_id, nickname: null },
+      folder: opts.folder,
+      videoId: opts.video,
+      onDisk: archivedIds(archive).has(opts.video),
+    }),
+  );
+}
+
 async function clear(opts) {
   requireOpts(opts, 'folder');
-  await rm(path.join(opts.folder, PLAN_FILE), { force: true });
+  await rm(planPath(opts.folder), { force: true });
 }
 
 // Importing for tests must not run the CLI; argv[2] is absent then.
 const [command, ...rest] = process.argv.slice(2);
 if (command) {
-  const opts = parseArgs(rest);
-  if (command === 'build') await build(opts);
-  else if (command === 'load') await load(opts);
-  else if (command === 'clear') await clear(opts);
+  const commands = { build, load, count, summary, video, clear };
+  if (commands[command]) await commands[command](parseArgs(rest));
   else {
-    console.error(`error: unknown command '${command}' (expected build|load|clear)`);
+    console.error(
+      `error: unknown command '${command}' (expected ${Object.keys(commands).join('|')})`,
+    );
     process.exit(2);
   }
 }

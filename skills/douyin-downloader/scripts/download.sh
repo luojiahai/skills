@@ -37,6 +37,14 @@ URL=""
 DOWNLOADS_ARG=""
 MODE=""
 
+# --yes is the user's own say-so, and the skill appends --plan or --go after
+# whatever flags the user typed. Last-wins would therefore quietly overrule a
+# user who pre-authorised the run, so --yes outranks both rather than being
+# overwritten by whichever came last.
+set_mode() {
+  [[ "$MODE" == "yes" ]] || MODE="$1"
+}
+
 usage() {
   cat <<'EOF'
 download.sh — download a Douyin account's videos, or a single video.
@@ -80,8 +88,8 @@ while [[ $# -gt 0 ]]; do
     --user)      URL="$2"; shift 2 ;;
     --downloads) DOWNLOADS_ARG="$2"; shift 2 ;;
     --profile)   PROFILE_DIR="$2"; shift 2 ;;
-    --plan)      MODE="plan"; shift ;;
-    --go)        MODE="go"; shift ;;
+    --plan)      set_mode plan; shift ;;
+    --go)        set_mode go; shift ;;
     -y | --yes)  MODE="yes"; shift ;;
     -h | --help) usage; exit 0 ;;
     -*) echo "error: unknown option '$1' (try --help)" >&2; exit 2 ;;
@@ -147,12 +155,11 @@ json_field() {
            const v=o[process.argv[2]];console.log(v===undefined||v===null?"":v)' "$1" "$2"
 }
 
-archive_count() {
-  if [[ -f "$1/.archive.txt" ]]; then
-    wc -l <"$1/.archive.txt" | tr -d ' '
-  else
-    echo 0
-  fi
+# Counting the archive and printing a block both belong to plan.mjs, so that
+# what a run reports is rendered by the same code that rendered what the user
+# approved — and counted by the same rule.
+plan_mjs() {
+  node "${SCRIPT_DIR}/plan.mjs" "$@"
 }
 
 # Cookies are cached and reused; they are only re-minted when yt-dlp actually
@@ -235,16 +242,7 @@ if [[ "$URL" =~ /video/([0-9]+) ]]; then
   # A single video is already as specific as an instruction gets, so it is not
   # planned or confirmed — but --plan still answers where it would land.
   if [[ "$MODE" == "plan" ]]; then
-    echo "──────────────────────────────────────────"
-    echo " 抖音号 ${DOUYIN_ID}"
-    echo " folder      ${FOLDER}"
-    echo " video       ${VIDEO_ID}"
-    if [[ -f "${FOLDER}/.archive.txt" ]] && grep -qE "(^| )${VIDEO_ID}\$" "${FOLDER}/.archive.txt"; then
-      echo " to fetch    0 — already downloaded"
-    else
-      echo " to fetch    1 new"
-    fi
-    echo "──────────────────────────────────────────"
+    plan_mjs video --folder "$FOLDER" --douyin-id "$DOUYIN_ID" --video "$VIDEO_ID"
     exit 0
   fi
 
@@ -278,18 +276,14 @@ fi
 
 # Downloads the plan sitting in $1, which --plan wrote and the user approved.
 run_plan() {
-  local folder="$1" before after downloaded pending nickname douyin_id collected reported status=0
+  local folder="$1" before after pending status=0
 
   TMP_PENDING="$(mktemp -t douyin-pending)"
-  node "${SCRIPT_DIR}/plan.mjs" load --folder "$folder" --downloads "$DOWNLOADS" \
+  plan_mjs load --folder "$folder" --downloads "$DOWNLOADS" \
     --sec-uid "$SEC_UID" --out "$TMP_PENDING" --remedy "$PLAN_HINT"
 
   pending="$(wc -l <"$TMP_PENDING" | tr -d ' ')"
-  nickname="$(json_field "${folder}/.plan.json" nickname)"
-  douyin_id="$(json_field "${folder}/.plan.json" douyin_id)"
-  collected="$(json_field "${folder}/.plan.json" collected_count)"
-  reported="$(json_field "${folder}/.plan.json" reported_works_count)"
-  before="$(archive_count "$folder")"
+  before="$(plan_mjs count --folder "$folder")"
 
   mkdir -p "${folder}/videos"
   echo "[douyin] downloading ${pending} video(s) to ${folder}/videos…"
@@ -299,38 +293,41 @@ run_plan() {
   node "${SCRIPT_DIR}/cursor.mjs" write --folder "$folder" --meta "${folder}/.plan.json" \
     --downloads "$DOWNLOADS"
 
-  after="$(archive_count "$folder")"
-  downloaded=$((after - before))
+  after="$(plan_mjs count --folder "$folder")"
+
+  echo
+  plan_mjs summary --folder "$folder" --before "$before" --after "$after" \
+    --exit-status "$status"
 
   # Kept after a partial run, so a retry re-fetches only what is missing
   # without paying for another collection; removed once it has all landed.
+  # After the summary, which reads the plan for the account's name and counts.
   if [[ "$status" == 0 ]]; then
-    node "${SCRIPT_DIR}/plan.mjs" clear --folder "$folder"
+    plan_mjs clear --folder "$folder"
   fi
-
-  echo
-  echo "──────────────────────────────────────────"
-  echo " ${nickname:-?} (抖音号 ${douyin_id:-?})"
-  echo " folder      ${folder}"
-  echo " collected   ${collected:-?} of ${reported:-?} reported"
-  echo " downloaded  ${downloaded} new, ${after} total"
-  if [[ "$status" != 0 ]]; then
-    echo " warning     some downloads failed — re-run --go to retry only those"
-  fi
-  echo "──────────────────────────────────────────"
 
   return "$status"
 }
 
 # ---- --go: download an approved plan, no browser involved -------------------
 if [[ "$MODE" == "go" ]]; then
-  if ! FOLDER="$(resolve_folder --sec-uid "$SEC_UID" --require-match)"; then
+  RESOLVE_STATUS=0
+  FOLDER="$(resolve_folder --sec-uid "$SEC_UID" --require-match)" || RESOLVE_STATUS=$?
+
+  # 3 is "no folder here for this account", which has a remedy. Anything else
+  # is a real failure that has already said what it was, and swallowing it as
+  # "no plan" would send the user off to fix the wrong thing.
+  if [[ "$RESOLVE_STATUS" == 3 ]]; then
     echo "error: no folder for this account under ${DOWNLOADS}, so there is no plan to run." >&2
     echo "  run: ${PLAN_HINT}" >&2
     exit 2
+  elif [[ "$RESOLVE_STATUS" != 0 ]]; then
+    exit "$RESOLVE_STATUS"
   fi
-  run_plan "$FOLDER"
-  exit $?
+
+  GO_STATUS=0
+  run_plan "$FOLDER" || GO_STATUS=$?
+  exit "$GO_STATUS"
 fi
 
 # ---- --plan / --yes: collect, diff, report ---------------------------------
@@ -371,4 +368,6 @@ if [[ "$MODE" != "yes" ]]; then
 fi
 
 echo
-run_plan "$FOLDER"
+YES_STATUS=0
+run_plan "$FOLDER" || YES_STATUS=$?
+exit "$YES_STATUS"

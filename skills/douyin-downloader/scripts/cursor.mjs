@@ -22,40 +22,20 @@
  *       Prints the downloads root: the flag if given, else the default for the
  *       current working directory. The single place that answer is computed.
  */
-import { readFile, writeFile, readdir, mkdir } from 'node:fs/promises';
+import { writeFile, readdir, mkdir } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
+import { optString, parseArgs, readJson } from './cli.mjs';
 import { downloadsRoot, normalizeRoot } from './paths.mjs';
 
-function parseArgs(argv) {
-  const opts = {};
-  for (let i = 0; i < argv.length; i++) {
-    const key = argv[i].replace(/^--/, '').replace(/-/g, '_');
-    const next = argv[i + 1];
-    // A flag with no value of its own, such as --require-match, must not
-    // swallow the flag that follows it.
-    if (next === undefined || next.startsWith('--')) opts[key] = true;
-    else opts[key] = argv[++i];
-  }
-  return opts;
-}
-
-async function readJson(folder, file) {
-  try {
-    return JSON.parse(await readFile(path.join(folder, file), 'utf8'));
-  } catch {
-    return null;
-  }
-}
-
-const readCursor = (folder) => readJson(folder, 'cursor.json');
+const readIn = (folder, file) => readJson(path.join(folder, file));
+const readCursor = (folder) => readIn(folder, 'cursor.json');
 
 /** The flag if given, else the default for the current working directory. */
 function rootFor(opts) {
   try {
-    return opts.downloads && opts.downloads !== true
-      ? normalizeRoot(opts.downloads)
-      : downloadsRoot();
+    const given = optString(opts, 'downloads');
+    return given ? normalizeRoot(given) : downloadsRoot();
   } catch (err) {
     console.error(`error: ${err.message}`);
     process.exit(2);
@@ -69,7 +49,9 @@ function rootFor(opts) {
  */
 async function resolve(opts) {
   const downloads = rootFor(opts);
-  const { douyin_id: douyinId, sec_uid: secUid, name } = opts;
+  const douyinId = optString(opts, 'douyin_id');
+  const secUid = optString(opts, 'sec_uid');
+  const name = optString(opts, 'name');
 
   if (!douyinId && !secUid) {
     console.error('error: resolve needs --douyin-id or --sec-uid');
@@ -83,7 +65,7 @@ async function resolve(opts) {
       // .plan.json as well as cursor.json: an account planned but never
       // downloaded has no cursor yet, and --go still has to find its folder
       // from the sec_uid in the URL alone.
-      for (const identity of [await readCursor(folder), await readJson(folder, '.plan.json')]) {
+      for (const identity of [await readCursor(folder), await readIn(folder, '.plan.json')]) {
         if (!identity) continue;
         if (
           (secUid && identity.sec_uid === secUid) ||
@@ -103,7 +85,7 @@ async function resolve(opts) {
     process.exit(3);
   }
 
-  console.log(path.join(downloads, name === true ? douyinId : name || douyinId));
+  console.log(path.join(downloads, name || douyinId));
 }
 
 /** Filenames are `<upload_date> - <title> [<id>].<ext>`, so the newest upload
@@ -124,7 +106,7 @@ async function write(opts) {
     console.error('error: write needs --folder');
     process.exit(2);
   }
-  const meta = opts.meta ? JSON.parse(await readFile(opts.meta, 'utf8')) : {};
+  const meta = optString(opts, 'meta') ? ((await readJson(opts.meta)) ?? {}) : {};
   const previous = (await readCursor(folder)) ?? {};
   const newest = await newestFrom(path.join(folder, 'videos'));
 
@@ -137,9 +119,7 @@ async function write(opts) {
     // file naming the root lives inside it. It is what lets a run say the
     // archive has moved since last time.
     downloads_root:
-      opts.downloads && opts.downloads !== true
-        ? opts.downloads
-        : (previous.downloads_root ?? path.dirname(folder)),
+      optString(opts, 'downloads') || previous.downloads_root || path.dirname(folder),
     last_run_at: new Date().toISOString(),
     newest_video_id: newest.id ?? previous.newest_video_id ?? null,
     newest_upload_date: newest.date ?? previous.newest_upload_date ?? null,

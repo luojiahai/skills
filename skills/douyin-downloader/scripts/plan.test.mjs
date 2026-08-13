@@ -1,5 +1,6 @@
 /**
- * Tests for plan.mjs — run with: node --test scripts/
+ * Tests for plan.mjs — run with:
+ *   node --test scripts/plan.test.mjs scripts/paths.test.mjs
  *
  * Only the pure functions are covered here: the diff, the validation rules and
  * the rendering. The CLI around them is exercised by hand against the live
@@ -13,7 +14,9 @@ import {
   buildPlan,
   pendingUrls,
   statusBlock,
+  summaryBlock,
   validatePlan,
+  videoBlock,
   videoIdFrom,
 } from './plan.mjs';
 
@@ -154,8 +157,7 @@ test('validatePlan rejects a plan with nothing to download', () => {
 
 test('statusBlock reports the account, folder and the three counts', () => {
   const block = statusBlock({
-    nickname: '小明',
-    douyinId: 'abc123',
+    account: { nickname: '小明', douyin_id: 'abc123' },
     folder: '/data/abc123',
     collected: 282,
     reported: 284,
@@ -171,8 +173,7 @@ test('statusBlock reports the account, folder and the three counts', () => {
 
 test('statusBlock says up to date when nothing is pending', () => {
   const block = statusBlock({
-    nickname: '小明',
-    douyinId: 'abc123',
+    account: { nickname: '小明', douyin_id: 'abc123' },
     folder: '/data/abc123',
     collected: 282,
     reported: 284,
@@ -184,8 +185,7 @@ test('statusBlock says up to date when nothing is pending', () => {
 
 test('statusBlock notes a downloads root that has moved', () => {
   const block = statusBlock({
-    nickname: '小明',
-    douyinId: 'abc123',
+    account: { nickname: '小明', douyin_id: 'abc123' },
     folder: '/data/abc123',
     previousRoot: '/proj/downloads',
     downloadsRoot: '/data',
@@ -199,8 +199,7 @@ test('statusBlock notes a downloads root that has moved', () => {
 
 test('statusBlock stays quiet when the root has not moved', () => {
   const block = statusBlock({
-    nickname: '小明',
-    douyinId: 'abc123',
+    account: { nickname: '小明', douyin_id: 'abc123' },
     folder: '/data/abc123',
     previousRoot: '/data',
     downloadsRoot: '/data',
@@ -214,8 +213,7 @@ test('statusBlock stays quiet when the root has not moved', () => {
 
 test('statusBlock explains a gap between collected and reported', () => {
   const block = statusBlock({
-    nickname: '小明',
-    douyinId: 'abc123',
+    account: { nickname: '小明', douyin_id: 'abc123' },
     folder: '/data/abc123',
     collected: 282,
     reported: 284,
@@ -227,8 +225,7 @@ test('statusBlock explains a gap between collected and reported', () => {
 
 test('statusBlock copes with an unknown reported count', () => {
   const block = statusBlock({
-    nickname: null,
-    douyinId: 'abc123',
+    account: { nickname: null, douyin_id: 'abc123' },
     folder: '/data/abc123',
     collected: 282,
     reported: null,
@@ -237,4 +234,68 @@ test('statusBlock copes with an unknown reported count', () => {
   });
   assert.match(block, /collected\s+282/);
   assert.doesNotMatch(block, /counted but not shown/);
+});
+
+test('archivedIds counts unique ids, whatever the whitespace', () => {
+  // The shell reflex is `wc -l`, which disagrees with this on a blank line, a
+  // missing trailing newline, or a repeat — and then a finished run reports a
+  // total that contradicts the number the user approved.
+  assert.equal(archivedIds('douyin 7111\n\ndouyin 7222\ndouyin 7111').size, 2);
+});
+
+test('validatePlan rejects a plan whose timestamp is unreadable', () => {
+  const plan = samplePlan();
+  plan.created_at = 'not-a-date';
+  const err = validatePlan(plan, CHECK);
+  assert.match(err.message, /no readable timestamp/);
+  assert.doesNotMatch(err.message, /NaN/);
+});
+
+test('summaryBlock reports in the same columns the plan was approved in', () => {
+  const block = summaryBlock({
+    account: { nickname: '小明', douyin_id: 'abc123' },
+    folder: '/data/abc123',
+    collected: 282,
+    reported: 284,
+    downloaded: 37,
+    total: 282,
+  });
+  assert.match(block, /小明 \(抖音号 abc123\)/);
+  assert.match(block, /folder\s+\/data\/abc123/);
+  assert.match(block, /collected\s+282 of 284 reported/);
+  assert.match(block, /downloaded\s+37 new, 282 total/);
+  assert.doesNotMatch(block, /warning/);
+});
+
+test('summaryBlock warns when some downloads failed', () => {
+  const block = summaryBlock({
+    account: { nickname: '小明', douyin_id: 'abc123' },
+    folder: '/data/abc123',
+    collected: 282,
+    reported: 284,
+    downloaded: 20,
+    total: 265,
+    failed: true,
+  });
+  assert.match(block, /warning\s+some downloads failed — re-run --go/);
+});
+
+test('statusBlock and summaryBlock line their columns up with each other', () => {
+  const common = {
+    account: { nickname: '小明', douyin_id: 'abc123' },
+    folder: '/data/abc123',
+    collected: 282,
+    reported: 284,
+  };
+  const column = (block, label) => block.split('\n').find((l) => l.includes(label)).indexOf('282');
+  const status = statusBlock({ ...common, onDisk: 282, pending: 0 });
+  const summary = summaryBlock({ ...common, downloaded: 0, total: 282 });
+  assert.equal(column(status, 'collected'), column(summary, 'collected'));
+});
+
+test('videoBlock says whether a single video is already here', () => {
+  const args = { account: { douyin_id: 'abc123' }, folder: '/data/abc123', videoId: '7111' };
+  assert.match(videoBlock({ ...args, onDisk: false }), /to fetch\s+1 new/);
+  assert.match(videoBlock({ ...args, onDisk: true }), /to fetch\s+0 — already downloaded/);
+  assert.match(videoBlock({ ...args, onDisk: true }), /抖音号 abc123/);
 });

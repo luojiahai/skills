@@ -46,7 +46,8 @@ what stops it finishing.
 | `download-douyin.sh` | General-purpose layer: a list of URLs/IDs in, files out, with throttling and a resumable archive. Knows nothing about accounts. |
 | `collect-douyin-ids.mjs` | Drives Playwright, scrolls the profile, emits video URLs and profile metadata. |
 | `export-cookies.mjs` | Exports the Playwright session as a Netscape `cookies.txt` for yt-dlp. |
-| `plan.mjs` | The confirm step: diffs the collected list against the archive, renders the status block, owns `.plan.json`. |
+| `plan.mjs` | The confirm step: diffs the collected list against the archive, owns `.plan.json`, and renders **every** block the skill prints. |
+| `cli.mjs` | The argument parsing and file reading `plan.mjs` and `cursor.mjs` share. |
 | `cursor.mjs` | Resolves an account's folder by identity; writes `cursor.json`; answers what the downloads root is. |
 | `paths.mjs` | Single source of truth for where state lives and how Playwright is found. |
 | `collect-douyin-ids.js` | The same harvest as a DevTools console snippet — a no-dependency fallback if Playwright breaks. |
@@ -73,10 +74,12 @@ report described. In between, the list waits in `<folder>/.plan.json`, which is
 why confirming costs no second collection and why what is fetched is exactly
 what was shown.
 
-`--go` opens no browser at all. The `sec_uid` is in the profile URL, so the
+`--go` runs no collection pass. The `sec_uid` is in the profile URL, so the
 folder is found by scanning the root for a matching `cursor.json` **or**
 `.plan.json` — the second of those is what finds an account planned but never
-downloaded, which by definition has no cursor yet.
+downloaded, which by definition has no cursor yet. The only browser it can open
+is `export-cookies.mjs`, and only when the cached cookies are missing or yt-dlp
+has just rejected them.
 
 A plan is refused rather than repaired when it is missing, older than 24h, or
 written for another account, root or folder. The alternative to refusing is
@@ -85,7 +88,16 @@ it has landed, and kept when a run stops partway, so a retry re-fetches only
 what is missing.
 
 `--yes` does both halves in one process, for using the scripts by hand. The
-skill never uses it: an agent asks.
+skill never reaches for it — an agent asks — but it outranks a `--plan` or
+`--go` that comes after it on the command line, so a user who typed it keeps
+their pre-authorisation when the skill appends its own mode flag.
+
+Every block printed — the one approved, the one a finished run reports, the one
+a single video gets — is rendered by `plan.mjs`, and the archive is counted in
+exactly one place (`archivedIds`). They were briefly three hand-aligned copies
+across two languages, with `wc -l` counting in one of them and unique ids in
+another; a blank line in `.archive.txt` was enough to make a run contradict the
+number the user had approved.
 
 ## The downloads root is computed once
 
@@ -141,10 +153,15 @@ recovered from the install path (`<project>/.claude/skills/<skill>` or
 `--downloads`. Guessing is the one thing it must not do — a wrong root splits
 `.archive.txt` and silently re-downloads everything.
 
-`paths.mjs` is the only place these rules are written, and `download.sh` asks
-it rather than reimplementing them. `../setup.sh` installs into the state
-directory and is safe to re-run — the skill's `package.json` is the version
-manifest, copied in at install time.
+The **downloads** root is written down once, in `paths.mjs`, and `download.sh`
+asks for it through `cursor.mjs root` rather than reimplementing the rule — it
+is the root that varies per run, and two answers to it would split
+`.archive.txt`. The **state** directory is still spelled out in both languages
+(`paths.mjs` and the top of `download.sh`): it is one unchanging expression,
+`${XDG_STATE_HOME:-~/.local/state}/douyin-downloader`, and the shell needs it
+before it can afford to start Node. Change it in one place and change it in the
+other. `../setup.sh` installs into that directory and is safe to re-run — the
+skill's `package.json` is the version manifest, copied in at install time.
 
 Playwright is loaded from the state directory by explicit path, since that is
 outside Node's upward module resolution. It is CommonJS, so an import by path

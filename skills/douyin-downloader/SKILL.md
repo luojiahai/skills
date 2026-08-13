@@ -17,6 +17,11 @@ Whatever the user typed after the URL is passed through exactly as given —
 those are the script's own flags, and an unknown one produces its usage error
 rather than a guess from you. `--plan` and `--go` you add yourself.
 
+One exception: if the user typed `--yes` themselves, that **is** their
+confirmation. Run their command once, as given, and report what comes back —
+do not add `--plan` or `--go`, and do not ask. It is not a flag for you to
+reach for on your own.
+
 Run it **from the user's working directory** — call it by its full path, do not
 `cd` into the skill first. Downloads land relative to where you run it, and a
 skill directory is replaced by the next update.
