@@ -1,5 +1,16 @@
 # luojiahai-skills
 
+## 0.1.10
+
+### Patch Changes
+
+- [#25](https://github.com/luojiahai/skills/pull/25) [`75a1324`](https://github.com/luojiahai/skills/commit/75a1324146230840d2f0e93420bbca7b1b3b7d0d) Thanks [@luojiahai](https://github.com/luojiahai)! - douyin-downloader: stop downloads landing inside the skill folder. Told to run
+  `scripts/download.sh`, an agent tends to cd into the skill first, and in a
+  project that is not a git repository the download root was then the skill's own
+  directory — where the next update deletes the archive. A cwd inside the skill is
+  now discarded: the project is recovered from the install path, and where that
+  names none the run stops and asks for `--downloads DIR` rather than guessing.
+
 ## 0.1.9
 
 ### Patch Changes
