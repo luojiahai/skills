@@ -32,6 +32,12 @@ that, returning 7 videos, none of them the account's.
 **Grid class names are obfuscated and rotate** (`a.RZuwF26I`, `div.gsF4XxDR`).
 Filter structurally — exclude `footer`, exclude the SEO marker — never by class.
 
+**The pauses are what let a long run finish.** `download-douyin.sh` runs yt-dlp
+with `--sleep-requests 2 --sleep-interval 3 --max-sleep-interval 8`. Douyin
+rate-limits hard: an unthrottled batch starts failing partway through and can
+get the session challenged. Tuning these down to make a run finish faster is
+what stops it finishing.
+
 ## Files
 
 | File | Role |
