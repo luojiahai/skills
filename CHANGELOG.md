@@ -1,5 +1,16 @@
 # luojiahai-skills
 
+## 0.1.9
+
+### Patch Changes
+
+- [#22](https://github.com/luojiahai/skills/pull/22) [`fff08e3`](https://github.com/luojiahai/skills/commit/fff08e3aceb8431f0a15775b62f3d959cdcaa52f) Thanks [@luojiahai](https://github.com/luojiahai)! - Tighten the `douyin-downloader` skill. `SKILL.md` no longer restates the design
+  constraints already held in `scripts/README.md`, and the throttling rationale
+  moves there too — both are read only when changing the scripts, not when
+  running one. The sign-in step is now framed as a handoff that says what to do,
+  rather than two prohibitions, and `.archive.txt` is described once as what makes
+  a run resumable.
+
 ## 0.1.8
 
 ### Patch Changes
