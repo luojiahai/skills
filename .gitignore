@@ -1,7 +1,4 @@
 node_modules
-.agents/skills
-.claude/skills
+.agents
+.claude
 skills-lock.json
-
-# Downloads produced by skills/media/douyin-downloader
-downloads/

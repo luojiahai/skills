@@ -12,7 +12,7 @@ Every change that users should hear about carries a changeset: `npx changeset`, 
 
 The top-level `README.md` lists every skill, with the skill name linked to its `SKILL.md`, grouped into **User-invoked** and **Model-invoked**.
 
-Every `SKILL.md` is either user-invoked (`disable-model-invocation: true` plus `policy.allow_implicit_invocation: false` in `agents/openai.yaml`, reachable only by the human) or model-invoked (model- or user-reachable). See [.agents/invocation.md](./.agents/invocation.md).
+Every `SKILL.md` is either user-invoked (`disable-model-invocation: true` plus `policy.allow_implicit_invocation: false` in `agents/openai.yaml`, reachable only by the human) or model-invoked (model- or user-reachable). See [docs/agents/invocation.md](./docs/agents/invocation.md).
 
 To (re)link every skill into the local harness skill directories (`~/.claude/skills`, `~/.agents/skills`), run `scripts/link-skills.sh`. Each entry is a symlink into this repo, so a `git pull` keeps installed skills current; re-run the script after adding, removing, or renaming a skill. It only ever adds links — after a rename or removal, delete the stale symlink in each destination by hand, or the old name keeps resolving to a dangling target.
 
