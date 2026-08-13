@@ -8,8 +8,8 @@
 #   download.sh https://www.douyin.com/user/MS4w...     all of an account
 #   download.sh https://www.douyin.com/video/711...     one video
 #
-# Re-running an account downloads only what is missing: yt-dlp's .archive.txt
-# in the account folder records what has landed.
+# Runs are resumable: yt-dlp's .archive.txt in the account folder is the sole
+# record of what has landed, so a re-run fetches only what is missing.
 
 set -euo pipefail
 
