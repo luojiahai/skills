@@ -7,7 +7,7 @@ Agent skills for the life admin nobody else is going to do for you. They don't a
 First one out: an Australian individual tax return.
 
 > [!IMPORTANT]
-> **`preparing-tax-return` is Australia only.** It prepares an Australian individual return through the ATO's myTax; nothing in it transfers to another country's return. It is not tax advice, and its author is not a registered tax agent. It lodges nothing and never touches your ATO account — you hold the myGov credentials, you check every figure, you lodge. The full declaration is in the skill's [What this is, and what it is not](./skills/finance/preparing-tax-return/SKILL.md).
+> **`preparing-tax-return` is Australia only.** It prepares an Australian individual return through the ATO's myTax; nothing in it transfers to another country's return. It is not tax advice, and its author is not a registered tax agent. It lodges nothing and never touches your ATO account — you hold the myGov credentials, you check every figure, you lodge. The full declaration is in the skill's [What this is, and what it is not](./skills/preparing-tax-return/SKILL.md).
 
 ## Quickstart
 
@@ -50,13 +50,9 @@ TODO
 
 Skills split on one axis — who can invoke them. **User-invoked** skills are reachable only when you type them (e.g. `/preparing-tax-return`); their job is to orchestrate. **Model-invoked** skills can be invoked by you *or* reached for automatically by the agent when the task fits.
 
-### Finance
-
-The money admin you do yourself.
-
 **User-invoked**
 
-- **[preparing-tax-return](./skills/finance/preparing-tax-return/SKILL.md)** — **Australia only** — prepare an individual tax return for self-lodgement in myTax: gather your documents, reconcile the ATO prefill, test every deduction for nexus, apportionment and substantiation, and produce a label-by-label worksheet you check and type in yourself. *Not tax advice — see the callout above.*
+- **[preparing-tax-return](./skills/preparing-tax-return/SKILL.md)** — **Australia only** — prepare an individual tax return for self-lodgement in myTax: gather your documents, reconcile the ATO prefill, test every deduction for nexus, apportionment and substantiation, and produce a label-by-label worksheet you check and type in yourself. *Not tax advice — see the callout above.*
 
   *Verified against the 2026 income year.* An older stamp doesn't mean stale rates — every rate and threshold is fetched from ato.gov.au on each run. It means the myTax walkthrough may lag a section that has been renamed or added since.
 
@@ -65,6 +61,14 @@ The money admin you do yourself.
   **How it gets your documents.** It asks for one document at a time, saying what each one feeds, and you hand it over however suits you — pasted into the session, a file dragged in, a path, a link, or dropped in a folder beside the worksheet. It never goes looking on its own; it reads what you put in front of it and nothing else. Each document is copied into a bundle beside the worksheet, and every figure that lands on a myTax label is read back to you before it is written down.
 
   **When to run it.** Prefill fills in through July as employers, banks, funds and health insurers report, and is usually complete in the first half of August. Building the worksheet earlier is fine; lodging against incomplete prefill earns an amendment later. Self-lodgers must lodge by **31 October**.
+
+- **[douyin-downloader](./skills/douyin-downloader/SKILL.md)** — download every video from a Douyin account, or a single video, into `./downloads/`. Re-runs fetch only what is new, so an account can be re-archived later without pulling down what you already have.
+
+  **You'll need** [yt-dlp](https://github.com/yt-dlp/yt-dlp) and Node installed, and a one-off Douyin sign-in — a browser opens, you sign in, and the session is reused from then on. The skill's `setup.sh` checks the rest and tells you what's missing.
+
+  **Why it needs a browser.** yt-dlp has no Douyin account extractor, and Douyin's feed API refuses unsigned requests, so the list of an account's videos can only be read out of a real page. The downloading itself is yt-dlp's.
+
+  **It fetches; it doesn't publish.** Videos land in a folder in your project and nothing is uploaded anywhere. What you may keep, and what you may do with it, is between you, Douyin's terms and the uploader's copyright — that call is yours, not the agent's. The pauses between requests are deliberate: a run with them removed gets cut off partway.
 
 ## Maintenance
 

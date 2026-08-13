@@ -15,9 +15,13 @@
     "tax",
     "australia",
     "ato",
-    "mytax"
+    "mytax",
+    "douyin",
+    "yt-dlp",
+    "archiving"
   ],
   "skills": [
-    "./skills/finance/preparing-tax-return"
+    "./skills/preparing-tax-return",
+    "./skills/douyin-downloader"
   ]
 }

@@ -1,16 +1,8 @@
-Skills are organized into bucket folders under `skills/`:
+Every skill is a folder directly under `skills/` — one flat level, no categories. A skill that isn't ready to ship doesn't live here yet.
 
-- `finance/` — the money admin you do yourself
-- `in-progress/` — drafts not yet ready to ship
-- `deprecated/` — no longer used
-- `misc/` — kept around but rarely used, not promoted
-- `personal/` — tied to my own setup, not promoted
+A skill folder is named as a **gerund phrase naming the activity** — `preparing-tax-return` — not a bare verb (`prepare-…`) and not a bare noun. Scope qualifiers — jurisdiction, product, platform — live in the **description**, not the name; for a user-invoked skill the description is human-facing and appears beside the name wherever the skill is listed, so that is where a reader meets the scope. A skill whose name is generic owes its scope a stated line in `SKILL.md` and in the top-level `README.md`, and a sentence the agent says out loud on the first run.
 
-Only `finance/` exists today. Create a bucket the first time a skill belongs in it — an empty bucket with a `README.md` listing nothing is a doc that lies.
-
-A skill folder is named as a **gerund phrase naming the activity** — `preparing-tax-return` — not a bare verb (`prepare-…`) and not a bare noun. Scope qualifiers — jurisdiction, product, platform — live in the **description**, not the name; for a user-invoked skill the description is human-facing and appears beside the name wherever the skill is listed, so that is where a reader meets the scope. A skill whose name is generic owes its scope a stated line in `SKILL.md` and in both `README.md`s, and a sentence the agent says out loud on the first run.
-
-Every skill in a **promoted** bucket (`finance/`, and any future topical bucket) must have a reference in the top-level `README.md` and an entry in `.claude-plugin/plugin.json`'s `skills` array — the Claude Code plugin ships exactly the promoted set. Skills in `in-progress/`, `deprecated/`, `misc/` and `personal/` must not appear in either.
+Every skill must have a reference in the top-level `README.md` and an entry in `.claude-plugin/plugin.json`'s `skills` array — the Claude Code plugin ships exactly what's in `skills/`.
 
 The repo is its own single-plugin Claude Code marketplace: `.claude-plugin/marketplace.json` lists the one `luojiahai-skills` plugin, sourced from `./`. Run `claude plugin validate . --strict` after touching either manifest.
 
@@ -18,9 +10,7 @@ The repo is its own single-plugin Claude Code marketplace: `.claude-plugin/marke
 
 Every change that users should hear about carries a changeset: `npx changeset`, then commit the generated `.changeset/*.md`. Merging to `main` opens a `chore: version skills` PR; merging that cuts `CHANGELOG.md` and the git tag.
 
-Each skill entry in the top-level `README.md` must link the skill name to its `SKILL.md`.
-
-Each bucket folder has a `README.md` that lists every skill in the bucket with a one-line description, with the skill name linked to its `SKILL.md`. Promoted buckets' `README.md`s and the top-level `README.md` group entries into **User-invoked** and **Model-invoked**; non-promoted bucket `README.md`s use a flat list.
+The top-level `README.md` lists every skill, with the skill name linked to its `SKILL.md`, grouped into **User-invoked** and **Model-invoked**.
 
 Every `SKILL.md` is either user-invoked (`disable-model-invocation: true` plus `policy.allow_implicit_invocation: false` in `agents/openai.yaml`, reachable only by the human) or model-invoked (model- or user-reachable). See [.agents/invocation.md](./.agents/invocation.md).
 
