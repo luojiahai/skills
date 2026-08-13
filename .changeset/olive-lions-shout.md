@@ -1,5 +1,5 @@
 ---
-"luojiahai-skills": minor
+"luojiahai-skills": patch
 ---
 
 douyin-downloader now asks before it downloads, and lets you choose where videos land.
