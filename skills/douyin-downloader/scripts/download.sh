@@ -2,11 +2,19 @@
 #
 # download.sh — entry point for the douyin-downloader skill.
 #
-# Owns folder and cursor policy; delegates the actual fetching to
-# download-douyin.sh and the ID collection to collect-douyin-ids.mjs.
+# Owns folder, plan and cursor policy; delegates the actual fetching to
+# download-douyin.sh, the ID collection to collect-douyin-ids.mjs, and the
+# diff-and-confirm step to plan.mjs.
 #
-#   download.sh https://www.douyin.com/user/MS4w...     all of an account
-#   download.sh https://www.douyin.com/video/711...     one video
+#   download.sh <profile-url> --plan     collect, report what would be fetched
+#   download.sh <profile-url> --go       download what that plan listed
+#   download.sh <profile-url> --yes      both, without stopping to confirm
+#   download.sh <video-url>              one video, straight away
+#
+# An account is never downloaded without an explicit --go or --yes: the list is
+# collected first and reported, so the account, the folder and the number of
+# videos are all known before anything is fetched. A bare profile URL therefore
+# behaves as --plan.
 #
 # Runs are resumable: yt-dlp's .archive.txt in the account folder is the sole
 # record of what has landed, so a re-run fetches only what is missing.
@@ -15,9 +23,6 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SKILL_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
-# Symlinks resolved as well, so a symlinked install still compares equal to a
-# working directory sitting inside it.
-SKILL_REAL="$(cd "${SCRIPT_DIR}/.." && pwd -P)"
 
 # The skill directory is pure source and may live anywhere — a plugin dir, a
 # read-only checkout — so nothing mutable hangs off it. Session state is
@@ -27,64 +32,53 @@ STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/douyin-downloader"
 PROFILE_DIR="${STATE_DIR}/profile"
 COOKIE_FILE="${STATE_DIR}/cookies.txt"
 
-# <project>/.claude/skills/<skill> and <project>/.agents/skills/<skill> are the
-# two install layouts that name their own project. Prints nothing for any other.
-project_from_install() {
-  local skills harness
-  skills="$(dirname "$SKILL_REAL")"
-  harness="$(dirname "$skills")"
-  [[ "$(basename "$skills")" == skills ]] || return 0
-  case "$(basename "$harness")" in
-    .claude | .agents) dirname "$harness" ;;
-  esac
-}
-
-# The project is the current directory — unless the current directory is inside
-# the skill. Told to run `scripts/download.sh`, an agent tends to cd here first,
-# and then the cwd names the skill rather than the project: a whole archive
-# lands inside an installed skill folder, which the next update replaces. So a
-# cwd in here counts for nothing, and the project is recovered from the install
-# path instead; if that cannot name one either, DOWNLOADS stays empty and the
-# run stops below rather than guessing.
-PWD_REAL="$(pwd -P)"
-if [[ "$PWD_REAL" == "$SKILL_REAL" || "$PWD_REAL" == "$SKILL_REAL"/* ]]; then
-  PROJECT_ROOT="$(project_from_install)"
-else
-  PROJECT_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || true)"
-  PROJECT_ROOT="${PROJECT_ROOT:-$PWD}"
-fi
-
-DOWNLOADS=""
-if [[ -n "$PROJECT_ROOT" ]]; then
-  DOWNLOADS="${PROJECT_ROOT}/downloads"
-fi
-
 NAME=""
 URL=""
+DOWNLOADS_ARG=""
+MODE=""
+
+# --yes is the user's own say-so, and the skill appends --plan or --go after
+# whatever flags the user typed. Last-wins would therefore quietly overrule a
+# user who pre-authorised the run, so --yes outranks both rather than being
+# overwritten by whichever came last.
+set_mode() {
+  [[ "$MODE" == "yes" ]] || MODE="$1"
+}
 
 usage() {
   cat <<'EOF'
 download.sh — download a Douyin account's videos, or a single video.
 
-Usage: download.sh <url> [--name NAME]
+Usage: download.sh <url> [--downloads DIR] [--name NAME] [--plan|--go|--yes]
 
   <url>   https://www.douyin.com/user/MS4w...   every video from the account
           https://www.douyin.com/video/711...   one video
 
+Modes (profile URLs):
+      --plan            Collect the video list, report what would be fetched,
+                        and stop. The default: nothing is downloaded until a
+                        plan has been made and approved.
+      --go              Download the videos the last --plan listed. Needs a
+                        plan made within the last 24h for this account and
+                        this downloads root.
+      --yes, -y         Plan and download in one run, without stopping.
+
 Options:
+      --downloads DIR   Root download directory. The account folder is
+                        DIR/<抖音号 or --name>.
+                        (default: <git root, else cwd>/downloads — required
+                        when run from inside the skill directory)
       --name NAME       Folder name for this account (default: its 抖音号).
                         Only needed once; later runs find the folder by
                         matching the account identity in cursor.json.
       --user URL        Accepted as an alias for a positional profile URL.
-      --downloads DIR   Root download directory
-                        (default: <git root, else cwd>/downloads — required
-                        when run from inside the skill directory)
       --profile DIR     Playwright session profile
                         (default: ~/.local/state/douyin-downloader/profile)
   -h, --help            Show this help
 
 Videos land in <downloads>/<folder>/videos/, alongside cursor.json (identity
-and last-run state) and .archive.txt (yt-dlp's record of what is downloaded).
+and last-run state), .archive.txt (yt-dlp's record of what is downloaded) and,
+between --plan and --go, .plan.json (the list awaiting approval).
 EOF
 }
 
@@ -92,8 +86,11 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --name)      NAME="$2"; shift 2 ;;
     --user)      URL="$2"; shift 2 ;;
-    --downloads) DOWNLOADS="$2"; shift 2 ;;
+    --downloads) DOWNLOADS_ARG="$2"; shift 2 ;;
     --profile)   PROFILE_DIR="$2"; shift 2 ;;
+    --plan)      set_mode plan; shift ;;
+    --go)        set_mode go; shift ;;
+    -y | --yes)  MODE="yes"; shift ;;
     -h | --help) usage; exit 0 ;;
     -*) echo "error: unknown option '$1' (try --help)" >&2; exit 2 ;;
     *)  URL="$1"; shift ;;
@@ -107,13 +104,16 @@ if [[ -z "$URL" ]]; then
   exit 2
 fi
 
-if [[ -z "$DOWNLOADS" ]]; then
-  echo "error: cannot tell which project these downloads belong to." >&2
-  echo "The working directory is inside the skill (${PWD}), and a skill" >&2
-  echo "directory is replaced by the next update — an archive there is lost." >&2
-  echo "Re-run from the project directory, or pass --downloads DIR." >&2
-  exit 2
-fi
+# Where downloads live is decided in one place, paths.mjs, rather than being
+# recomputed here: a root that disagrees with the one the Node scripts use
+# would split .archive.txt and silently re-download everything. It also expands
+# ~ and makes the path absolute, since the agent passes the user's flag through
+# as typed and a quoted ~/data never reaches the shell's expansion.
+DOWNLOADS="$(node "${SCRIPT_DIR}/cursor.mjs" root --downloads "$DOWNLOADS_ARG")" || exit 2
+
+# The command that makes a plan, quoted back to the user in every message that
+# needs one to exist.
+PLAN_HINT="${SCRIPT_DIR}/download.sh '${URL}'${DOWNLOADS_ARG:+ --downloads '${DOWNLOADS_ARG}'}${NAME:+ --name '${NAME}'} --plan"
 
 # ---- preflight -------------------------------------------------------------
 # Three cheap checks with a one-line remedy each. Session expiry is the fourth
@@ -140,10 +140,27 @@ if [[ ! -d "$PROFILE_DIR" ]]; then
   exit 1
 fi
 
-TMP_URLS=""
+TMP_COLLECTED=""
 TMP_META=""
-cleanup() { rm -f ${TMP_URLS:+"$TMP_URLS"} ${TMP_META:+"$TMP_META"}; }
+TMP_PENDING=""
+cleanup() {
+  rm -f ${TMP_COLLECTED:+"$TMP_COLLECTED"} ${TMP_META:+"$TMP_META"} ${TMP_PENDING:+"$TMP_PENDING"}
+}
 trap cleanup EXIT
+
+# Reads one field out of a JSON file. The path goes through argv rather than
+# into the script source, so a folder name with a quote in it cannot break it.
+json_field() {
+  node -e 'let o={};try{o=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"))}catch{}
+           const v=o[process.argv[2]];console.log(v===undefined||v===null?"":v)' "$1" "$2"
+}
+
+# Counting the archive and printing a block both belong to plan.mjs, so that
+# what a run reports is rendered by the same code that rendered what the user
+# approved — and counted by the same rule.
+plan_mjs() {
+  node "${SCRIPT_DIR}/plan.mjs" "$@"
+}
 
 # Cookies are cached and reused; they are only re-minted when yt-dlp actually
 # rejects them, so the common path costs no browser launch.
@@ -189,37 +206,55 @@ resolve_folder() {
 # ---- single video ----------------------------------------------------------
 if [[ "$URL" =~ /video/([0-9]+) ]]; then
   VIDEO_ID="${BASH_REMATCH[1]}"
-  echo "[douyin] single video ${VIDEO_ID}"
 
   [[ -f "$COOKIE_FILE" ]] || mint_cookies
 
   # yt-dlp's `uploader` field is the 抖音号 — enough to file the video under the
   # right account without opening a browser.
-  DOUYIN_ID="$(yt-dlp --cookies "$COOKIE_FILE" --print "%(uploader)s" \
-    --skip-download "https://www.douyin.com/video/${VIDEO_ID}" 2>/dev/null | head -1)"
+  #
+  # `|| true` is load-bearing: under `set -e -o pipefail` a yt-dlp that exits
+  # non-zero would take the whole script down here, with its stderr already sent
+  # to /dev/null — a silent exit 1, and the retry and diagnosis below would
+  # never be reached.
+  uploader_of() {
+    yt-dlp --cookies "$COOKIE_FILE" --print "%(uploader)s" \
+      --skip-download "https://www.douyin.com/video/$1" 2>/dev/null | head -1 || true
+  }
+
+  DOUYIN_ID="$(uploader_of "$VIDEO_ID")"
 
   if [[ -z "$DOUYIN_ID" ]]; then
-    echo "[douyin] cookies rejected — re-minting and retrying once…"
+    echo "[douyin] no metadata — re-minting cookies and retrying once…"
     mint_cookies
-    DOUYIN_ID="$(yt-dlp --cookies "$COOKIE_FILE" --print "%(uploader)s" \
-      --skip-download "https://www.douyin.com/video/${VIDEO_ID}" 2>/dev/null | head -1)"
+    DOUYIN_ID="$(uploader_of "$VIDEO_ID")"
   fi
 
   if [[ -z "$DOUYIN_ID" ]]; then
-    echo "error: could not read video metadata — the session may be dead." >&2
-    echo "Re-establish it with: node ${SCRIPT_DIR}/collect-douyin-ids.mjs --login <profile-url>" >&2
+    echo "error: could not read metadata for video ${VIDEO_ID}." >&2
+    echo "The video may be private, deleted or region-locked; failing that, the" >&2
+    echo "session is dead — re-establish it with:" >&2
+    echo "  node ${SCRIPT_DIR}/collect-douyin-ids.mjs --login <profile-url>" >&2
     exit 1
   fi
 
-  FOLDER="$(resolve_folder --douyin-id "$DOUYIN_ID" ${NAME:+--name "$NAME"})"
+  FOLDER="$(resolve_folder --douyin-id "$DOUYIN_ID" --name "$NAME")"
+
+  # A single video is already as specific as an instruction gets, so it is not
+  # planned or confirmed — but --plan still answers where it would land.
+  if [[ "$MODE" == "plan" ]]; then
+    plan_mjs video --folder "$FOLDER" --douyin-id "$DOUYIN_ID" --video "$VIDEO_ID"
+    exit 0
+  fi
+
+  echo "[douyin] single video ${VIDEO_ID}"
   mkdir -p "${FOLDER}/videos"
 
-  TMP_URLS="$(mktemp -t douyin-single)"
-  echo "https://www.douyin.com/video/${VIDEO_ID}" >"$TMP_URLS"
+  TMP_PENDING="$(mktemp -t douyin-single)"
+  echo "https://www.douyin.com/video/${VIDEO_ID}" >"$TMP_PENDING"
 
   # cursor.json is deliberately not written here: a single video does not mean
   # the account has been scanned up to that point.
-  download_list "$TMP_URLS" "$FOLDER"
+  download_list "$TMP_PENDING" "$FOLDER"
   echo
   echo "[douyin] ${FOLDER}/videos"
   exit 0
@@ -232,66 +267,107 @@ if [[ ! "$URL" =~ douyin\.com/user/ ]]; then
   exit 2
 fi
 
-TMP_URLS="$(mktemp -t douyin-urls)"
+# The sec_uid is in the URL, so --go can find the account's folder without
+# opening a browser at all.
+SEC_UID=""
+if [[ "$URL" =~ /user/([^/?#]+) ]]; then
+  SEC_UID="${BASH_REMATCH[1]}"
+fi
+
+# Downloads the plan sitting in $1, which --plan wrote and the user approved.
+run_plan() {
+  local folder="$1" before after pending status=0
+
+  TMP_PENDING="$(mktemp -t douyin-pending)"
+  plan_mjs load --folder "$folder" --downloads "$DOWNLOADS" \
+    --sec-uid "$SEC_UID" --out "$TMP_PENDING" --remedy "$PLAN_HINT"
+
+  pending="$(wc -l <"$TMP_PENDING" | tr -d ' ')"
+  before="$(plan_mjs count --folder "$folder")"
+
+  mkdir -p "${folder}/videos"
+  echo "[douyin] downloading ${pending} video(s) to ${folder}/videos…"
+  download_list "$TMP_PENDING" "$folder" || status=$?
+
+  echo "[douyin] updating cursor…"
+  node "${SCRIPT_DIR}/cursor.mjs" write --folder "$folder" --meta "${folder}/.plan.json" \
+    --downloads "$DOWNLOADS"
+
+  after="$(plan_mjs count --folder "$folder")"
+
+  echo
+  plan_mjs summary --folder "$folder" --before "$before" --after "$after" \
+    --exit-status "$status"
+
+  # Kept after a partial run, so a retry re-fetches only what is missing
+  # without paying for another collection; removed once it has all landed.
+  # After the summary, which reads the plan for the account's name and counts.
+  if [[ "$status" == 0 ]]; then
+    plan_mjs clear --folder "$folder"
+  fi
+
+  return "$status"
+}
+
+# ---- --go: download an approved plan, no browser involved -------------------
+if [[ "$MODE" == "go" ]]; then
+  RESOLVE_STATUS=0
+  FOLDER="$(resolve_folder --sec-uid "$SEC_UID" --require-match)" || RESOLVE_STATUS=$?
+
+  # 3 is "no folder here for this account", which has a remedy. Anything else
+  # is a real failure that has already said what it was, and swallowing it as
+  # "no plan" would send the user off to fix the wrong thing.
+  if [[ "$RESOLVE_STATUS" == 3 ]]; then
+    echo "error: no folder for this account under ${DOWNLOADS}, so there is no plan to run." >&2
+    echo "  run: ${PLAN_HINT}" >&2
+    exit 2
+  elif [[ "$RESOLVE_STATUS" != 0 ]]; then
+    exit "$RESOLVE_STATUS"
+  fi
+
+  GO_STATUS=0
+  run_plan "$FOLDER" || GO_STATUS=$?
+  exit "$GO_STATUS"
+fi
+
+# ---- --plan / --yes: collect, diff, report ---------------------------------
+TMP_COLLECTED="$(mktemp -t douyin-urls)"
 TMP_META="$(mktemp -t douyin-meta)"
 
-echo "[1/3] Collecting video IDs…"
+echo "[douyin] collecting video IDs…"
 node "${SCRIPT_DIR}/collect-douyin-ids.mjs" "$URL" \
-  -o "$TMP_URLS" --meta "$TMP_META" --headless --profile "$PROFILE_DIR"
+  -o "$TMP_COLLECTED" --meta "$TMP_META" --headless --profile "$PROFILE_DIR"
 
-DOUYIN_ID="$(node -e "console.log(JSON.parse(require('fs').readFileSync('$TMP_META','utf8')).douyin_id ?? '')")"
-SEC_UID="$(node -e "console.log(JSON.parse(require('fs').readFileSync('$TMP_META','utf8')).sec_uid ?? '')")"
+DOUYIN_ID="$(json_field "$TMP_META" douyin_id)"
+[[ -n "$SEC_UID" ]] || SEC_UID="$(json_field "$TMP_META" sec_uid)"
 
 if [[ -z "$DOUYIN_ID" ]]; then
   echo "error: could not read 抖音号 from the profile page." >&2
   exit 1
 fi
 
-FOLDER="$(resolve_folder --douyin-id "$DOUYIN_ID" --sec-uid "$SEC_UID" ${NAME:+--name "$NAME"})"
-mkdir -p "${FOLDER}/videos"
-
-# Write identity now, not just at the end. cursor.json is what ties this
-# account to a --name folder, so a run interrupted mid-download would otherwise
-# leave the folder anonymous — and the next run would resolve to a fresh
-# <抖音号> folder, split the archive, and re-download everything.
-node "${SCRIPT_DIR}/cursor.mjs" write --folder "$FOLDER" --meta "$TMP_META"
-
-# Count what is already downloaded, so the summary can report what is new.
-# Guarded with `if` rather than `[[ ]] &&`: under set -e a failing && list
-# aborts the script, which is precisely the first-run case (no archive yet).
-BEFORE=0
-if [[ -f "${FOLDER}/.archive.txt" ]]; then
-  BEFORE="$(wc -l <"${FOLDER}/.archive.txt" | tr -d ' ')"
-fi
-
-echo "[2/3] Downloading to ${FOLDER}/videos…"
-DL_STATUS=0
-download_list "$TMP_URLS" "$FOLDER" || DL_STATUS=$?
-
-echo "[3/3] Updating cursor…"
-node "${SCRIPT_DIR}/cursor.mjs" write --folder "$FOLDER" --meta "$TMP_META"
-
-AFTER=0
-if [[ -f "${FOLDER}/.archive.txt" ]]; then
-  AFTER="$(wc -l <"${FOLDER}/.archive.txt" | tr -d ' ')"
-fi
-COLLECTED="$(wc -l <"$TMP_URLS" | tr -d ' ')"
-REPORTED="$(node -e "console.log(JSON.parse(require('fs').readFileSync('$TMP_META','utf8')).reported_works_count ?? '?')")"
-NICKNAME="$(node -e "console.log(JSON.parse(require('fs').readFileSync('$TMP_META','utf8')).nickname ?? '?')")"
+FOLDER="$(resolve_folder --douyin-id "$DOUYIN_ID" --sec-uid "$SEC_UID" --name "$NAME")"
 
 echo
-echo "──────────────────────────────────────────"
-echo " ${NICKNAME} (抖音号 ${DOUYIN_ID})"
-echo " folder      ${FOLDER}"
-echo " collected   ${COLLECTED} of ${REPORTED} reported"
-echo " downloaded  $((AFTER - BEFORE)) new, ${AFTER} total"
-if [[ "$REPORTED" != "?" && "$COLLECTED" -lt "$REPORTED" ]]; then
-  echo " note        $((REPORTED - COLLECTED)) post(s) counted but not shown"
-  echo "             (private, deleted, or region-locked)"
-fi
-if [[ "$DL_STATUS" != 0 ]]; then
-  echo " warning     some downloads failed — re-run to retry only those"
-fi
-echo "──────────────────────────────────────────"
+node "${SCRIPT_DIR}/plan.mjs" build --meta "$TMP_META" --urls "$TMP_COLLECTED" \
+  --folder "$FOLDER" --downloads "$DOWNLOADS"
 
-exit "$DL_STATUS"
+# No plan file means nothing to fetch. The scan was then the whole run, so the
+# cursor is brought up to date and there is nothing to confirm.
+if [[ ! -f "${FOLDER}/.plan.json" ]]; then
+  node "${SCRIPT_DIR}/cursor.mjs" write --folder "$FOLDER" --meta "$TMP_META" \
+    --downloads "$DOWNLOADS"
+  exit 0
+fi
+
+if [[ "$MODE" != "yes" ]]; then
+  echo
+  echo "Nothing has been downloaded. To fetch the videos above:"
+  echo "  ${PLAN_HINT% --plan} --go"
+  exit 0
+fi
+
+echo
+YES_STATUS=0
+run_plan "$FOLDER" || YES_STATUS=$?
+exit "$YES_STATUS"
