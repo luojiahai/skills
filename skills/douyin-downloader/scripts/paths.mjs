@@ -75,6 +75,44 @@ export function downloadsRoot(cwd = process.cwd()) {
 }
 
 /**
+ * A downloads root given on the command line, made absolute and tilde-free.
+ *
+ * The agent passes the user's flag through as typed, and a quoted `~/data`
+ * never reaches the shell's expansion — so the expansion happens here instead,
+ * once, where every caller agrees on the answer. Storing anything relative
+ * would be worse than useless: `./downloads` resolved from a different working
+ * directory is a different archive.
+ */
+export function normalizeRoot(dir, cwd = process.cwd()) {
+  let expanded = String(dir);
+  if (expanded === '~') expanded = os.homedir();
+  else if (expanded.startsWith('~/')) expanded = path.join(os.homedir(), expanded.slice(2));
+  return realpathPrefix(path.resolve(cwd, expanded));
+}
+
+/**
+ * The path with symlinks resolved as far as it exists, keeping the rest as
+ * given. A downloads root often does not exist yet, so plain realpath is not
+ * available — but the *default* root is read off the real filesystem, so
+ * `--downloads /tmp/dy` has to normalise the same way `/tmp` itself does or a
+ * plan made one way is refused the other.
+ */
+function realpathPrefix(target) {
+  const tail = [];
+  let head = target;
+  for (;;) {
+    try {
+      return path.join(realpathSync(head), ...tail);
+    } catch {
+      const parent = path.dirname(head);
+      if (parent === head) return target;
+      tail.unshift(path.basename(head));
+      head = parent;
+    }
+  }
+}
+
+/**
  * Playwright is installed into the state directory by setup.sh, which is
  * outside Node's upward module resolution — so it is loaded by explicit path.
  * Falls back to normal resolution so the scripts still run from a checkout
