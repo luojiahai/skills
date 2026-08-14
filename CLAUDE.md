@@ -2,7 +2,7 @@ Every skill is a folder directly under `skills/` — one flat level, no categori
 
 A retired skill moves to `deprecated/` at the repo root. It sits outside `skills/` deliberately: the skills.sh CLI walks `skills/` up to three levels deep and offers whatever it finds there, whatever the manifests declare — so a `deprecated/` *inside* `skills/` would keep distributing the very skills it marks as not-for-distribution. Verified with `npx skills@latest add . --list`, which offered a skill parked in `skills/deprecated/` and did not offer the same skill at the repo root; re-test that way before moving the folder back. Nothing in `deprecated/` is shipped, listed, or linked.
 
-A skill folder is named for the work it does — either a **gerund phrase naming the activity** (`preparing-tax-return`) or an **agent noun naming the tool** (`douyin-downloader`) where the skill is a wrapper over one — never a bare verb (`prepare-…`). Scope qualifiers — jurisdiction, product, platform — live in the **description** rather than the name, unless the scope *is* the skill's identity and the name reads as generic without it (`douyin-downloader`, not `downloader`); for a user-invoked skill the description is human-facing and appears beside the name wherever the skill is listed, so that is where a reader meets the scope. A skill whose name is generic owes its scope a stated line in `SKILL.md` and in the top-level `README.md`, and a sentence the agent says out loud on the first run.
+A skill folder is named for the work it does — either a **gerund phrase naming the activity** (`preparing-tax-return`) or an **agent noun naming the tool** (`douyin-downloader`) where the skill is a wrapper over one — never a bare verb (`prepare-…`). Scope qualifiers — jurisdiction, product, platform — live in the **description** rather than the name, unless the scope *is* the skill's identity and the name reads as generic without it (`douyin-downloader`, not `downloader`); the description is human-facing and appears beside the name wherever the skill is listed, so that is where a reader meets the scope. A skill whose name is generic owes its scope a stated line in `SKILL.md` and in the top-level `README.md`, and a sentence the agent says out loud on the first run.
 
 Every skill in `skills/` must have a reference in the top-level `README.md` and an entry in `.claude-plugin/plugin.json`'s `skills` array — the Claude Code plugin ships exactly what's in `skills/`, and nothing in `deprecated/` appears in either place.
 
@@ -12,9 +12,13 @@ The repo is its own single-plugin Claude Code marketplace: `.claude-plugin/marke
 
 Every change that users should hear about carries a changeset: `npx changeset`, then commit the generated `.changeset/*.md`. Merging to `main` opens a `chore: version skills` PR; merging that cuts `CHANGELOG.md` and the git tag.
 
-The top-level `README.md` lists every skill in `skills/`, with the skill name linked to its `SKILL.md`, grouped into **User-invoked** and **Model-invoked**.
+The top-level `README.md` names every skill in `skills/`, one sentence each, linked to its `SKILL.md`. `skills/README.md` is the catalogue: the full entry for every skill.
 
-Every `SKILL.md` is either user-invoked (`disable-model-invocation: true` plus `policy.allow_implicit_invocation: false` in `agents/openai.yaml`, reachable only by the human) or model-invoked (model- or user-reachable). See [docs/agents/invocation.md](./docs/agents/invocation.md).
+Every skill is invoked by the human typing its name: set `disable-model-invocation: true` in the `SKILL.md` frontmatter and `policy.allow_implicit_invocation: false` in `agents/openai.yaml`. Nothing here starts on its own.
+
+Every skill carries an `agents/openai.yaml` beside its `SKILL.md`, holding the Codex UI metadata — `interface.display_name` and `interface.short_description` — that names it in the skill picker.
+
+Cross-skill dependencies are expressed as `/skill`-style prose invocation ("Run the `/grilling` skill"), not deep `../other-skill/FILE.md` cross-references. Shared reference docs live inside the skill that owns them.
 
 To (re)link every skill into the local harness skill directories (`~/.claude/skills`, `~/.agents/skills`), run `scripts/link-skills.sh`. It links every skill in `skills/`, and never links anything in `deprecated/`. Each entry is a symlink into this repo, so a `git pull` keeps installed skills current; re-run the script after adding, removing, renaming, or changing the status of a skill. It only ever adds links — after a rename, a removal, or a retirement, delete the stale symlink in each destination by hand, or the old name keeps resolving to a dangling target.
 
