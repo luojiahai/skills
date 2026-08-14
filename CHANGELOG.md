@@ -1,5 +1,11 @@
 # luojiahai-skills
 
+## 0.1.13
+
+### Patch Changes
+
+- [#31](https://github.com/luojiahai/skills/pull/31) [`fd19d77`](https://github.com/luojiahai/skills/commit/fd19d771f22090ae8bbc2fe756aa12714f131b5e) Thanks [@luojiahai](https://github.com/luojiahai)! - Retire `preparing-tax-return`. It is no longer shipped as part of the plugin and is no longer maintained. Retired skills now live in `deprecated/` at the repo root, outside `skills/`, so nothing in them is distributed.
+
 ## 0.1.12
 
 ### Patch Changes
