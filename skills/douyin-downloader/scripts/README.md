@@ -35,7 +35,7 @@ Filter structurally — exclude `footer`, exclude the SEO marker — never by cl
 **A shell function called under `||` runs with errexit off.** `run_plan … ||
 status=$?` read like status capture; it was bash turning `set -e` off for the
 whole function body — a refused plan printed its refusal and then *kept going*,
-through the cursor write and a bogus summary telling the user to re-run the
+through the metadata write and a bogus summary telling the user to re-run the
 `--go` that had just failed. So `run_plan` is invoked plainly, failure exiting
 the script through errexit, and the plan load carries its own `|| return $?`
 so the refusal holds even if a guarded call sneaks back in. `download_list` is
@@ -53,25 +53,28 @@ what stops it finishing.
 
 | File | Role |
 | --- | --- |
-| `download.sh` | Entry point. Owns folder, plan and cursor policy. Everything else is called by it. |
+| `download.sh` | Entry point. Owns folder, plan and metadata policy. Everything else is called by it. |
 | `download-douyin.sh` | General-purpose layer: a list of URLs/IDs in, one folder per post out, with throttling. Knows nothing about accounts. |
 | `collect-douyin-ids.mjs` | Drives Playwright, scrolls the profile, emits post URLs and profile metadata. |
 | `export-cookies.mjs` | Exports the Playwright session as a Netscape `cookies.txt` for yt-dlp. |
-| `plan.mjs` | The confirm step: diffs the collected list against what is on disk, owns `.plan.json`, and renders **every** block the skill prints. |
+| `plan.mjs` | The confirm step: diffs the collected list against what is on disk, owns `.plan.json`, records the account in `metadata.json` on the way past, and renders **every** block the skill prints. |
 | `archive.mjs` | What is already downloaded, answered from the post folders themselves. The layout rules, shared with x-downloader. |
-| `cli.mjs` | The argument parsing, file reading and entry-point detection `plan.mjs` and `cursor.mjs` share. |
-| `cursor.mjs` | Resolves an account's folder by identity; writes `cursor.json`; answers what the downloads root is. |
+| `cli.mjs` | The argument parsing, file reading and entry-point detection `plan.mjs` and `metadata.mjs` share. |
+| `metadata.mjs` | Resolves an account's folder by identity; owns the shape of `metadata.json` and how it merges; answers what the downloads root is. Called by `plan.mjs` for the account paths, and by `download.sh` for the single-post one. |
 | `paths.mjs` | Single source of truth for where state lives and how Playwright is found. |
 | `collect-douyin-ids.js` | A DevTools console snippet that harvests `/video/` ids — a no-dependency fallback if Playwright breaks. It does **not** track `collect-douyin-ids.mjs`: it has no profile-metadata read, no `--limit`, and no image-post counting, so it emits ids and nothing else. |
 
 ## State files, disjoint on purpose
 
 The **post folders under `posts/`** are the sole record of what has downloaded.
-`cursor.json` holds identity and last-run metadata and **gates nothing**.
+`metadata.json` is **authoritative for identity** — which folder is this
+account's — and **never for progress**.
 
 They deliberately do not both track downloads. If they did, a run that failed
-between writing one and the other would leave the cursor claiming posts that
-were never fetched, and the error would be silent and permanent.
+between writing one and the other would leave the metadata claiming posts that
+were never fetched, and the error would be silent and permanent. That is why
+nothing here records a newest post or a collected count: both would be a second
+answer to a question `posts/` already answers correctly.
 
 `.plan.json` is a third file but not a third source of truth: it is a cache of
 one collection pass, and every question it answers is re-derived from disk next
@@ -94,9 +97,12 @@ why confirming costs no second collection and why what is fetched is exactly
 what was shown.
 
 `--go` runs no collection pass. The `sec_uid` is in the profile URL, so the
-folder is found by scanning the root for a matching `cursor.json` **or**
-`.plan.json` — the second of those is what finds an account planned but never
-downloaded, which by definition has no cursor yet. The only browser it can open
+folder is found by scanning the root for a matching `metadata.json` — and only
+that: it is written the moment a folder is resolved, so an account planned but
+never downloaded already has one. `.plan.json` carries identity too, but only
+as a guard for `validatePlan`; nothing looks a folder up by it, because two
+files answering "whose folder is this" are two answers free to disagree. The
+only browser it can open
 is `export-cookies.mjs`, and only when the cached cookies are missing or yt-dlp
 has just rejected them.
 
@@ -128,7 +134,7 @@ give, restored without a second record.
 `paths.mjs` owns it — `normalizeRoot` for an explicit `--downloads` (tilde
 expanded, made absolute, symlinks resolved as far as the path exists) and
 `downloadsRoot` for the default. `download.sh` asks for it through
-`cursor.mjs root` rather than recomputing it in shell, because a root that
+`metadata.mjs root` rather than recomputing it in shell, because a root that
 disagrees between the two languages names a different account folder and
 silently re-downloads everything.
 
@@ -207,7 +213,7 @@ recovered from the install path (`<project>/.claude/skills/<skill>` or
 different account folder and silently re-downloads everything.
 
 The **downloads** root is written down once, in `paths.mjs`, and `download.sh`
-asks for it through `cursor.mjs root` rather than reimplementing the rule — it
+asks for it through `metadata.mjs root` rather than reimplementing the rule — it
 is the root that varies per run, and two answers to it would split an account's
 archive in half. The `posts/` subdirectory is likewise named in both languages
 (`archive.mjs`'s `POSTS_DIR` and `download.sh`'s `POSTS_SUBDIR`); change one and
@@ -225,8 +231,8 @@ lands its exports on `.default` — `loadPlaywright()` normalises that.
 ## Tests
 
 The pure logic — the diff, the plan validation rules, the status rendering,
-path normalisation, the shared argument parsing, the cursor's merge and folder
-naming, and the layout rules in `archive.mjs` — has unit tests, and no
+path normalisation, the shared argument parsing, the metadata merge and folder
+resolution, and the layout rules in `archive.mjs` — has unit tests, and no
 dependencies beyond Node:
 
 ```bash
@@ -260,8 +266,8 @@ the yt-dlp command without running it.
 
 ## Shared with x-downloader, on purpose
 
-`archive.mjs` here and `archive.mjs` / `naming.mjs` in **x-downloader** hold the
-same rules, written twice:
+`archive.mjs` and `metadata.mjs` here, and `archive.mjs` / `naming.mjs` /
+`metadata.mjs` in **x-downloader**, hold the same rules, written twice:
 
 - `posts/<YYYY-MM-DD|undated>_<id>/`, one folder per post
 - media numbered by position — `1.mp4`, `2.jpg`
@@ -272,6 +278,10 @@ same rules, written twice:
   X handle that matches a 抖音号 would otherwise interleave two accounts in one
   folder. `--name` renames the account part and keeps the prefix, so no name
   can be chosen that collides.
+- `metadata.json` beside `posts/`, holding `version`, `account`, `url`, `root`
+  and `updated_at` and nothing else — authoritative for identity, never for
+  progress. Both write it when the folder is resolved, both merge into what is
+  already there, and both treat a blank as silence rather than an erasure.
 
 They are duplicated rather than shared. A skill is a self-contained folder under
 `skills/`, distributed and symlinked on its own, so there is nowhere a shared

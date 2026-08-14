@@ -10,9 +10,10 @@
  * confirming costs no second collection and what is fetched is exactly what was
  * shown.
  *
- * The plan carries identity (sec_uid / 抖音号) as well as the list. That is what
- * lets `--go` find the folder for an account that has never been downloaded —
- * cursor.json does not exist yet, because no run has happened.
+ * The plan carries identity (sec_uid / 抖音号) as well as the list, and that is
+ * a guard rather than an index: nothing looks a folder up by it — metadata.json
+ * is the only thing that answers which folder an account has — but a plan whose
+ * identity disagrees with the account being downloaded is refused.
  *
  * It is a cache, not state: the post folders under posts/ are the sole record
  * of what has landed (archive.mjs), and a plan that is missing, stale or
@@ -26,10 +27,11 @@
  * code. An earlier version hand-aligned two further copies of it in shell.
  *
  * Subcommands:
- *   build --meta FILE --urls FILE --folder DIR --downloads ROOT
- *       Diffs the collected list against what is on disk, prints the status
- *       block, and writes .plan.json — unless there is nothing to fetch, in
- *       which case no plan is written and the block says so.
+ *   build --meta FILE --urls FILE --folder DIR --downloads ROOT [--url URL]
+ *       Diffs the collected list against what is on disk, records the account's
+ *       identity in metadata.json, prints the status block, and writes
+ *       .plan.json — unless there is nothing to fetch, in which case no plan is
+ *       written and the block says so.
  *
  *   load --folder DIR --downloads ROOT [--sec-uid UID] [--douyin-id ID]
  *        --out FILE [--ttl-hours N] [--remedy TEXT]
@@ -51,8 +53,9 @@ import { mkdir, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { isMainModule, optString, parseArgs, readJson, readText, requireOpts } from './cli.mjs';
 import { onDiskIds, unlistedIds } from './archive.mjs';
+import { readMetadata, writeMetadata } from './metadata.mjs';
 
-export const PLAN_FILE = '.plan.json';
+const PLAN_FILE = '.plan.json';
 export const DEFAULT_TTL_HOURS = 24;
 
 const RULE = '──────────────────────────────────────────';
@@ -189,9 +192,9 @@ export function validatePlan(plan, { secUid, douyinId, folder, downloadsRoot, no
 }
 
 // ---- rendering -------------------------------------------------------------
-// `account` is anything carrying `nickname` and `douyin_id` — a plan, a cursor
-// and the collector's metadata all qualify, which is why it is passed whole
-// rather than unpicked into arguments at every call site.
+// `account` is anything carrying `nickname` and `douyin_id` — a plan and the
+// collector's metadata both qualify, which is why it is passed whole rather
+// than unpicked into arguments at every call site.
 
 const row = (label, value) => ` ${label.padEnd(LABEL_WIDTH)} ${value}`;
 const box = (lines) => [RULE, ...lines, RULE].join('\n');
@@ -324,7 +327,21 @@ async function build(opts) {
   const meta = (await readJson(opts.meta)) ?? {};
   const collected = (await readText(opts.urls)).split('\n').filter((line) => line.trim());
   const onDisk = await onDiskIds(opts.folder);
-  const cursor = await readJson(path.join(opts.folder, 'cursor.json'));
+
+  // Read before the write below, and both before the block is printed: the
+  // "last run used …" note compares the root this run was given against the one
+  // the file recorded, and writing first would leave nothing to compare.
+  const previousRoot = (await readMetadata(opts.folder))?.root ?? null;
+
+  // Written here, at the one point every account run passes through once its
+  // folder is known, so a folder that exists always says whose it is — before
+  // anything has been downloaded into it.
+  await writeMetadata(opts.folder, {
+    account: { sec_uid: meta.sec_uid, douyin_id: meta.douyin_id, nickname: meta.nickname },
+    url: optString(opts, 'url'),
+    root: opts.downloads,
+    updated_at: new Date().toISOString(),
+  });
 
   const pending = pendingUrls(collected, onDisk);
 
@@ -349,7 +366,7 @@ async function build(opts) {
     statusBlock({
       account: meta,
       folder: opts.folder,
-      previousRoot: cursor?.downloads_root ?? null,
+      previousRoot,
       downloadsRoot: opts.downloads,
       collected: collected.length,
       reported: meta.reported_works_count ?? null,
@@ -429,8 +446,9 @@ async function clear(opts) {
   await rm(planPath(opts.folder), { force: true });
 }
 
-// Tests and cursor.mjs import this file, so the CLI dispatches only when it
-// is the entry point — argv alone cannot tell whose arguments these are.
+// Tests import this file, and it imports metadata.mjs, so the CLI dispatches
+// only when it is the entry point — argv alone cannot tell whose arguments
+// these are.
 if (isMainModule(import.meta.url)) {
   const [command, ...rest] = process.argv.slice(2);
   const commands = { build, load, count, summary, post, clear };

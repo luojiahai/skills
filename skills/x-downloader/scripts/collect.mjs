@@ -110,7 +110,10 @@ export async function collect({ url, cookies, shouldStop, onAccount, bin = 'gall
       // already filed under its old handle. Everything that depends on knowing
       // the folder, the archive included, waits for this and is settled here.
       if (!account && row.user?.id) {
-        account = { id: row.user.id, handle: row.user.name, nick: row.user.nick };
+        // gallery-dl calls the display name `nick`; everything downstream of
+        // here — the plan, the block, metadata.json — calls it `nickname`, the
+        // same word douyin-downloader uses. This line is the one boundary.
+        account = { id: row.user.id, handle: row.user.name, nickname: row.user.nick };
         if (onAccount) shouldStop = (await onAccount(account)) ?? shouldStop;
       }
 

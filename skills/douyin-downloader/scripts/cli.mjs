@@ -1,6 +1,6 @@
 /**
  * cli.mjs — the argument parsing, file reading and entry-point detection
- * shared by cursor.mjs and plan.mjs.
+ * shared by metadata.mjs and plan.mjs.
  *
  * Both are small `<verb> --flag value` CLIs called from download.sh, and they
  * had a copy each of this. The copies then drifted: one learned that a flag
@@ -13,8 +13,8 @@ import { pathToFileURL } from 'node:url';
 
 /**
  * True when `importMetaUrl` names the file node was asked to run. Each CLI
- * here dispatches only behind this: cursor.mjs imports from plan.mjs, and a
- * dispatch keyed on argv alone would run plan's CLI on cursor's arguments.
+ * here dispatches only behind this: plan.mjs imports from metadata.mjs, and a
+ * dispatch keyed on argv alone would run metadata's CLI on plan's arguments.
  * argv[1] is realpath'd because the skill is installed by symlink while node
  * resolves the entry module to its real location.
  */
@@ -63,7 +63,7 @@ export function requireOpts(opts, ...keys) {
   }
 }
 
-/** Null rather than a throw: a missing cursor or plan is an ordinary answer. */
+/** Null rather than a throw: missing metadata or no plan is an ordinary answer. */
 export async function readJson(file) {
   try {
     return JSON.parse(await readFile(file, 'utf8'));

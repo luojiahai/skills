@@ -35,8 +35,8 @@ Accepted input lines (mixed freely; blank lines and #-comments ignored):
   https://www.douyin.com/user/MS4wLjABAAAA...?modal_id=7118726305914326302
   7118726305914326302
 
-This is the general-purpose layer: a list goes in, files come out. Folder and
-cursor policy lives in download.sh, which calls this.
+This is the general-purpose layer: a list goes in, files come out. Folder,
+plan and metadata policy lives in download.sh, which calls this.
 
 Each post becomes <outdir>/<YYYY-MM-DD|undated>_<id>/ holding its media as
 1.mp4, 2.jpg… and a text.txt with the permalink, timestamp and caption. There

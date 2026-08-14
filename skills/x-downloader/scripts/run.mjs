@@ -18,7 +18,13 @@ import path from 'node:path';
 import { readArchive } from './archive.mjs';
 import { isMainModule, optString, parseCommandLine } from './cli.mjs';
 import { DEFAULT_ABORT, collect, makeStopper } from './collect.mjs';
-import { findFolderByUrl, folderNameFor, resolveFolder, writeCursor } from './cursor.mjs';
+import {
+  findFolderByUrl,
+  folderNameFor,
+  readMetadata,
+  resolveFolder,
+  writeMetadata,
+} from './metadata.mjs';
 import { REMEDIES, cookieExportArgs } from './gallerydl.mjs';
 import { fetchPosts, outstanding } from './fetch.mjs';
 import { COOKIE_FILE, STATE_DIR, downloadsRoot, normalizeRoot } from './paths.mjs';
@@ -60,7 +66,7 @@ const USAGE = `Usage: download.sh <url> [--downloads DIR] [--name NAME] [--plan|
       --cookies FILE    Use this cookies.txt instead of a browser or the cache.
   -h, --help            Show this help
 
-State lives in <DIR>/<folder>: posts/ holds the media, cursor.json the
+State lives in <DIR>/<folder>: posts/ holds the media, metadata.json the
 account's identity, and between --plan and --go, .plan.json is the list
 awaiting approval. The cached X session is in ${STATE_DIR}.`;
 
@@ -123,7 +129,24 @@ async function discardCookies() {
   await rm(COOKIE_FILE, { force: true });
 }
 
-async function doPlan({ target, root, name, cookies, full, threshold, bin = 'gallery-dl' }) {
+/**
+ * Who this folder belongs to, written before the download rather than after.
+ *
+ * `accountUrl` is null for a single-post run: the URL it was given names a
+ * post, not the account, and recording it would break the one lookup `--go` has
+ * — `findFolderByUrl` matches the account URL an archive was made from. The
+ * merge leaves the recorded one alone when this run has none to offer.
+ */
+function recordAccount(accountDir, { account, root, accountUrl }) {
+  return writeMetadata(accountDir, {
+    account,
+    root,
+    url: accountUrl,
+    updated_at: new Date().toISOString(),
+  });
+}
+
+async function doPlan({ target, root, name, cookies, full, threshold, accountUrl, bin = 'gallery-dl' }) {
   // All three are settled the moment the first row names the account, because
   // none of them can be known before it. Resolving the folder from the URL's
   // handle instead would look in the wrong place for any account that has been
@@ -155,7 +178,7 @@ async function doPlan({ target, root, name, cookies, full, threshold, bin = 'gal
 
   const posts = groupFiles(result.rows);
   const { counts } = diff(posts, archive);
-  const account = result.account ?? { id: '', handle: target.handle, nick: '' };
+  const account = result.account ?? { id: '', handle: target.handle, nickname: '' };
   settled ??= folderNameFor({ handle: account.handle || target.handle, name });
   const settledDir = path.join(root, settled);
 
@@ -182,10 +205,21 @@ async function doPlan({ target, root, name, cookies, full, threshold, bin = 'gal
 
   await mkdir(settledDir, { recursive: true });
   await savePlan(settledDir, plan);
-  return { plan, folder: settled };
+
+  // Read before write, and in this order for a reason: the block's "last run
+  // used …" note compares this run's root against the one the file recorded,
+  // and the write on the next line replaces it.
+  const previousRoot = (await readMetadata(settledDir))?.root ?? null;
+
+  // Written now rather than after the download, so a folder that exists always
+  // says whose it is. It is what --go finds the folder by, and what a later run
+  // matches a renamed account against.
+  await recordAccount(settledDir, { account, root, accountUrl });
+
+  return { plan, folder: settled, previousRoot };
 }
 
-async function doGo({ root, folder, url, cookies, planHint, bin = 'gallery-dl' }) {
+async function doGo({ root, folder, url, cookies, planHint, accountUrl, bin = 'gallery-dl' }) {
   // --go enumerates nothing, so it never learns the numeric id and cannot find
   // a renamed account's folder the way --plan does. The URL the plan was written
   // from is the key that still works.
@@ -208,14 +242,7 @@ async function doGo({ root, folder, url, cookies, planHint, bin = 'gallery-dl' }
 
   const remaining = outstanding(plan.posts, await readArchive(accountDir)).length;
 
-  await writeCursor(accountDir, {
-    account: plan.account,
-    root,
-    folder: settled,
-    url: plan.url,
-    lastRun: new Date().toISOString(),
-    lastMode: plan.mode,
-  });
+  await recordAccount(accountDir, { account: plan.account, root, accountUrl });
 
   // Deleted only once every post in it has landed. Kept when a run stops
   // partway, which is what makes the retry fetch only what is missing.
@@ -277,12 +304,17 @@ export async function main(argv) {
     optString(opts, 'downloads') ? ` --downloads '${optString(opts, 'downloads')}'` : ''
   } --plan`;
 
+  // A post URL names a post; only an account URL says whose archive this is.
+  const accountUrl = target.kind === 'account' ? target.url : null;
+
   if (mode === 'go') {
     const folder = folderNameFor({ handle: target.handle, name });
-    return report(await doGo({ root, folder, url: target.url, cookies, planHint }));
+    return report(await doGo({ root, folder, url: target.url, cookies, planHint, accountUrl }));
   }
 
-  const planned = await doPlan({ target, root, name, cookies, full, threshold: DEFAULT_ABORT });
+  const planned = await doPlan({
+    target, root, name, cookies, full, threshold: DEFAULT_ABORT, accountUrl,
+  });
 
   if (planned.failure) {
     if (planned.failure === 'unauthorized') await discardCookies();
@@ -304,7 +336,7 @@ export async function main(argv) {
     );
   }
 
-  console.log(renderPlanBlock(planned.plan));
+  console.log(renderPlanBlock(planned.plan, { previousRoot: planned.previousRoot }));
 
   if (mode === 'plan') return EXIT.OK;
 
@@ -312,7 +344,7 @@ export async function main(argv) {
 
   console.log('');
   return report(
-    await doGo({ root, folder: planned.folder, url: target.url, cookies, planHint }),
+    await doGo({ root, folder: planned.folder, url: target.url, cookies, planHint, accountUrl }),
   );
 }
 
