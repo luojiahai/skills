@@ -1,5 +1,3 @@
-These rules govern the skills in `skills/`, which ship. The repo's own dev skills in `.claude/skills/` are tooling and follow none of them.
-
 Every skill is a folder directly under `skills/` — one flat level, no categories. `skills/` holds only skills that ship, and a skill that isn't ready to ship doesn't live here yet.
 
 A retired skill moves to `deprecated/` at the repo root. It sits outside `skills/` deliberately: the skills.sh CLI walks `skills/` up to three levels deep and offers whatever it finds there, whatever the manifests declare — so a `deprecated/` *inside* `skills/` would keep distributing the very skills it marks as not-for-distribution. Verified with `npx skills@latest add . --list`, which offered a skill parked in `skills/deprecated/` and did not offer the same skill at the repo root; re-test that way before moving the folder back. Nothing in `deprecated/` is shipped, listed, or linked.
