@@ -1,3 +1,5 @@
+These rules govern the skills in `skills/`, which ship. The repo's own dev skills in `.claude/skills/` are tooling and follow none of them.
+
 Every skill is a folder directly under `skills/` — one flat level, no categories. `skills/` holds only skills that ship, and a skill that isn't ready to ship doesn't live here yet.
 
 A retired skill moves to `deprecated/` at the repo root. It sits outside `skills/` deliberately: the skills.sh CLI walks `skills/` up to three levels deep and offers whatever it finds there, whatever the manifests declare — so a `deprecated/` *inside* `skills/` would keep distributing the very skills it marks as not-for-distribution. Verified with `npx skills@latest add . --list`, which offered a skill parked in `skills/deprecated/` and did not offer the same skill at the repo root; re-test that way before moving the folder back. Nothing in `deprecated/` is shipped, listed, or linked.
@@ -17,8 +19,6 @@ The top-level `README.md` names every skill in `skills/`, one sentence each, lin
 Every skill is invoked by the human typing its name: set `disable-model-invocation: true` in the `SKILL.md` frontmatter and `policy.allow_implicit_invocation: false` in `agents/openai.yaml`. Nothing here starts on its own.
 
 Every skill carries an `agents/openai.yaml` beside its `SKILL.md`, holding the Codex UI metadata — `interface.display_name` and `interface.short_description` — that names it in the skill picker.
-
-Cross-skill dependencies are expressed as `/skill`-style prose invocation ("Run the `/grilling` skill"), not deep `../other-skill/FILE.md` cross-references. Shared reference docs live inside the skill that owns them.
 
 To (re)link every skill into the local harness skill directories (`~/.claude/skills`, `~/.agents/skills`), run `scripts/link-skills.sh`. It links every skill in `skills/`, and never links anything in `deprecated/`. Each entry is a symlink into this repo, so a `git pull` keeps installed skills current; re-run the script after adding, removing, renaming, or changing the status of a skill. It only ever adds links — after a rename, a removal, or a retirement, delete the stale symlink in each destination by hand, or the old name keeps resolving to a dangling target.
 

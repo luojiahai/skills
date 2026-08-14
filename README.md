@@ -14,7 +14,7 @@ Install with the skills.sh CLI, into whichever agents you use:
 npx skills@latest add luojiahai/skills
 ```
 
-Pick the skills you want and the agents to install them on, then type the skill's name — `/douyin-downloader`, `/x-downloader`. None of these start on their own.
+Pick the skills you want and the agents to install them on, then type the skill's name. None of them start on their own.
 
 ## Install as a Claude Code plugin
 
@@ -41,7 +41,7 @@ Two ways to install, two philosophies:
 
 ## Skills
 
-You type them; they never start on their own. Full entries, including what each one costs you, are in the [catalogue](./skills/README.md).
+Full entries, including what each one costs you, are in the [catalogue](./skills/README.md).
 
 - **[douyin-downloader](./skills/douyin-downloader/SKILL.md)** — download every video from a Douyin account, or a single video; re-runs fetch only what's new.
 - **[x-downloader](./skills/x-downloader/SKILL.md)** — download the images, videos and GIFs an account has posted on X (formerly Twitter), or a single post.
