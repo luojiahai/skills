@@ -75,7 +75,7 @@ test('readJson returns the parsed object, and null for anything unreadable', asy
 
 test('readText returns the file, and empty for a missing one', async () => {
   const dir = mkdtempSync(path.join(os.tmpdir(), 'douyin-cli-'));
-  const file = path.join(dir, '.archive.txt');
+  const file = path.join(dir, 'some-file.txt');
   writeFileSync(file, 'douyin 7111\n');
 
   assert.equal(await readText(file), 'douyin 7111\n');

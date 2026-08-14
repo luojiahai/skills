@@ -9,15 +9,16 @@
 #   download.sh <profile-url> --plan     collect, report what would be fetched
 #   download.sh <profile-url> --go       download what that plan listed
 #   download.sh <profile-url> --yes      both, without stopping to confirm
-#   download.sh <video-url>              one video, straight away
+#   download.sh <post-url>               one post, straight away
 #
 # An account is never downloaded without an explicit --go or --yes: the list is
 # collected first and reported, so the account, the folder and the number of
-# videos are all known before anything is fetched. A bare profile URL therefore
+# posts are all known before anything is fetched. A bare profile URL therefore
 # behaves as --plan.
 #
-# Runs are resumable: yt-dlp's .archive.txt in the account folder is the sole
-# record of what has landed, so a re-run fetches only what is missing.
+# Runs are resumable: the post folders under posts/ are the sole record of what
+# has landed, so a re-run fetches only what is missing — and deleting a post's
+# folder is how you ask for it again.
 
 set -euo pipefail
 
@@ -47,45 +48,50 @@ set_mode() {
 
 usage() {
   cat <<'EOF'
-download.sh — download a Douyin account's videos, or a single video.
+download.sh — download a Douyin account's posts, or a single post.
 
 Usage: download.sh <url> [--downloads DIR] [--name NAME] [--plan|--go|--yes]
 
-  <url>   https://www.douyin.com/user/MS4w...   every video from the account
-          https://www.douyin.com/video/711...   one video
+  <url>   https://www.douyin.com/user/MS4w...   every post from the account
+          https://www.douyin.com/video/711...   one post
 
 Modes (profile URLs):
-      --plan            Collect the video list, report what would be fetched,
+      --plan            Collect the post list, report what would be fetched,
                         and stop. The default: nothing is downloaded until a
                         plan has been made and approved.
-      --go              Download the videos the last --plan listed. Needs a
+      --go              Download the posts the last --plan listed. Needs a
                         plan made within the last 24h for this account and
                         this downloads root.
       --yes, -y         Plan and download in one run, without stopping.
 
 Options:
       --downloads DIR   Root download directory. The account folder is
-                        DIR/<抖音号 or --name>.
+                        DIR/douyin_<抖音号 or --name>.
                         (default: <git root, else cwd>/downloads — required
                         when run from inside the skill directory)
-      --name NAME       Folder name for this account (default: its 抖音号).
+      --name NAME       Account name for the folder (default: its 抖音号). The
+                        douyin_ prefix is always kept, so a shared downloads
+                        root cannot collide with x-downloader's folders.
                         Only needed once; later runs find the folder by
                         matching the account identity in cursor.json.
-      --user URL        Accepted as an alias for a positional profile URL.
       --profile DIR     Playwright session profile
                         (default: ${XDG_STATE_HOME:-~/.local/state}/douyin-downloader/profile)
   -h, --help            Show this help
 
-Videos land in <downloads>/<folder>/videos/, alongside cursor.json (identity
-and last-run state), .archive.txt (yt-dlp's record of what is downloaded) and,
-between --plan and --go, .plan.json (the list awaiting approval).
+Each post lands in <downloads>/<folder>/posts/<date>_<id>/, holding its media
+as 1.mp4, 2.jpg… and a text.txt with the permalink, timestamp and caption.
+Those folders are the record of what has been downloaded — delete one and it
+is fetched again. Beside them sit cursor.json (identity and last-run state)
+and, between --plan and --go, .plan.json (the list awaiting approval).
+
+Image posts (图文) are counted and reported, but not yet downloaded:
+https://github.com/luojiahai/skills/issues/39
 EOF
 }
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --name)      NAME="$2"; shift 2 ;;
-    --user)      URL="$2"; shift 2 ;;
     --downloads) DOWNLOADS_ARG="$2"; shift 2 ;;
     --profile)   PROFILE_DIR="$2"; shift 2 ;;
     --plan)      set_mode plan; shift ;;
@@ -106,9 +112,9 @@ fi
 
 # Where downloads live is decided in one place, paths.mjs, rather than being
 # recomputed here: a root that disagrees with the one the Node scripts use
-# would split .archive.txt and silently re-download everything. It also expands
-# ~ and makes the path absolute, since the agent passes the user's flag through
-# as typed and a quoted ~/data never reaches the shell's expansion.
+# would name a different account folder and silently re-download everything. It
+# also expands ~ and makes the path absolute, since the agent passes the user's
+# flag through as typed and a quoted ~/data never reaches the shell's expansion.
 DOWNLOADS="$(node "${SCRIPT_DIR}/cursor.mjs" root --downloads "$DOWNLOADS_ARG")" || exit 2
 
 # The command that makes a plan, quoted back to the user in every message that
@@ -140,6 +146,10 @@ if [[ ! -d "$PROFILE_DIR" ]]; then
   exit 1
 fi
 
+# The subdirectory holding one folder per post. Spelled here as well as in
+# archive.mjs' POSTS_DIR — change it in one place and change it in the other.
+POSTS_SUBDIR="posts"
+
 TMP_COLLECTED=""
 TMP_META=""
 TMP_PENDING=""
@@ -157,9 +167,9 @@ json_field() {
            const v=o[process.argv[2]];console.log(v===undefined||v===null?"":v)' "$1" "$2"
 }
 
-# Counting the archive and printing a block both belong to plan.mjs, so that
-# what a run reports is rendered by the same code that rendered what the user
-# approved — and counted by the same rule.
+# Counting what is on disk and printing a block both belong to plan.mjs, so
+# that what a run reports is rendered by the same code that rendered what the
+# user approved — and counted by the same rule.
 plan_mjs() {
   node "${SCRIPT_DIR}/plan.mjs" "$@"
 }
@@ -180,11 +190,9 @@ download_list() {
 
   [[ -f "$COOKIE_FILE" ]] || mint_cookies
 
-  # Videos go in videos/; the archive stays at the folder root next to
-  # cursor.json, so state is not buried among 282 media files.
   set +e
-  "${SCRIPT_DIR}/download-douyin.sh" -i "$list" -o "${folder}/videos" --flat \
-    --archive "${folder}/.archive.txt" --cookies "$COOKIE_FILE" 2>&1 | tee "$TMP_LOG"
+  "${SCRIPT_DIR}/download-douyin.sh" -i "$list" -o "${folder}/${POSTS_SUBDIR}" \
+    --cookies "$COOKIE_FILE" 2>&1 | tee "$TMP_LOG"
   status="${PIPESTATUS[0]}"
   set -e
 
@@ -193,8 +201,8 @@ download_list() {
     echo "[douyin] session cookies rejected — re-minting and retrying once…"
     mint_cookies
     set +e
-    "${SCRIPT_DIR}/download-douyin.sh" -i "$list" -o "${folder}/videos" --flat \
-      --archive "${folder}/.archive.txt" --cookies "$COOKIE_FILE" 2>&1 | tee "$TMP_LOG"
+    "${SCRIPT_DIR}/download-douyin.sh" -i "$list" -o "${folder}/${POSTS_SUBDIR}" \
+      --cookies "$COOKIE_FILE" 2>&1 | tee "$TMP_LOG"
     status="${PIPESTATUS[0]}"
     set -e
   fi
@@ -208,13 +216,13 @@ resolve_folder() {
   node "${SCRIPT_DIR}/cursor.mjs" resolve --downloads "$DOWNLOADS" "$@"
 }
 
-# ---- single video ----------------------------------------------------------
+# ---- single post -----------------------------------------------------------
 if [[ "$URL" =~ /video/([0-9]+) ]]; then
-  VIDEO_ID="${BASH_REMATCH[1]}"
+  POST_ID="${BASH_REMATCH[1]}"
 
   [[ -f "$COOKIE_FILE" ]] || mint_cookies
 
-  # yt-dlp's `uploader` field is the 抖音号 — enough to file the video under the
+  # yt-dlp's `uploader` field is the 抖音号 — enough to file the post under the
   # right account without opening a browser.
   #
   # `|| true` is load-bearing: under `set -e -o pipefail` a yt-dlp that exits
@@ -226,17 +234,17 @@ if [[ "$URL" =~ /video/([0-9]+) ]]; then
       --skip-download "https://www.douyin.com/video/$1" 2>/dev/null | head -1 || true
   }
 
-  DOUYIN_ID="$(uploader_of "$VIDEO_ID")"
+  DOUYIN_ID="$(uploader_of "$POST_ID")"
 
   if [[ -z "$DOUYIN_ID" ]]; then
     echo "[douyin] no metadata — re-minting cookies and retrying once…"
     mint_cookies
-    DOUYIN_ID="$(uploader_of "$VIDEO_ID")"
+    DOUYIN_ID="$(uploader_of "$POST_ID")"
   fi
 
   if [[ -z "$DOUYIN_ID" ]]; then
-    echo "error: could not read metadata for video ${VIDEO_ID}." >&2
-    echo "The video may be private, deleted or region-locked; failing that, the" >&2
+    echo "error: could not read metadata for post ${POST_ID}." >&2
+    echo "The post may be private, deleted or region-locked; failing that, the" >&2
     echo "session is dead — re-establish it with:" >&2
     echo "  node ${SCRIPT_DIR}/collect-douyin-ids.mjs --login <profile-url>" >&2
     exit 1
@@ -244,28 +252,28 @@ if [[ "$URL" =~ /video/([0-9]+) ]]; then
 
   FOLDER="$(resolve_folder --douyin-id "$DOUYIN_ID" --name "$NAME")"
 
-  # A single video is already as specific as an instruction gets, so it is not
+  # A single post is already as specific as an instruction gets, so it is not
   # planned or confirmed — but --plan still answers where it would land.
   if [[ "$MODE" == "plan" ]]; then
-    plan_mjs video --folder "$FOLDER" --douyin-id "$DOUYIN_ID" --video "$VIDEO_ID"
+    plan_mjs post --folder "$FOLDER" --douyin-id "$DOUYIN_ID" --post "$POST_ID"
     exit 0
   fi
 
-  echo "[douyin] single video ${VIDEO_ID}"
-  mkdir -p "${FOLDER}/videos"
+  echo "[douyin] single post ${POST_ID}"
+  mkdir -p "${FOLDER}/${POSTS_SUBDIR}"
 
   TMP_PENDING="$(mktemp -t douyin-single)"
-  echo "https://www.douyin.com/video/${VIDEO_ID}" >"$TMP_PENDING"
+  echo "https://www.douyin.com/video/${POST_ID}" >"$TMP_PENDING"
 
-  # cursor.json is deliberately not written here: a single video does not mean
+  # cursor.json is deliberately not written here: a single post does not mean
   # the account has been scanned up to that point.
   SINGLE_STATUS=0
   download_list "$TMP_PENDING" "$FOLDER" || SINGLE_STATUS=$?
 
-  # The same block every other run ends with, read back from the archive: on
-  # success it shows the video downloaded, after a failure still to fetch.
+  # The same block every other run ends with, read back off disk: on success it
+  # shows the post downloaded, after a failure still to fetch.
   echo
-  plan_mjs video --folder "$FOLDER" --douyin-id "$DOUYIN_ID" --video "$VIDEO_ID"
+  plan_mjs post --folder "$FOLDER" --douyin-id "$DOUYIN_ID" --post "$POST_ID"
   if [[ "$SINGLE_STATUS" != 0 ]]; then
     echo "warning: the download failed — re-run the same command to retry" >&2
   fi
@@ -274,7 +282,7 @@ fi
 
 # ---- whole account ---------------------------------------------------------
 if [[ ! "$URL" =~ douyin\.com/user/ ]]; then
-  echo "error: not a Douyin profile or video URL: $URL" >&2
+  echo "error: not a Douyin profile or post URL: $URL" >&2
   echo "Expected .../user/MS4wLjABAAAA... or .../video/<id>" >&2
   if [[ "$URL" =~ v\.douyin\.com ]]; then
     echo "v.douyin.com share links have to be expanded first: open the link in" >&2
@@ -294,7 +302,7 @@ fi
 #
 # Call it plainly, never as `run_plan … || status=$?`: bash switches errexit
 # off for the whole body of a function invoked in a || list, and with it off a
-# *refused* plan fell straight through to the download — "0 video(s)", a
+# *refused* plan fell straight through to the download — "0 post(s)", a
 # cursor write that could merge a foreign plan's identity, and a summary
 # telling the user to re-run the very --go that just failed.
 run_plan() {
@@ -309,9 +317,16 @@ run_plan() {
   pending="$(wc -l <"$TMP_PENDING" | tr -d ' ')"
   before="$(plan_mjs count --folder "$folder")"
 
-  mkdir -p "${folder}/videos"
-  echo "[douyin] downloading ${pending} video(s) to ${folder}/videos…"
-  download_list "$TMP_PENDING" "$folder" || status=$?
+  # `load` re-checks the plan against disk, so a --go re-run after everything
+  # landed has nothing left. yt-dlp given an empty list is an error, and the
+  # run has in fact succeeded — report it and clear the plan below.
+  if [[ "$pending" == 0 ]]; then
+    echo "[douyin] every post in the plan is already downloaded"
+  else
+    mkdir -p "${folder}/${POSTS_SUBDIR}"
+    echo "[douyin] downloading ${pending} post(s) to ${folder}/${POSTS_SUBDIR}…"
+    download_list "$TMP_PENDING" "$folder" || status=$?
+  fi
 
   echo "[douyin] updating cursor…"
   node "${SCRIPT_DIR}/cursor.mjs" write --folder "$folder" --meta "${folder}/.plan.json" \
@@ -358,7 +373,7 @@ fi
 TMP_COLLECTED="$(mktemp -t douyin-urls)"
 TMP_META="$(mktemp -t douyin-meta)"
 
-echo "[douyin] collecting video IDs…"
+echo "[douyin] collecting post IDs…"
 node "${SCRIPT_DIR}/collect-douyin-ids.mjs" "$URL" \
   -o "$TMP_COLLECTED" --meta "$TMP_META" --headless --profile "$PROFILE_DIR"
 
@@ -386,7 +401,7 @@ fi
 
 if [[ "$MODE" != "yes" ]]; then
   echo
-  echo "Nothing has been downloaded. To fetch the videos above:"
+  echo "Nothing has been downloaded. To fetch the posts above:"
   echo "  ${PLAN_HINT% --plan} --go"
   exit 0
 fi

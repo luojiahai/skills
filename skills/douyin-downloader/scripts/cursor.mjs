@@ -3,8 +3,8 @@
  * cursor.mjs — per-account folder resolution and cursor state.
  *
  * The cursor records *identity and last-run state*. It deliberately does not
- * record which videos are downloaded: yt-dlp's .archive.txt is the sole truth
- * for that, so the two files own disjoint data and cannot drift.
+ * record which posts are downloaded: the post folders under posts/ are the sole
+ * truth for that (archive.mjs), so the two own disjoint data and cannot drift.
  *
  * Subcommands:
  *   resolve --douyin-id ID [--sec-uid UID] [--name NAME] [--downloads DIR]
@@ -16,7 +16,7 @@
  *
  *   write --folder DIR --meta FILE [--downloads DIR]
  *       Merges collector metadata into <folder>/cursor.json, deriving the
- *       newest upload from the files actually on disk.
+ *       newest upload from the post folders actually on disk.
  *
  *   root [--downloads DIR]
  *       Prints the downloads root: the flag if given, else the default for the
@@ -26,11 +26,31 @@ import { writeFile, readdir, mkdir } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { isMainModule, optString, parseArgs, readJson } from './cli.mjs';
+import { newestPost } from './archive.mjs';
 import { downloadsRoot, normalizeRoot } from './paths.mjs';
 import { PLAN_FILE } from './plan.mjs';
 
 const readIn = (folder, file) => readJson(path.join(folder, file));
 const readCursor = (folder) => readIn(folder, 'cursor.json');
+
+/**
+ * Namespaces this skill's folders inside a downloads root it shares with
+ * x-downloader, whose folders are `x_`. Both default to the same root —
+ * <git root>/downloads — so without a prefix a 抖音号 and an X handle that
+ * happen to match would archive into one folder and interleave two accounts.
+ */
+export const FOLDER_PREFIX = 'douyin_';
+
+/**
+ * A folder name from what the user asked for, falling back to the 抖音号.
+ *
+ * `--name` renames the account part, not the whole folder: the prefix is what
+ * keeps two skills apart in one root, and a name free to drop it would re-open
+ * the clash exactly where nobody is looking for it.
+ */
+export function folderNameFor({ douyinId, name }) {
+  return FOLDER_PREFIX + (String(name || '').trim() || String(douyinId || '').trim());
+}
 
 /** The flag if given, else the default for the current working directory. */
 function rootFor(opts) {
@@ -86,19 +106,7 @@ async function resolve(opts) {
     process.exit(3);
   }
 
-  console.log(path.join(downloads, name || douyinId));
-}
-
-/** Filenames are `<upload_date> - <title> [<id>].<ext>`, so the newest upload
- *  is readable off disk without re-querying anything. */
-export async function newestFrom(videosDir) {
-  if (!existsSync(videosDir)) return { id: null, date: null };
-  let best = { id: null, date: null };
-  for (const name of await readdir(videosDir)) {
-    const m = name.match(/^(\d{8}) - .*\[(\d+)\]\./);
-    if (m && (!best.date || m[1] > best.date)) best = { date: m[1], id: m[2] };
-  }
-  return best;
+  console.log(path.join(downloads, folderNameFor({ douyinId, name })));
 }
 
 /** What a fresh run knows wins; what only the previous cursor knew survives. */
@@ -113,7 +121,7 @@ export function mergeCursor({ meta, previous, newest, folder, downloads, now }) 
     // archive has moved since last time.
     downloads_root: downloads || previous.downloads_root || path.dirname(folder),
     last_run_at: now.toISOString(),
-    newest_video_id: newest.id ?? previous.newest_video_id ?? null,
+    newest_post_id: newest.id ?? previous.newest_post_id ?? null,
     newest_upload_date: newest.date ?? previous.newest_upload_date ?? null,
     collected_count: meta.collected_count ?? previous.collected_count ?? null,
     reported_works_count: meta.reported_works_count ?? previous.reported_works_count ?? null,
@@ -129,7 +137,7 @@ async function write(opts) {
   const cursor = mergeCursor({
     meta: optString(opts, 'meta') ? ((await readJson(opts.meta)) ?? {}) : {},
     previous: (await readCursor(folder)) ?? {},
-    newest: await newestFrom(path.join(folder, 'videos')),
+    newest: await newestPost(folder),
     folder,
     downloads: optString(opts, 'downloads'),
     now: new Date(),

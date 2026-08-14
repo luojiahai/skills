@@ -10,43 +10,48 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  archivedIds,
   buildPlan,
+  listedIds,
   pendingUrls,
+  postBlock,
+  postIdFromUrl,
   statusBlock,
   summaryBlock,
-  unlistedArchivedIds,
   unlistedCountFromPlan,
   validatePlan,
-  videoBlock,
-  videoIdFrom,
 } from './plan.mjs';
 
 const HOUR = 3600 * 1000;
 
-test('videoIdFrom reads the id out of a video URL', () => {
-  assert.equal(videoIdFrom('https://www.douyin.com/video/7112233445566'), '7112233445566');
-  assert.equal(videoIdFrom('https://www.douyin.com/user/MS4w?modal_id=7112233445566'), '7112233445566');
-  assert.equal(videoIdFrom('https://www.douyin.com/user/MS4w'), null);
+test('postIdFromUrl reads the id out of a post URL', () => {
+  assert.equal(postIdFromUrl('https://www.douyin.com/video/7112233445566'), '7112233445566');
+  assert.equal(postIdFromUrl('https://www.douyin.com/user/MS4w?modal_id=7112233445566'), '7112233445566');
+  assert.equal(postIdFromUrl('https://www.douyin.com/user/MS4w'), null);
 });
 
-test('archivedIds takes the id from yt-dlp archive lines', () => {
-  const ids = archivedIds('douyin 7111\ndouyin 7222\n\n  douyin 7333  \n');
-  assert.deepEqual([...ids], ['7111', '7222', '7333']);
+test('postIdFromUrl reads a /note/ id, so an archived image post is recognised', () => {
+  // The collector does not emit these yet (issue #39), but a folder for one
+  // read as unlisted would report a deletion that never happened.
+  assert.equal(postIdFromUrl('https://www.douyin.com/note/7112233445566'), '7112233445566');
 });
 
-test('archivedIds treats a missing archive as nothing downloaded', () => {
-  assert.equal(archivedIds(null).size, 0);
-  assert.equal(archivedIds('').size, 0);
+test('listedIds collects the ids a URL list names, dropping what it cannot parse', () => {
+  const ids = listedIds([
+    'https://www.douyin.com/video/7111',
+    'https://www.douyin.com/video/7111',
+    'not-a-url',
+  ]);
+  assert.deepEqual([...ids], ['7111']);
+  assert.equal(listedIds(null).size, 0);
 });
 
-test('pendingUrls keeps only what the archive does not have, in feed order', () => {
+test('pendingUrls keeps only what is not on disk, in feed order', () => {
   const collected = [
     'https://www.douyin.com/video/7111',
     'https://www.douyin.com/video/7222',
     'https://www.douyin.com/video/7333',
   ];
-  assert.deepEqual(pendingUrls(collected, 'douyin 7222\n'), [
+  assert.deepEqual(pendingUrls(collected, new Set(['7222'])), [
     'https://www.douyin.com/video/7111',
     'https://www.douyin.com/video/7333',
   ]);
@@ -58,49 +63,29 @@ test('pendingUrls de-duplicates and drops unparseable lines', () => {
     'https://www.douyin.com/video/7111',
     'not-a-url',
   ];
-  assert.deepEqual(pendingUrls(collected, ''), ['https://www.douyin.com/video/7111']);
+  assert.deepEqual(pendingUrls(collected, new Set()), ['https://www.douyin.com/video/7111']);
 });
 
-test('pendingUrls is empty when everything is already archived', () => {
+test('pendingUrls is empty when everything is already downloaded', () => {
   const collected = ['https://www.douyin.com/video/7111'];
-  assert.deepEqual(pendingUrls(collected, 'douyin 7111\n'), []);
-});
-
-test('unlistedArchivedIds finds what the archive holds and the listing has dropped', () => {
-  const collected = [
-    'https://www.douyin.com/video/7111',
-    'https://www.douyin.com/video/7222',
-  ];
-  assert.deepEqual(unlistedArchivedIds(collected, 'douyin 7111\ndouyin 7333\n'), ['7333']);
-});
-
-test('unlistedArchivedIds is empty when the listing covers the archive', () => {
-  const collected = [
-    'https://www.douyin.com/video/7111',
-    'https://www.douyin.com/video/7222',
-  ];
-  // The listing may run ahead of the archive — that is pendingUrls' business,
-  // not this one's.
-  assert.deepEqual(unlistedArchivedIds(collected, 'douyin 7111\n'), []);
-  assert.deepEqual(unlistedArchivedIds(collected, ''), []);
-});
-
-test('unlistedArchivedIds counts the whole archive when nothing was collected', () => {
-  assert.deepEqual(unlistedArchivedIds([], 'douyin 7111\n'), ['7111']);
+  assert.deepEqual(pendingUrls(collected, new Set(['7111'])), []);
 });
 
 test('unlistedCountFromPlan counts what a finished run holds and the listing dropped', () => {
   const plan = { collected: ['https://www.douyin.com/video/7111'] };
-  assert.equal(unlistedCountFromPlan(plan, 'douyin 7111\ndouyin 7333\n'), 1);
-  assert.equal(unlistedCountFromPlan(plan, 'douyin 7111\n'), 0);
+  assert.equal(unlistedCountFromPlan(plan, new Set(['7111', '7333'])), 1);
+  assert.equal(unlistedCountFromPlan(plan, new Set(['7111'])), 0);
+  // The listing may run ahead of what is on disk — that is pendingUrls'
+  // business, not this one's.
+  assert.equal(unlistedCountFromPlan({ collected: [] }, new Set()), 0);
 });
 
 test('unlistedCountFromPlan says unknown, not zero, for a plan with no collected list', () => {
   // A plan written before the note existed. Zero would assert the archive is
   // fully listed; null renders as no note at all.
-  assert.equal(unlistedCountFromPlan({ collected_count: 86 }, 'douyin 7111\n'), null);
-  assert.equal(unlistedCountFromPlan({}, 'douyin 7111\n'), null);
-  assert.equal(unlistedCountFromPlan(null, 'douyin 7111\n'), null);
+  assert.equal(unlistedCountFromPlan({ collected_count: 86 }, new Set(['7111'])), null);
+  assert.equal(unlistedCountFromPlan({}, new Set(['7111'])), null);
+  assert.equal(unlistedCountFromPlan(null, new Set(['7111'])), null);
 });
 
 function samplePlan(overrides = {}) {
@@ -349,13 +334,6 @@ test('statusBlock copes with an unknown reported count', () => {
   assert.doesNotMatch(block, /counted but not shown/);
 });
 
-test('archivedIds counts unique ids, whatever the whitespace', () => {
-  // The shell reflex is `wc -l`, which disagrees with this on a blank line, a
-  // missing trailing newline, or a repeat — and then a finished run reports a
-  // total that contradicts the number the user approved.
-  assert.equal(archivedIds('douyin 7111\n\ndouyin 7222\ndouyin 7111').size, 2);
-});
-
 test('validatePlan rejects a plan whose timestamp is unreadable', () => {
   const plan = samplePlan();
   plan.created_at = 'not-a-date';
@@ -450,9 +428,83 @@ test('statusBlock and summaryBlock line their columns up with each other', () =>
   assert.equal(column(status, 'collected'), column(summary, 'collected'));
 });
 
-test('videoBlock says whether a single video is already here', () => {
-  const args = { account: { douyin_id: 'abc123' }, folder: '/data/abc123', videoId: '7111' };
-  assert.match(videoBlock({ ...args, onDisk: false }), /to fetch\s+1 new/);
-  assert.match(videoBlock({ ...args, onDisk: true }), /to fetch\s+0 — already downloaded/);
-  assert.match(videoBlock({ ...args, onDisk: true }), /抖音号 abc123/);
+test('postBlock says whether a single post is already here', () => {
+  const args = { account: { douyin_id: 'abc123' }, folder: '/data/douyin_abc123', postId: '7111' };
+  assert.match(postBlock({ ...args, onDisk: false }), /to fetch\s+1 new/);
+  assert.match(postBlock({ ...args, onDisk: true }), /to fetch\s+0 — already downloaded/);
+  assert.match(postBlock({ ...args, onDisk: true }), /抖音号 abc123/);
+});
+
+test('statusBlock reports image posts it skipped, with the ticket that tracks them', () => {
+  // Invisible loss is the failure this note exists to prevent: before it, an
+  // account's 图文 posts were dropped during harvest with nothing said.
+  const args = {
+    account: { douyin_id: 'abc123' },
+    folder: '/data/douyin_abc123',
+    collected: 40,
+    reported: null,
+    onDisk: 40,
+    pending: 0,
+  };
+  const block = statusBlock({ ...args, skipped: 3 });
+  assert.match(block, /3 image posts skipped — not yet supported/);
+  assert.match(block, /issues\/39/);
+  assert.match(statusBlock({ ...args, skipped: 1 }), /1 image post skipped/);
+});
+
+test('statusBlock stays quiet when an account has no image posts', () => {
+  const args = {
+    account: { douyin_id: 'abc123' },
+    folder: '/data/douyin_abc123',
+    collected: 40,
+    reported: null,
+    onDisk: 40,
+    pending: 0,
+  };
+  assert.doesNotMatch(statusBlock({ ...args, skipped: 0 }), /image post/);
+  // An older plan carries no count at all, and that is not the same as zero.
+  assert.doesNotMatch(statusBlock({ ...args, skipped: null }), /image post/);
+});
+
+test('statusBlock does not blame skipped image posts twice', () => {
+  // 40 reported, 35 videos collected, 3 image posts skipped — so 2 are hidden,
+  // not 5. Counting the skipped ones as hidden as well would report the same
+  // posts under two explanations and overstate what the account is withholding.
+  const block = statusBlock({
+    account: { douyin_id: 'abc123' },
+    folder: '/data/douyin_abc123',
+    collected: 35,
+    reported: 40,
+    skipped: 3,
+    onDisk: 35,
+    pending: 0,
+  });
+  assert.match(block, /2 post\(s\) counted but not shown/);
+});
+
+test('statusBlock drops the hidden-post note when skipped posts explain the whole gap', () => {
+  const block = statusBlock({
+    account: { douyin_id: 'abc123' },
+    folder: '/data/douyin_abc123',
+    collected: 37,
+    reported: 40,
+    skipped: 3,
+    onDisk: 37,
+    pending: 0,
+  });
+  assert.doesNotMatch(block, /counted but not shown/);
+  assert.match(block, /3 image posts skipped/);
+});
+
+test('summaryBlock repeats the skipped-image note the approved block showed', () => {
+  const block = summaryBlock({
+    account: { douyin_id: 'abc123' },
+    folder: '/data/douyin_abc123',
+    collected: 40,
+    reported: null,
+    skipped: 2,
+    downloaded: 5,
+    total: 40,
+  });
+  assert.match(block, /2 image posts skipped/);
 });

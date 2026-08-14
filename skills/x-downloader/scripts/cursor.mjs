@@ -25,10 +25,24 @@ import { PLAN_FILE } from './plan.mjs';
 export const CURSOR_FILE = 'cursor.json';
 export const CURSOR_VERSION = 1;
 
-/** A folder name from what the user asked for, falling back to the handle. */
+/**
+ * Namespaces this skill's folders inside a downloads root it shares with
+ * douyin-downloader, whose folders are `douyin_`. Both default to the same root
+ * — <git root>/downloads — so without a prefix an X handle and a 抖音号 that
+ * happen to match would archive into one folder and interleave two accounts.
+ */
+export const FOLDER_PREFIX = 'x_';
+
+/**
+ * A folder name from what the user asked for, falling back to the handle.
+ *
+ * `--name` renames the account part, not the whole folder: the prefix is what
+ * keeps two skills apart in one root, and a name free to drop it would re-open
+ * the clash exactly where nobody is looking for it.
+ */
 export function folderNameFor({ handle, name }) {
   const chosen = String(name || '').trim() || String(handle || '').trim();
-  return chosen.replace(/^@/, '');
+  return FOLDER_PREFIX + chosen.replace(/^@/, '');
 }
 
 /** True when a cursor or plan describes the account we are looking for. */
