@@ -1,0 +1,5 @@
+interface:
+  display_name: "X Downloader"
+  short_description: "Download an X (Twitter) account's media, or a single post"
+policy:
+  allow_implicit_invocation: false
