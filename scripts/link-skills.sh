@@ -10,6 +10,9 @@ set -euo pipefail
 #   - ~/.agents/skills  — Codex and other Agent Skills-compatible harnesses
 # Each entry is a symlink into this repo, so a `git pull` is all that's needed
 # to keep installed skills up to date.
+#
+# Retired skills in deprecated/ are never linked; that directory sits outside
+# skills/ and so is simply not searched.
 
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 DESTS=("$HOME/.claude/skills" "$HOME/.agents/skills")

@@ -6,6 +6,9 @@ disable-model-invocation: true
 
 # Preparing your own Australian tax return
 
+> [!WARNING]
+> **Retired.** This skill is no longer shipped or maintained. Its "verified against the 2026 income year" stamp is frozen at the day it was retired — do not rely on it.
+
 This skill produces two things: a **bundle** — every document the return rests on, copied in, filed by what it feeds, and indexed — and a **worksheet** that gives, label by label, the number to type into myTax, the working behind it, and the document in the bundle it came from. Assembled with the user, checked by the user, lodged by the user.
 
 Every question put to the user comes from [interview.md](process/interview.md), asked in its order and its wording. A return is assembled across weeks and often across two people, so the interview has to look the same each time it is picked up — an improvised question set makes a resumed session feel like starting over, and quietly drops the categories that run happened not to think of.
