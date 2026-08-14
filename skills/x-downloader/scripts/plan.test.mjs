@@ -155,7 +155,7 @@ test('describeAge reads as English at each scale', () => {
 });
 
 const blockPlan = {
-  account: { id: '1234567890', handle: 'handle', nick: 'Display Name' },
+  account: { id: '1234567890', handle: 'handle', nickname: 'Display Name' },
   root: './downloads',
   folder: 'handle',
   createdAt: new Date(now - 4 * 60_000).toISOString(),
@@ -174,7 +174,7 @@ const blockPlan = {
 };
 
 test('the plan block reports every number the user is approving', () => {
-  const out = renderPlanBlock(blockPlan, now);
+  const out = renderPlanBlock(blockPlan, { now });
   assert.match(out, /@handle \(Display Name\) · id 1234567890/);
   assert.match(out, /found\s+2,041 posts · 3,880 files/);
   assert.match(out, /on disk\s+2,037 posts/);
@@ -182,31 +182,44 @@ test('the plan block reports every number the user is approving', () => {
 });
 
 test('the plan block says when a sweep stopped early', () => {
-  const out = renderPlanBlock(blockPlan, now);
+  const out = renderPlanBlock(blockPlan, { now });
   assert.match(out, /incremental sweep · stopped after 100 consecutive known posts/);
 });
 
 test('a sweep that reached the end says so, so "0 new" is unambiguous', () => {
-  const out = renderPlanBlock({ ...blockPlan, stoppedEarly: false }, now);
+  const out = renderPlanBlock({ ...blockPlan, stoppedEarly: false }, { now });
   assert.match(out, /reached the end of the timeline/);
 });
 
 test('a full sweep is named as one', () => {
-  const out = renderPlanBlock({ ...blockPlan, mode: 'full' }, now);
+  const out = renderPlanBlock({ ...blockPlan, mode: 'full' }, { now });
   assert.match(out, /full sweep/);
 });
 
 test('the plan block states its own age', () => {
-  assert.match(renderPlanBlock(blockPlan, now), /plan collected 4 minutes ago/);
+  assert.match(renderPlanBlock(blockPlan, { now }), /plan collected 4 minutes ago/);
 });
 
 test('a folder whose name no longer matches the handle is called out', () => {
-  const out = renderPlanBlock({ ...blockPlan, folder: 'oldhandle' }, now);
+  const out = renderPlanBlock({ ...blockPlan, folder: 'oldhandle' }, { now });
   assert.match(out, /folder was created as @oldhandle/);
 });
 
 test('a folder that matches the handle gets no drift note', () => {
-  assert.doesNotMatch(renderPlanBlock(blockPlan, now), /folder was created as/);
+  assert.doesNotMatch(renderPlanBlock(blockPlan, { now }), /folder was created as/);
+});
+
+test('an archive whose downloads root moved since the last run says so', () => {
+  // The folder is found by the identity inside it, so a run against a different
+  // root silently starts a second archive. Unsaid, "on disk 0" reads as an
+  // account that lost its files rather than a root that moved.
+  const out = renderPlanBlock(blockPlan, { now, previousRoot: '/elsewhere/downloads' });
+  assert.match(out, /last run used \/elsewhere\/downloads/);
+});
+
+test('a root that has not moved gets no note', () => {
+  assert.doesNotMatch(renderPlanBlock(blockPlan, { now, previousRoot: './downloads' }), /last run used/);
+  assert.doesNotMatch(renderPlanBlock(blockPlan, { now }), /last run used/);
 });
 
 test('the media mix is omitted when there is nothing to fetch', () => {

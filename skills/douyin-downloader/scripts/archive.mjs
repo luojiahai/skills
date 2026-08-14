@@ -117,19 +117,3 @@ export async function onDiskIds(accountDir) {
 export function unlistedIds(listed, onDisk) {
   return [...onDisk].filter((id) => !listed.has(id));
 }
-
-/**
- * The newest upload, read off the folder names — no metadata store needed.
- * Undated posts are skipped rather than ranked: `undated` sorts above every
- * real date as a string, and a post with no date says nothing about how recent
- * the archive is.
- */
-export async function newestPost(accountDir) {
-  let best = { id: null, date: null };
-  for (const [id, have] of await readArchive(accountDir)) {
-    const date = have.folder.slice(0, have.folder.indexOf('_'));
-    if (date === 'undated') continue;
-    if (!best.date || date > best.date) best = { id, date };
-  }
-  return best;
-}

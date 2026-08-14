@@ -365,8 +365,9 @@ async function main() {
             // Seen in the grid, deliberately absent from the URL list above.
             skipped_image_posts: noteIds.size,
             // Deliberately no "newest" field: grid order puts pinned posts
-            // first, so position 0 is not reliably the newest upload. The
-            // cursor derives that from downloaded files' upload dates.
+            // first, so position 0 is not reliably the newest upload — and
+            // nothing needs one, since what has been archived is answered by
+            // the post folders on disk.
           },
           null,
           2,

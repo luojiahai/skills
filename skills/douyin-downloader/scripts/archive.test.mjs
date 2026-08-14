@@ -18,7 +18,6 @@ import {
   TEXT_FILE,
   countMedia,
   isPostComplete,
-  newestPost,
   onDiskIds,
   postIdFromFolder,
   readArchive,
@@ -43,7 +42,7 @@ test('postIdFromFolder reads the id back out', () => {
 test('postIdFromFolder ignores anything that is not a post folder', () => {
   // Other things live under the account dir, and a stray name must not be read
   // as an archived post — that would report a post as downloaded that is not.
-  assert.equal(postIdFromFolder('cursor.json'), null);
+  assert.equal(postIdFromFolder('metadata.json'), null);
   assert.equal(postIdFromFolder('videos'), null);
   assert.equal(postIdFromFolder('2024-3-11_55'), null);
   assert.equal(postIdFromFolder('2024-03-11_'), null);
@@ -126,29 +125,6 @@ test('unlistedIds finds what is on disk but no longer on the profile', () => {
   assert.deepEqual(unlistedIds(listed, new Set(['111', '333'])), ['333']);
   assert.deepEqual(unlistedIds(listed, new Set(['111', '222'])), []);
   assert.deepEqual(unlistedIds(new Set(), new Set(['111'])), ['111']);
-});
-
-test('newestPost reads the newest upload straight off the folder names', async () => {
-  const dir = await root();
-  await post(dir, '2024-03-11_111', ['1.mp4']);
-  await post(dir, '2024-05-02_222', ['1.mp4']);
-  await post(dir, '2023-12-31_333', ['1.mp4']);
-
-  assert.deepEqual(await newestPost(dir), { id: '222', date: '2024-05-02' });
-});
-
-test('newestPost skips undated posts rather than ranking them', async () => {
-  // `undated` sorts above every real date as a string, and a post with no date
-  // is not evidence of anything about how recent the archive is.
-  const dir = await root();
-  await post(dir, '2024-03-11_111', ['1.mp4']);
-  await post(dir, 'undated_999', ['1.mp4']);
-
-  assert.deepEqual(await newestPost(dir), { id: '111', date: '2024-03-11' });
-});
-
-test('newestPost on an empty archive knows nothing rather than guessing', async () => {
-  assert.deepEqual(await newestPost(await root()), { id: null, date: null });
 });
 
 test('the yt-dlp template in download-douyin.sh still produces folder names this module reads', async () => {

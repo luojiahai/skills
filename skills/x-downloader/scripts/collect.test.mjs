@@ -64,7 +64,7 @@ test('collect reads printed rows and picks up the account identity', async () =>
   const result = await collect({ url: 'https://x.com/someone', bin });
 
   assert.equal(result.rows.length, 2);
-  assert.deepEqual(result.account, { id: '55', handle: 'someone', nick: 'Some One' });
+  assert.deepEqual(result.account, { id: '55', handle: 'someone', nickname: 'Some One' });
   assert.equal(result.stoppedEarly, false);
   assert.equal(result.failure, null);
 });

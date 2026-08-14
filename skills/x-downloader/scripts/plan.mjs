@@ -18,7 +18,7 @@ import path from 'node:path';
 import { isMissing } from './archive.mjs';
 import { readJson } from './cli.mjs';
 
-export const PLAN_FILE = '.plan.json';
+const PLAN_FILE = '.plan.json';
 export const PLAN_VERSION = 1;
 
 /** A plan describes a list the user approved. A day later it describes the past. */
@@ -143,18 +143,22 @@ const n = (value) => Number(value || 0).toLocaleString('en-US');
 /**
  * The block the user answers yes or no to.
  *
- * Every line here is a question they would otherwise have to ask, and two of
+ * Every line here is a question they would otherwise have to ask, and three of
  * them exist because the obvious-looking block would mislead: a folder whose
- * name no longer matches the handle, and a sweep that stopped early. Without
- * the sweep line, `to fetch 0` cannot be told apart from "gave up before
- * reaching anything new".
+ * name no longer matches the handle, a downloads root that has moved since the
+ * last run, and a sweep that stopped early. Without the sweep line, `to fetch
+ * 0` cannot be told apart from "gave up before reaching anything new".
+ *
+ * `previousRoot` is the root recorded in metadata.json *before* this run
+ * overwrote it — the caller reads it first and passes it in, because by the
+ * time this renders, the file already says the new one.
  */
-export function renderPlanBlock(plan, now = Date.now()) {
+export function renderPlanBlock(plan, { now = Date.now(), previousRoot = null } = {}) {
   const { account, folder, root, counts, mode, stoppedEarly, abortThreshold, createdAt, named } = plan;
   const lines = [];
 
-  const nick = account.nick ? ` (${account.nick})` : '';
-  lines.push(`@${account.handle}${nick} · id ${account.id}`);
+  const nickname = account.nickname ? ` (${account.nickname})` : '';
+  lines.push(`@${account.handle}${nickname} · id ${account.id}`);
 
   // A folder whose name no longer matches the handle is not an error and is not
   // renamed — but left unsaid it reads as the wrong account, so it is said.
@@ -163,6 +167,13 @@ export function renderPlanBlock(plan, now = Date.now()) {
     ? `   (folder was created as @${folder})`
     : '';
   lines.push(`  → ${path.join(root, folder)}${drift}`);
+
+  // The archive is found by the identity inside it, so a run against another
+  // root starts a second one in silence. Left unsaid, its "on disk 0" reads as
+  // an account that has lost its files.
+  if (previousRoot && previousRoot !== root) {
+    lines.push(`  last run used ${previousRoot}`);
+  }
 
   const created = Date.parse(createdAt);
   const age = Number.isFinite(created)

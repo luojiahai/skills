@@ -79,9 +79,19 @@ the stopping rule are all settled inside it.
 
 **`--go` has no id at all, so it finds its folder by URL.** It enumerates
 nothing by design, so `findAccountFolder` is unavailable to it. `findFolderByUrl`
-matches the `url` recorded in `.plan.json` (then `cursor.json`), which is the
-URL the plan was written from. The same URL is what `validatePlan` compares —
-the numeric-id check in that function can never fire on the `--go` path.
+matches the `url` recorded in `metadata.json`, which is the URL the archive was
+made from. The same URL is what `validatePlan` compares — the numeric-id check
+in that function can never fire on the `--go` path.
+
+**`metadata.json` is authoritative for identity, and never for progress.** It
+is the only thing that says which folder an account has, so deleting it costs
+the archive its folder. It says nothing about what has been downloaded: that is
+answered by the post folders alone, and a count or a newest-post id kept here
+would be a second record free to disagree with them. It is written the moment
+the folder is resolved — before the download, not after — so a folder that
+exists always says whose it is, and `.plan.json` is never asked who an account
+is. The plan carries identity only as a guard, for `validatePlan` to refuse a
+plan made for someone else.
 
 **`text.txt` is written whatever happened to the media.** Returning early on a
 failed fetch leaves a post that got three of its four images sitting in a folder
@@ -113,7 +123,7 @@ filename format.
 | `plan.mjs` | The diff, the plan's validation rules, and **every** block the skill prints. |
 | `archive.mjs` | What is already on disk, read from the post folders. |
 | `naming.mjs` | A post's `<date>_<id>` folder name, the id back out of one, and the `text.txt` body. |
-| `cursor.mjs` | Resolves an account's folder by numeric identity; writes `cursor.json`. |
+| `metadata.mjs` | Resolves an account's folder by numeric identity or URL; writes `metadata.json`. |
 | `paths.mjs` | Single source of truth for the state directory and the downloads root. |
 | `target.mjs` | Which of the two entry points a URL is, and refusal by name for everything else. |
 
@@ -200,7 +210,7 @@ node --test scripts/*.test.mjs
 ```
 
 That covers the diff, plan validation and rendering, path normalisation,
-argument parsing, cursor identity and merging, URL classification, failure
+argument parsing, metadata identity and merging, URL classification, failure
 classification, the archive scan, the `text.txt` builder, and post folder
 naming in both directions.
 
@@ -220,8 +230,8 @@ on.
 
 ## Shared with douyin-downloader, on purpose
 
-`archive.mjs` and `naming.mjs` here, and `archive.mjs` in **douyin-downloader**,
-hold the same rules, written twice:
+`archive.mjs`, `naming.mjs` and `metadata.mjs` here, and `archive.mjs` /
+`metadata.mjs` in **douyin-downloader**, hold the same rules, written twice:
 
 - `posts/<YYYY-MM-DD|undated>_<id>/`, one folder per post
 - media numbered by position — `1.jpg`, `2.mp4`
@@ -232,6 +242,10 @@ hold the same rules, written twice:
   handle that matches a 抖音号 would otherwise interleave two accounts in one
   folder. `--name` renames the account part and keeps the prefix, so no name
   can be chosen that collides.
+- `metadata.json` beside `posts/`, holding `version`, `account`, `url`, `root`
+  and `updated_at` and nothing else — authoritative for identity, never for
+  progress. Both write it when the folder is resolved, both merge into what is
+  already there, and both treat a blank as silence rather than an erasure.
 
 They are duplicated rather than shared. A skill is a self-contained folder under
 `skills/`, distributed and symlinked on its own, so there is nowhere a shared

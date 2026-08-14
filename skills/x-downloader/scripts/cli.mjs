@@ -89,7 +89,7 @@ export function optString(opts, key) {
   return typeof value === 'string' ? value : '';
 }
 
-/** Null rather than a throw: a missing cursor or plan is an ordinary answer. */
+/** Null rather than a throw: missing metadata or no plan is an ordinary answer. */
 export async function readJson(file) {
   try {
     return JSON.parse(await readFile(file, 'utf8'));

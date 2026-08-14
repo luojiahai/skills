@@ -2,12 +2,19 @@
  * Tests for plan.mjs — run with:
  *   node --test scripts/*.test.mjs
  *
- * Only the pure functions are covered here: the diff, the validation rules and
- * the rendering. The CLI around them is exercised by hand against the live
- * site, which no test can stand in for.
+ * Mostly the pure functions: the diff, the validation rules and the rendering.
+ * The `build` subcommand is covered too, because it is where reading and
+ * writing metadata.json have to happen in that order. Everything that talks to
+ * the live site is exercised by hand, which no test can stand in for.
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { execFile as execFileCb } from 'node:child_process';
+import { existsSync } from 'node:fs';
+import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+import { promisify } from 'node:util';
 
 import {
   buildPlan,
@@ -20,6 +27,8 @@ import {
   unlistedCountFromPlan,
   validatePlan,
 } from './plan.mjs';
+
+const execFile = promisify(execFileCb);
 
 const HOUR = 3600 * 1000;
 
@@ -507,4 +516,87 @@ test('summaryBlock repeats the skipped-image note the approved block showed', ()
     total: 40,
   });
   assert.match(block, /2 image posts skipped/);
+});
+
+// ---- the build CLI ---------------------------------------------------------
+// One thing here is worth the cost of spawning node: build both *writes*
+// metadata.json and *reports* the root the previous run used, and it reads
+// before it writes. Reorder those two and the note goes quiet forever, which no
+// unit test of statusBlock can catch.
+
+const CLI = new URL('./plan.mjs', import.meta.url).pathname;
+
+async function buildIn(folder, { downloads, url, meta = {}, collected = [] }) {
+  const scratch = await mkdtemp(path.join(os.tmpdir(), 'douyin-build-'));
+  const metaFile = path.join(scratch, 'meta.json');
+  const urlsFile = path.join(scratch, 'urls.txt');
+  await writeFile(metaFile, JSON.stringify(meta));
+  await writeFile(urlsFile, collected.join('\n'));
+
+  const { stdout } = await execFile(process.execPath, [
+    CLI, 'build',
+    '--meta', metaFile,
+    '--urls', urlsFile,
+    '--folder', folder,
+    '--downloads', downloads,
+    '--url', url,
+  ]);
+  return stdout;
+}
+
+test('build records the account before anything is downloaded', async () => {
+  const downloads = await mkdtemp(path.join(os.tmpdir(), 'douyin-downloads-'));
+  const folder = path.join(downloads, 'douyin_abc123');
+
+  await buildIn(folder, {
+    downloads,
+    url: 'https://www.douyin.com/user/MS4wABC',
+    meta: { sec_uid: 'MS4wABC', douyin_id: 'abc123', nickname: '某人' },
+    collected: ['https://www.douyin.com/video/7111'],
+  });
+
+  const metadata = JSON.parse(await readFile(path.join(folder, 'metadata.json'), 'utf8'));
+  assert.deepEqual(metadata.account, { sec_uid: 'MS4wABC', douyin_id: 'abc123', nickname: '某人' });
+  assert.equal(metadata.url, 'https://www.douyin.com/user/MS4wABC');
+  assert.equal(metadata.root, downloads);
+});
+
+test('build reports the previous root before overwriting it', async () => {
+  const downloads = await mkdtemp(path.join(os.tmpdir(), 'douyin-downloads-'));
+  const folder = path.join(downloads, 'douyin_abc123');
+  await mkdir(folder, { recursive: true });
+  await writeFile(
+    path.join(folder, 'metadata.json'),
+    JSON.stringify({ account: { douyin_id: 'abc123' }, root: '/elsewhere/downloads' }),
+  );
+
+  const out = await buildIn(folder, {
+    downloads,
+    url: 'https://www.douyin.com/user/MS4wABC',
+    meta: { sec_uid: 'MS4wABC', douyin_id: 'abc123' },
+    collected: ['https://www.douyin.com/video/7111'],
+  });
+
+  assert.match(out, /last run used \/elsewhere\/downloads/);
+  const metadata = JSON.parse(await readFile(path.join(folder, 'metadata.json'), 'utf8'));
+  assert.equal(metadata.root, downloads);
+});
+
+test('build records the account even when there is nothing left to fetch', async () => {
+  // No plan is written in this case, so metadata.json is the only thing that
+  // will tell the next run whose folder this is.
+  const downloads = await mkdtemp(path.join(os.tmpdir(), 'douyin-downloads-'));
+  const folder = path.join(downloads, 'douyin_abc123');
+
+  const out = await buildIn(folder, {
+    downloads,
+    url: 'https://www.douyin.com/user/MS4wABC',
+    meta: { sec_uid: 'MS4wABC', douyin_id: 'abc123' },
+    collected: [],
+  });
+
+  assert.match(out, /already up to date/);
+  assert.equal(existsSync(path.join(folder, '.plan.json')), false);
+  const metadata = JSON.parse(await readFile(path.join(folder, 'metadata.json'), 'utf8'));
+  assert.equal(metadata.account.douyin_id, 'abc123');
 });

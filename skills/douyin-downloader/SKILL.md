@@ -137,8 +137,11 @@ One folder per account, under the downloads root:
   rather than truncated into a directory name. **These folders are the record of
   what has been downloaded**, and a post counts as done when it holds media.
   Deleting one re-downloads it.
-- `cursor.json` — identity and last-run state, including the root the last run
-  used. Reporting only; it gates nothing. Deleting it costs the account its
-  `--name` folder association, nothing more.
+- `metadata.json` — the account's identity, the profile URL it was archived
+  from and the downloads root the last run used. Written as soon as the folder
+  is resolved, before anything is downloaded. It is **authoritative for
+  identity** — which folder is this account's — and **never for progress**: what
+  has been downloaded is answered by `posts/` alone. Deleting it costs the
+  archive its folder, and the next run starts a new one.
 - `.plan.json` — between `--plan` and `--go`, the list awaiting approval.
   Deleted once every post in it has landed.
