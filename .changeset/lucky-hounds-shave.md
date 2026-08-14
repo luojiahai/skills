@@ -1,5 +1,5 @@
 ---
-"luojiahai-skills": minor
+"luojiahai-skills": patch
 ---
 
 Add `x-downloader`: archive the media an X (formerly Twitter) account has posted, or a single post.
