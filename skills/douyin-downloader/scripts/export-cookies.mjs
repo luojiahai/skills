@@ -29,8 +29,10 @@ for (let i = 0; i < argv.length; i++) {
 const { chromium } = await loadPlaywright();
 const context = await chromium.launchPersistentContext(profileDir, { headless: true });
 try {
+  // Anchored on a label boundary: `.douyin.com`, `douyin.com` and
+  // `www.douyin.com` qualify, a lookalike ending in `…notdouyin.com` does not.
   const cookies = (await context.cookies()).filter((c) =>
-    /douyin\.com$/.test(c.domain.replace(/^\./, '')),
+    /(^|\.)douyin\.com$/.test(c.domain),
   );
 
   if (cookies.length === 0) {

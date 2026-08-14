@@ -73,7 +73,7 @@ Options:
                         matching the account identity in cursor.json.
       --user URL        Accepted as an alias for a positional profile URL.
       --profile DIR     Playwright session profile
-                        (default: ~/.local/state/douyin-downloader/profile)
+                        (default: ${XDG_STATE_HOME:-~/.local/state}/douyin-downloader/profile)
   -h, --help            Show this help
 
 Videos land in <downloads>/<folder>/videos/, alongside cursor.json (identity
@@ -143,8 +143,10 @@ fi
 TMP_COLLECTED=""
 TMP_META=""
 TMP_PENDING=""
+TMP_LOG=""
 cleanup() {
-  rm -f ${TMP_COLLECTED:+"$TMP_COLLECTED"} ${TMP_META:+"$TMP_META"} ${TMP_PENDING:+"$TMP_PENDING"}
+  rm -f ${TMP_COLLECTED:+"$TMP_COLLECTED"} ${TMP_META:+"$TMP_META"} \
+    ${TMP_PENDING:+"$TMP_PENDING"} ${TMP_LOG:+"$TMP_LOG"}
 }
 trap cleanup EXIT
 
@@ -171,8 +173,10 @@ mint_cookies() {
 # Runs download-douyin.sh, re-minting cookies and retrying once if the session
 # was the problem. Returns download-douyin.sh's exit status.
 download_list() {
-  local list="$1" folder="$2" log status
-  log="$(mktemp -t douyin-dl-log)"
+  local list="$1" folder="$2" status
+  # A global rather than a local, so the EXIT trap can clean it up when a
+  # 30-minute run is interrupted partway.
+  TMP_LOG="$(mktemp -t douyin-dl-log)"
 
   [[ -f "$COOKIE_FILE" ]] || mint_cookies
 
@@ -180,22 +184,23 @@ download_list() {
   # cursor.json, so state is not buried among 282 media files.
   set +e
   "${SCRIPT_DIR}/download-douyin.sh" -i "$list" -o "${folder}/videos" --flat \
-    --archive "${folder}/.archive.txt" --cookies "$COOKIE_FILE" 2>&1 | tee "$log"
+    --archive "${folder}/.archive.txt" --cookies "$COOKIE_FILE" 2>&1 | tee "$TMP_LOG"
   status="${PIPESTATUS[0]}"
   set -e
 
-  if [[ "$status" != 0 ]] && grep -q "Fresh cookies" "$log"; then
+  if [[ "$status" != 0 ]] && grep -q "Fresh cookies" "$TMP_LOG"; then
     echo
     echo "[douyin] session cookies rejected — re-minting and retrying once…"
     mint_cookies
     set +e
     "${SCRIPT_DIR}/download-douyin.sh" -i "$list" -o "${folder}/videos" --flat \
-      --archive "${folder}/.archive.txt" --cookies "$COOKIE_FILE" 2>&1 | tee "$log"
+      --archive "${folder}/.archive.txt" --cookies "$COOKIE_FILE" 2>&1 | tee "$TMP_LOG"
     status="${PIPESTATUS[0]}"
     set -e
   fi
 
-  rm -f "$log"
+  rm -f "$TMP_LOG"
+  TMP_LOG=""
   return "$status"
 }
 
@@ -254,16 +259,27 @@ if [[ "$URL" =~ /video/([0-9]+) ]]; then
 
   # cursor.json is deliberately not written here: a single video does not mean
   # the account has been scanned up to that point.
-  download_list "$TMP_PENDING" "$FOLDER"
+  SINGLE_STATUS=0
+  download_list "$TMP_PENDING" "$FOLDER" || SINGLE_STATUS=$?
+
+  # The same block every other run ends with, read back from the archive: on
+  # success it shows the video downloaded, after a failure still to fetch.
   echo
-  echo "[douyin] ${FOLDER}/videos"
-  exit 0
+  plan_mjs video --folder "$FOLDER" --douyin-id "$DOUYIN_ID" --video "$VIDEO_ID"
+  if [[ "$SINGLE_STATUS" != 0 ]]; then
+    echo "warning: the download failed — re-run the same command to retry" >&2
+  fi
+  exit "$SINGLE_STATUS"
 fi
 
 # ---- whole account ---------------------------------------------------------
 if [[ ! "$URL" =~ douyin\.com/user/ ]]; then
   echo "error: not a Douyin profile or video URL: $URL" >&2
   echo "Expected .../user/MS4wLjABAAAA... or .../video/<id>" >&2
+  if [[ "$URL" =~ v\.douyin\.com ]]; then
+    echo "v.douyin.com share links have to be expanded first: open the link in" >&2
+    echo "a browser and copy the douyin.com URL it lands on." >&2
+  fi
   exit 2
 fi
 
@@ -275,12 +291,20 @@ if [[ "$URL" =~ /user/([^/?#]+) ]]; then
 fi
 
 # Downloads the plan sitting in $1, which --plan wrote and the user approved.
+#
+# Call it plainly, never as `run_plan … || status=$?`: bash switches errexit
+# off for the whole body of a function invoked in a || list, and with it off a
+# *refused* plan fell straight through to the download — "0 video(s)", a
+# cursor write that could merge a foreign plan's identity, and a summary
+# telling the user to re-run the very --go that just failed.
 run_plan() {
   local folder="$1" before after pending status=0
 
   TMP_PENDING="$(mktemp -t douyin-pending)"
+  # The one refusal errexit must never be trusted with: nothing below this
+  # line may run on a plan that was not approved as-is.
   plan_mjs load --folder "$folder" --downloads "$DOWNLOADS" \
-    --sec-uid "$SEC_UID" --out "$TMP_PENDING" --remedy "$PLAN_HINT"
+    --sec-uid "$SEC_UID" --out "$TMP_PENDING" --remedy "$PLAN_HINT" || return $?
 
   pending="$(wc -l <"$TMP_PENDING" | tr -d ' ')"
   before="$(plan_mjs count --folder "$folder")"
@@ -325,9 +349,9 @@ if [[ "$MODE" == "go" ]]; then
     exit "$RESOLVE_STATUS"
   fi
 
-  GO_STATUS=0
-  run_plan "$FOLDER" || GO_STATUS=$?
-  exit "$GO_STATUS"
+  # Plain call: a failure exits the script with run_plan's status via errexit.
+  run_plan "$FOLDER"
+  exit 0
 fi
 
 # ---- --plan / --yes: collect, diff, report ---------------------------------
@@ -368,6 +392,6 @@ if [[ "$MODE" != "yes" ]]; then
 fi
 
 echo
-YES_STATUS=0
-run_plan "$FOLDER" || YES_STATUS=$?
-exit "$YES_STATUS"
+# Plain call: a failure exits the script with run_plan's status via errexit.
+run_plan "$FOLDER"
+exit 0

@@ -1,6 +1,6 @@
 /**
  * Tests for plan.mjs — run with:
- *   node --test scripts/plan.test.mjs scripts/paths.test.mjs
+ *   node --test scripts/*.test.mjs
  *
  * Only the pure functions are covered here: the diff, the validation rules and
  * the rendering. The CLI around them is exercised by hand against the live
@@ -187,6 +187,24 @@ test('validatePlan rejects a plan written for another root', () => {
     folder: '/elsewhere/abc123',
   });
   assert.match(err.message, /different downloads root/);
+});
+
+test('validatePlan rejects a plan written for another folder under the same root', () => {
+  // Same root, different folder — a --name change between plan and go. The
+  // root check must not shadow this one.
+  const err = validatePlan(samplePlan(), { ...CHECK, folder: '/data/renamed' });
+  assert.match(err.message, /different folder \(\/data\/abc123\)/);
+});
+
+test('validatePlan reports a stale plan age in hours and minutes, not just days', () => {
+  const at = (hours, ttlHours) =>
+    validatePlan(samplePlan(), {
+      ...CHECK,
+      now: new Date(new Date('2026-08-14T10:00:00Z').getTime() + hours * HOUR),
+      ttlHours,
+    });
+  assert.match(at(5, 2).message, /5h old/);
+  assert.match(at(0.5, 0.25).message, /30m old/);
 });
 
 test('validatePlan rejects a plan with nothing to download', () => {

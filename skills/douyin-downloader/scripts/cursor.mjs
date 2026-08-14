@@ -25,8 +25,9 @@
 import { writeFile, readdir, mkdir } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
-import { optString, parseArgs, readJson } from './cli.mjs';
+import { isMainModule, optString, parseArgs, readJson } from './cli.mjs';
 import { downloadsRoot, normalizeRoot } from './paths.mjs';
+import { PLAN_FILE } from './plan.mjs';
 
 const readIn = (folder, file) => readJson(path.join(folder, file));
 const readCursor = (folder) => readIn(folder, 'cursor.json');
@@ -65,7 +66,7 @@ async function resolve(opts) {
       // .plan.json as well as cursor.json: an account planned but never
       // downloaded has no cursor yet, and --go still has to find its folder
       // from the sec_uid in the URL alone.
-      for (const identity of [await readCursor(folder), await readIn(folder, '.plan.json')]) {
+      for (const identity of [await readCursor(folder), await readIn(folder, PLAN_FILE)]) {
         if (!identity) continue;
         if (
           (secUid && identity.sec_uid === secUid) ||
@@ -90,7 +91,7 @@ async function resolve(opts) {
 
 /** Filenames are `<upload_date> - <title> [<id>].<ext>`, so the newest upload
  *  is readable off disk without re-querying anything. */
-async function newestFrom(videosDir) {
+export async function newestFrom(videosDir) {
   if (!existsSync(videosDir)) return { id: null, date: null };
   let best = { id: null, date: null };
   for (const name of await readdir(videosDir)) {
@@ -100,17 +101,9 @@ async function newestFrom(videosDir) {
   return best;
 }
 
-async function write(opts) {
-  const folder = opts.folder;
-  if (!folder) {
-    console.error('error: write needs --folder');
-    process.exit(2);
-  }
-  const meta = optString(opts, 'meta') ? ((await readJson(opts.meta)) ?? {}) : {};
-  const previous = (await readCursor(folder)) ?? {};
-  const newest = await newestFrom(path.join(folder, 'videos'));
-
-  const cursor = {
+/** What a fresh run knows wins; what only the previous cursor knew survives. */
+export function mergeCursor({ meta, previous, newest, folder, downloads, now }) {
+  return {
     sec_uid: meta.sec_uid ?? previous.sec_uid ?? null,
     douyin_id: meta.douyin_id ?? previous.douyin_id ?? null,
     nickname: meta.nickname ?? previous.nickname ?? null,
@@ -118,26 +111,44 @@ async function write(opts) {
     // Reporting only — the folder cannot be found *through* this, since the
     // file naming the root lives inside it. It is what lets a run say the
     // archive has moved since last time.
-    downloads_root:
-      optString(opts, 'downloads') || previous.downloads_root || path.dirname(folder),
-    last_run_at: new Date().toISOString(),
+    downloads_root: downloads || previous.downloads_root || path.dirname(folder),
+    last_run_at: now.toISOString(),
     newest_video_id: newest.id ?? previous.newest_video_id ?? null,
     newest_upload_date: newest.date ?? previous.newest_upload_date ?? null,
     collected_count: meta.collected_count ?? previous.collected_count ?? null,
     reported_works_count: meta.reported_works_count ?? previous.reported_works_count ?? null,
   };
+}
+
+async function write(opts) {
+  const folder = opts.folder;
+  if (!folder) {
+    console.error('error: write needs --folder');
+    process.exit(2);
+  }
+  const cursor = mergeCursor({
+    meta: optString(opts, 'meta') ? ((await readJson(opts.meta)) ?? {}) : {},
+    previous: (await readCursor(folder)) ?? {},
+    newest: await newestFrom(path.join(folder, 'videos')),
+    folder,
+    downloads: optString(opts, 'downloads'),
+    now: new Date(),
+  });
 
   await mkdir(folder, { recursive: true });
   await writeFile(path.join(folder, 'cursor.json'), JSON.stringify(cursor, null, 2) + '\n');
 }
 
-const [command, ...rest] = process.argv.slice(2);
-const opts = parseArgs(rest);
+// Tests import this file, so the CLI dispatches only when it is the entry point.
+if (isMainModule(import.meta.url)) {
+  const [command, ...rest] = process.argv.slice(2);
+  const opts = parseArgs(rest);
 
-if (command === 'resolve') await resolve(opts);
-else if (command === 'write') await write(opts);
-else if (command === 'root') console.log(rootFor(opts));
-else {
-  console.error(`error: unknown command '${command ?? ''}' (expected resolve|write|root)`);
-  process.exit(2);
+  if (command === 'resolve') await resolve(opts);
+  else if (command === 'write') await write(opts);
+  else if (command === 'root') console.log(rootFor(opts));
+  else {
+    console.error(`error: unknown command '${command ?? ''}' (expected resolve|write|root)`);
+    process.exit(2);
+  }
 }

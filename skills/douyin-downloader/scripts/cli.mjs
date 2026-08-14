@@ -1,13 +1,31 @@
 /**
- * cli.mjs — the argument parsing and file reading shared by cursor.mjs and
- * plan.mjs.
+ * cli.mjs — the argument parsing, file reading and entry-point detection
+ * shared by cursor.mjs and plan.mjs.
  *
  * Both are small `<verb> --flag value` CLIs called from download.sh, and they
  * had a copy each of this. The copies then drifted: one learned that a flag
  * with no value of its own must not swallow the flag after it, and the other
  * did not. One copy is how that stops happening again.
  */
+import { realpathSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
+import { pathToFileURL } from 'node:url';
+
+/**
+ * True when `importMetaUrl` names the file node was asked to run. Each CLI
+ * here dispatches only behind this: cursor.mjs imports from plan.mjs, and a
+ * dispatch keyed on argv alone would run plan's CLI on cursor's arguments.
+ * argv[1] is realpath'd because the skill is installed by symlink while node
+ * resolves the entry module to its real location.
+ */
+export function isMainModule(importMetaUrl) {
+  if (!process.argv[1]) return false;
+  try {
+    return pathToFileURL(realpathSync(process.argv[1])).href === importMetaUrl;
+  } catch {
+    return false;
+  }
+}
 
 /**
  * `--folder DIR --require-match` → `{ folder: 'DIR', require_match: true }`.

@@ -74,13 +74,13 @@ deletes.
 `setup.sh` installs yt-dlp's companions and is safe to re-run:
 
 ```bash
-setup.sh
+<skill-dir>/setup.sh
 ```
 
 Then the user signs in once — only a human can pass Douyin's login:
 
 ```bash
-node scripts/collect-douyin-ids.mjs --login <profile-url>
+node <skill-dir>/scripts/collect-douyin-ids.mjs --login <profile-url>
 ```
 
 That command is a **handoff**. Print it, tell them a browser will open and that

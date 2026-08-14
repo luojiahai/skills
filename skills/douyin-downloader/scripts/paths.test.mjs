@@ -1,5 +1,5 @@
 /**
- * Tests for paths.mjs — run with: node --test scripts/plan.test.mjs scripts/paths.test.mjs
+ * Tests for paths.mjs — run with: node --test scripts/*.test.mjs
  *
  * Only normalizeRoot is covered: the rest of paths.mjs answers questions about
  * this machine (git roots, install layout, where Playwright landed) that a test

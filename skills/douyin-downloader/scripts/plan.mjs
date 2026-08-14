@@ -47,7 +47,7 @@
  */
 import { mkdir, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { optString, parseArgs, readJson, readText, requireOpts } from './cli.mjs';
+import { isMainModule, optString, parseArgs, readJson, readText, requireOpts } from './cli.mjs';
 
 export const PLAN_FILE = '.plan.json';
 export const DEFAULT_TTL_HOURS = 24;
@@ -407,14 +407,15 @@ async function clear(opts) {
   await rm(planPath(opts.folder), { force: true });
 }
 
-// Importing for tests must not run the CLI; argv[2] is absent then.
-const [command, ...rest] = process.argv.slice(2);
-if (command) {
+// Tests and cursor.mjs import this file, so the CLI dispatches only when it
+// is the entry point — argv alone cannot tell whose arguments these are.
+if (isMainModule(import.meta.url)) {
+  const [command, ...rest] = process.argv.slice(2);
   const commands = { build, load, count, summary, video, clear };
   if (commands[command]) await commands[command](parseArgs(rest));
   else {
     console.error(
-      `error: unknown command '${command}' (expected ${Object.keys(commands).join('|')})`,
+      `error: unknown command '${command ?? ''}' (expected ${Object.keys(commands).join('|')})`,
     );
     process.exit(2);
   }

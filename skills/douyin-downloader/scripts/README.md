@@ -32,6 +32,17 @@ that, returning 7 videos, none of them the account's.
 **Grid class names are obfuscated and rotate** (`a.RZuwF26I`, `div.gsF4XxDR`).
 Filter structurally — exclude `footer`, exclude the SEO marker — never by class.
 
+**A shell function called under `||` runs with errexit off.** `run_plan … ||
+status=$?` read like status capture; it was bash turning `set -e` off for the
+whole function body — a refused plan printed its refusal and then *kept going*,
+through the cursor write and a bogus summary telling the user to re-run the
+`--go` that had just failed. So `run_plan` is invoked plainly, failure exiting
+the script through errexit, and the plan load carries its own `|| return $?`
+so the refusal holds even if a guarded call sneaks back in. `download_list` is
+the one function still called under `||`: it manages `set +e` around its
+pipeline itself and returns an explicit status, which is the pattern that
+makes such a call safe.
+
 **The pauses are what let a long run finish.** `download-douyin.sh` runs yt-dlp
 with `--sleep-requests 2 --sleep-interval 3 --max-sleep-interval 8`. Douyin
 rate-limits hard: an unthrottled batch starts failing partway through and can
@@ -47,7 +58,7 @@ what stops it finishing.
 | `collect-douyin-ids.mjs` | Drives Playwright, scrolls the profile, emits video URLs and profile metadata. |
 | `export-cookies.mjs` | Exports the Playwright session as a Netscape `cookies.txt` for yt-dlp. |
 | `plan.mjs` | The confirm step: diffs the collected list against the archive, owns `.plan.json`, and renders **every** block the skill prints. |
-| `cli.mjs` | The argument parsing and file reading `plan.mjs` and `cursor.mjs` share. |
+| `cli.mjs` | The argument parsing, file reading and entry-point detection `plan.mjs` and `cursor.mjs` share. |
 | `cursor.mjs` | Resolves an account's folder by identity; writes `cursor.json`; answers what the downloads root is. |
 | `paths.mjs` | Single source of truth for where state lives and how Playwright is found. |
 | `collect-douyin-ids.js` | The same harvest as a DevTools console snippet — a no-dependency fallback if Playwright breaks. |
@@ -191,10 +202,11 @@ lands its exports on `.default` — `loadPlaywright()` normalises that.
 ## Tests
 
 The pure logic — the diff, the plan validation rules, the status rendering,
-path normalisation — has unit tests, and no dependencies beyond Node:
+path normalisation, the shared argument parsing, and the cursor's merge and
+newest-upload rules — has unit tests, and no dependencies beyond Node:
 
 ```bash
-node --test scripts/plan.test.mjs scripts/paths.test.mjs
+node --test scripts/*.test.mjs
 ```
 
 Everything else (a real grid, a real session, yt-dlp) is verified by running it
