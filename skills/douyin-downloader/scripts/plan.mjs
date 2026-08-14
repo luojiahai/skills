@@ -93,6 +93,34 @@ export function pendingUrls(collected, archiveText) {
   return pending;
 }
 
+/**
+ * The ids the archive holds that the profile no longer lists — the question
+ * pendingUrls asks, the other way round. Derived on every run and never
+ * recorded; see README, "Counts will not match".
+ */
+export function unlistedArchivedIds(collected, archiveText) {
+  const listed = new Set();
+  for (const url of collected ?? []) {
+    const id = videoIdFrom(url);
+    if (id) listed.add(id);
+  }
+  return [...archivedIds(archiveText)].filter((id) => !listed.has(id));
+}
+
+/**
+ * The same count for a finished run, which has only the plan to work from.
+ *
+ * A plan written before the note existed carries `collected_count` but no
+ * `collected` list, and the count cannot be reconstructed from the numbers: an
+ * account that had simply posted since would come out looking like a deletion.
+ * Unknown is returned as null and rendered as nothing — reporting 0 would be
+ * asserting the archive is fully listed, which is precisely what is not known.
+ */
+export function unlistedCountFromPlan(plan, archiveText) {
+  if (!Array.isArray(plan?.collected)) return null;
+  return unlistedArchivedIds(plan.collected, archiveText).length;
+}
+
 export function buildPlan({ meta, collected, pending, folder, downloadsRoot, now }) {
   return {
     created_at: now.toISOString(),
@@ -192,6 +220,23 @@ function hiddenPostRows(collected, reported) {
   ];
 }
 
+/**
+ * Why the archive can outnumber both the collected list and the profile's own
+ * count. Only what was observed is claimed: an id here and not in the listing
+ * reads the same whether the post was deleted, hidden, region-locked or missed
+ * by a collection that stopped short, and none of those can be told apart
+ * without fetching each one.
+ *
+ * Unknown (a plan written before this note existed carries no collected list)
+ * is not zero, and says nothing rather than a reassuring nothing.
+ */
+function unlistedPostRows(unlisted) {
+  if (!unlisted) return [];
+  return [
+    row('note', `${unlisted} archived post${unlisted === 1 ? '' : 's'} no longer on the profile`),
+  ];
+}
+
 /** The block a user is asked to approve. */
 export function statusBlock({
   account,
@@ -201,6 +246,7 @@ export function statusBlock({
   collected,
   reported,
   onDisk,
+  unlisted,
   pending,
 }) {
   const lines = [headline(account), row('folder', folder)];
@@ -210,6 +256,7 @@ export function statusBlock({
   lines.push(
     row('collected', reported === null ? `${collected}` : `${collected} of ${reported} reported`),
     ...hiddenPostRows(collected, reported),
+    ...unlistedPostRows(unlisted),
     row('on disk', `${onDisk}`),
     row('to fetch', pending === 0 ? '0 — already up to date' : `${pending} new`),
   );
@@ -217,12 +264,22 @@ export function statusBlock({
 }
 
 /** The block a finished run reports, in the columns it was approved in. */
-export function summaryBlock({ account, folder, collected, reported, downloaded, total, failed }) {
+export function summaryBlock({
+  account,
+  folder,
+  collected,
+  reported,
+  unlisted,
+  downloaded,
+  total,
+  failed,
+}) {
   const lines = [
     headline(account),
     row('folder', folder),
     row('collected', reported === null ? `${collected}` : `${collected} of ${reported} reported`),
     ...hiddenPostRows(collected, reported),
+    ...unlistedPostRows(unlisted),
     row('downloaded', `${downloaded} new, ${total} total`),
   ];
   if (failed) {
@@ -281,6 +338,7 @@ async function build(opts) {
       collected: collected.length,
       reported: meta.reported_works_count ?? null,
       onDisk: archivedIds(archive).size,
+      unlisted: unlistedArchivedIds(collected, archive).length,
       pending: pending.length,
     }),
   );
@@ -316,12 +374,14 @@ async function count(opts) {
 async function summary(opts) {
   requireOpts(opts, 'folder', 'before', 'after');
   const plan = (await readJson(planPath(opts.folder))) ?? {};
+  const unlisted = unlistedCountFromPlan(plan, await readText(archivePath(opts.folder)));
   console.log(
     summaryBlock({
       account: plan,
       folder: opts.folder,
       collected: plan.collected_count ?? '?',
       reported: plan.reported_works_count ?? null,
+      unlisted,
       downloaded: Number(opts.after) - Number(opts.before),
       total: Number(opts.after),
       failed: Number(optString(opts, 'exit_status') || 0) !== 0,
