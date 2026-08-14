@@ -61,8 +61,15 @@ if command -v npm >/dev/null 2>&1; then
   ok "playwright $(node -e "console.log(require('${STATE_DIR}/node_modules/playwright/package.json').version)")"
 
   echo "  … fetching chromium (shared cache, skipped if present)"
-  (cd "$STATE_DIR" && npx --yes playwright install chromium >/dev/null 2>&1)
-  ok "chromium ready"
+  # Quiet on success, loud on failure: under `set -e` a swallowed stderr here
+  # was a silent death in the middle of setup.
+  if (cd "$STATE_DIR" && npx --yes playwright install chromium >"${STATE_DIR}/chromium-install.log" 2>&1); then
+    ok "chromium ready"
+  else
+    warn "chromium install failed — the last of ${STATE_DIR}/chromium-install.log:"
+    tail -n 10 "${STATE_DIR}/chromium-install.log" | sed 's/^/      /'
+    MISSING=1
+  fi
 else
   warn "npm not found — install node, which bundles it"
   MISSING=1

@@ -22,7 +22,9 @@
  *                       so you can visit douyin.com / clear a check
  *       --limit N       Stop after collecting N videos
  *       --profile DIR   Browser profile directory
- *                       (default: ~/.local/state/douyin-downloader/profile)
+ *                       (default: ${XDG_STATE_HOME:-~/.local/state}/douyin-downloader/profile)
+ *       --meta FILE     Also write profile metadata (sec_uid, 抖音号, nickname,
+ *                       counts) as JSON — how download.sh identifies the account
  *   -h, --help
  */
 import { writeFile } from 'node:fs/promises';
@@ -32,6 +34,8 @@ import { loadPlaywright, PROFILE_DIR } from './paths.mjs';
 const SCROLL_DELAY_MS = 1200;
 const STABLE_ROUNDS = 6; // consecutive no-new-ID rounds before we call it done
 const MAX_ROUNDS = 1000; // hard stop, so a broken page cannot spin forever
+const HEADER_POLL_MS = 1000; // between re-reads of a header that has not rendered
+const HEADER_POLL_TRIES = 12; // giving a slow header ~12s beyond the initial settle
 
 function parseArgs(argv) {
   const opts = {
@@ -96,7 +100,9 @@ Options:
                       or clear a verification check, then press Enter
       --limit N       Stop after collecting N videos
       --profile DIR   Browser profile directory
-                      (default: ~/.local/state/douyin-downloader/profile)
+                      (default: \${XDG_STATE_HOME:-~/.local/state}/douyin-downloader/profile)
+      --meta FILE     Also write profile metadata (sec_uid, 抖音号, nickname,
+                      counts) as JSON — how download.sh identifies the account
   -h, --help          Show this help
 
 Examples:
@@ -223,7 +229,15 @@ async function main() {
     // Give the feed a chance to render before deciding it is empty.
     await page.waitForTimeout(3000);
 
-    const meta = await page.evaluate(readProfileMetaInPage);
+    // The header renders on its own schedule, and download.sh discards the
+    // whole collection when the 抖音号 is missing from the metadata — so poll
+    // rather than trusting one read after a fixed pause. The grid's own
+    // rendering time is covered by the stability rule in the scroll loop.
+    let meta = await page.evaluate(readProfileMetaInPage);
+    for (let tries = 0; meta.douyinId === null && tries < HEADER_POLL_TRIES; tries++) {
+      await page.waitForTimeout(HEADER_POLL_MS);
+      meta = await page.evaluate(readProfileMetaInPage);
+    }
     const expected = meta.worksCount;
     const secUid = (opts.url.match(/\/user\/([^/?#]+)/) || [])[1] ?? null;
 
