@@ -9,17 +9,8 @@
     {
       "name": "luojiahai-skills",
       "source": "./",
-      "description": "Agent skills for the life admin nobody else is going to do for you — starting with an Australian individual tax return, prepared label by label, every figure carrying its working and the document it came from.",
-      "category": "productivity",
-      "keywords": [
-        "skills",
-        "finance",
-        "tax",
-        "australia",
-        "ato",
-        "douyin",
-        "archiving"
-      ]
+      "description": "Agent skills for the life admin nobody else is going to do for you. They don't act on your behalf — they read, reconcile and show their working, and you check it and press the button yourself.",
+      "category": "productivity"
     }
   ]
 }
