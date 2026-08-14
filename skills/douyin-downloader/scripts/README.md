@@ -126,10 +126,31 @@ of videos, revisit — a `--fast` opt-in would be the shape to add.
 
 ## Counts will not match
 
-`作品 N` in the profile header counts posts that never render as cards: private,
-deleted, region-locked. The 284-video account used in testing collects 282 on
-every run, reproducibly. The summary reports the gap rather than treating it as
-an error.
+Three numbers describe one account and none of them measure the same thing:
+`reported` is the `作品 N` in the profile header, `collected` is the cards a pass
+actually harvested, and `on disk` / `total` is ids in `.archive.txt`.
+
+They part company in both directions, and a block notes each gap rather than
+leaving a disagreeing pair of numbers looking like an error:
+
+- **`collected < reported`** — `作品 N` counts posts that never render as cards:
+  private, deleted, region-locked. The 284-video account used in testing
+  collects 282 on every run, reproducibly.
+- **on disk > collected** — an archive only grows. A post the account stops
+  showing stays downloaded, and from then on the folder outnumbers the profile:
+  `1 archived post no longer on the profile`.
+
+That second note claims only what was observed, an id here and not in the
+listing. Deleted, hidden, region-locked, missed by a collection that stopped
+short, or fetched by `/video/` id and never on the profile at all are
+indistinguishable without fetching each one.
+
+Neither gap is recorded anywhere. A remembered count is a second account of what
+has downloaded sitting beside `.archive.txt`, which is the drift "State files,
+disjoint on purpose" exists to prevent, so both are re-derived from the
+collected list and the archive every run. Hence `summary` needs `.plan.json`'s
+`collected` **list** rather than its count, and a plan written before that list
+existed prints no note rather than a wrong one.
 
 ## Where things live
 

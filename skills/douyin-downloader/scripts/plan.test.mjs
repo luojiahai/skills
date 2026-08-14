@@ -15,6 +15,8 @@ import {
   pendingUrls,
   statusBlock,
   summaryBlock,
+  unlistedArchivedIds,
+  unlistedCountFromPlan,
   validatePlan,
   videoBlock,
   videoIdFrom,
@@ -62,6 +64,43 @@ test('pendingUrls de-duplicates and drops unparseable lines', () => {
 test('pendingUrls is empty when everything is already archived', () => {
   const collected = ['https://www.douyin.com/video/7111'];
   assert.deepEqual(pendingUrls(collected, 'douyin 7111\n'), []);
+});
+
+test('unlistedArchivedIds finds what the archive holds and the listing has dropped', () => {
+  const collected = [
+    'https://www.douyin.com/video/7111',
+    'https://www.douyin.com/video/7222',
+  ];
+  assert.deepEqual(unlistedArchivedIds(collected, 'douyin 7111\ndouyin 7333\n'), ['7333']);
+});
+
+test('unlistedArchivedIds is empty when the listing covers the archive', () => {
+  const collected = [
+    'https://www.douyin.com/video/7111',
+    'https://www.douyin.com/video/7222',
+  ];
+  // The listing may run ahead of the archive — that is pendingUrls' business,
+  // not this one's.
+  assert.deepEqual(unlistedArchivedIds(collected, 'douyin 7111\n'), []);
+  assert.deepEqual(unlistedArchivedIds(collected, ''), []);
+});
+
+test('unlistedArchivedIds counts the whole archive when nothing was collected', () => {
+  assert.deepEqual(unlistedArchivedIds([], 'douyin 7111\n'), ['7111']);
+});
+
+test('unlistedCountFromPlan counts what a finished run holds and the listing dropped', () => {
+  const plan = { collected: ['https://www.douyin.com/video/7111'] };
+  assert.equal(unlistedCountFromPlan(plan, 'douyin 7111\ndouyin 7333\n'), 1);
+  assert.equal(unlistedCountFromPlan(plan, 'douyin 7111\n'), 0);
+});
+
+test('unlistedCountFromPlan says unknown, not zero, for a plan with no collected list', () => {
+  // A plan written before the note existed. Zero would assert the archive is
+  // fully listed; null renders as no note at all.
+  assert.equal(unlistedCountFromPlan({ collected_count: 86 }, 'douyin 7111\n'), null);
+  assert.equal(unlistedCountFromPlan({}, 'douyin 7111\n'), null);
+  assert.equal(unlistedCountFromPlan(null, 'douyin 7111\n'), null);
 });
 
 function samplePlan(overrides = {}) {
@@ -223,6 +262,62 @@ test('statusBlock explains a gap between collected and reported', () => {
   assert.match(block, /2 post\(s\) counted but not shown/);
 });
 
+test('statusBlock notes archived posts the profile no longer lists', () => {
+  const block = statusBlock({
+    account: { nickname: '小明', douyin_id: 'abc123' },
+    folder: '/data/abc123',
+    collected: 86,
+    reported: 86,
+    onDisk: 87,
+    unlisted: 1,
+    pending: 0,
+  });
+  assert.match(block, /note\s+1 archived post no longer on the profile/);
+});
+
+test('statusBlock pluralises the archived-post note', () => {
+  const block = statusBlock({
+    account: { nickname: '小明', douyin_id: 'abc123' },
+    folder: '/data/abc123',
+    collected: 86,
+    reported: 86,
+    onDisk: 88,
+    unlisted: 2,
+    pending: 0,
+  });
+  assert.match(block, /note\s+2 archived posts no longer on the profile/);
+});
+
+test('statusBlock stays quiet when the profile still lists the whole archive', () => {
+  const args = {
+    account: { nickname: '小明', douyin_id: 'abc123' },
+    folder: '/data/abc123',
+    collected: 86,
+    reported: 86,
+    onDisk: 86,
+    pending: 0,
+  };
+  assert.doesNotMatch(statusBlock({ ...args, unlisted: 0 }), /no longer on the profile/);
+  // A plan written before this note existed carries no collected list, so the
+  // count is unknown rather than zero — say nothing either way.
+  assert.doesNotMatch(statusBlock({ ...args, unlisted: null }), /no longer on the profile/);
+  assert.doesNotMatch(statusBlock(args), /no longer on the profile/);
+});
+
+test('statusBlock prints both notes when the listing is short and the archive is long', () => {
+  const block = statusBlock({
+    account: { nickname: '小明', douyin_id: 'abc123' },
+    folder: '/data/abc123',
+    collected: 280,
+    reported: 284,
+    onDisk: 285,
+    unlisted: 5,
+    pending: 0,
+  });
+  assert.match(block, /4 post\(s\) counted but not shown/);
+  assert.match(block, /5 archived posts no longer on the profile/);
+});
+
 test('statusBlock copes with an unknown reported count', () => {
   const block = statusBlock({
     account: { nickname: null, douyin_id: 'abc123' },
@@ -278,6 +373,50 @@ test('summaryBlock warns when some downloads failed', () => {
     failed: true,
   });
   assert.match(block, /warning\s+some downloads failed — re-run --go/);
+});
+
+test('summaryBlock notes archived posts the profile no longer lists', () => {
+  const block = summaryBlock({
+    account: { nickname: '小明', douyin_id: 'abc123' },
+    folder: '/data/abc123',
+    collected: 86,
+    reported: 86,
+    unlisted: 1,
+    downloaded: 1,
+    total: 87,
+  });
+  assert.match(block, /collected\s+86 of 86 reported/);
+  assert.match(block, /note\s+1 archived post no longer on the profile/);
+  assert.match(block, /downloaded\s+1 new, 87 total/);
+});
+
+test('summaryBlock stays quiet when the profile still lists the whole archive', () => {
+  const args = {
+    account: { nickname: '小明', douyin_id: 'abc123' },
+    folder: '/data/abc123',
+    collected: 86,
+    reported: 86,
+    downloaded: 1,
+    total: 86,
+  };
+  assert.doesNotMatch(summaryBlock({ ...args, unlisted: 0 }), /no longer on the profile/);
+  assert.doesNotMatch(summaryBlock({ ...args, unlisted: null }), /no longer on the profile/);
+  assert.doesNotMatch(summaryBlock(args), /no longer on the profile/);
+});
+
+test('the two blocks word the archived-post note identically', () => {
+  const common = {
+    account: { nickname: '小明', douyin_id: 'abc123' },
+    folder: '/data/abc123',
+    collected: 86,
+    reported: 86,
+    unlisted: 1,
+  };
+  const noteOf = (block) => block.split('\n').find((line) => line.includes('no longer'));
+  assert.equal(
+    noteOf(statusBlock({ ...common, onDisk: 87, pending: 0 })),
+    noteOf(summaryBlock({ ...common, downloaded: 1, total: 87 })),
+  );
 });
 
 test('statusBlock and summaryBlock line their columns up with each other', () => {
