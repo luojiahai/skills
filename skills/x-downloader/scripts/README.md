@@ -217,3 +217,29 @@ full sleep after every assertion has already passed.
 It wants a run against a live account: the print format's field names, the
 policy keys, the throttling numbers, and every string `classifyFailure` matches
 on.
+
+## Shared with douyin-downloader, on purpose
+
+`archive.mjs` and `naming.mjs` here, and `archive.mjs` in **douyin-downloader**,
+hold the same rules, written twice:
+
+- `posts/<YYYY-MM-DD|undated>_<id>/`, one folder per post
+- media numbered by position — `1.jpg`, `2.mp4`
+- `text.txt`: permalink, timestamp, blank line, then the untruncated text
+- a post counts as downloaded when its folder holds its media
+- the account folder is prefixed — `x_<handle>` here, `douyin_<抖音号>` there —
+  because both skills default to the same `<git root>/downloads` root, and a
+  handle that matches a 抖音号 would otherwise interleave two accounts in one
+  folder. `--name` renames the account part and keeps the prefix, so no name
+  can be chosen that collides.
+
+They are duplicated rather than shared. A skill is a self-contained folder under
+`skills/`, distributed and symlinked on its own, so there is nowhere a shared
+module could live that is still a skill. **Change a rule here and change it
+there** — the two archives are meant to be readable with one mental model, and
+the duplication is only worth its cost while they agree.
+
+The one deliberate difference: gallery-dl tells this skill how many files a post
+should hold, so `isPostComplete` can tell a half-fetched post from a complete
+one. Douyin's collector yields ids and nothing else, so its check is "at least
+one media file" — the fallback branch this one already has.

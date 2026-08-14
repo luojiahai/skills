@@ -16,15 +16,22 @@ import {
 } from './cursor.mjs';
 
 test('folderNameFor uses the handle by default', () => {
-  assert.equal(folderNameFor({ handle: 'someone' }), 'someone');
+  assert.equal(folderNameFor({ handle: 'someone' }), 'x_someone');
 });
 
 test('folderNameFor prefers an explicit --name', () => {
-  assert.equal(folderNameFor({ handle: 'someone', name: 'my archive' }), 'my archive');
+  assert.equal(folderNameFor({ handle: 'someone', name: 'my archive' }), 'x_my archive');
 });
 
 test('folderNameFor drops a leading @ so the folder is not @someone', () => {
-  assert.equal(folderNameFor({ handle: '@someone' }), 'someone');
+  assert.equal(folderNameFor({ handle: '@someone' }), 'x_someone');
+});
+
+test('folderNameFor prefixes --name too, so no name can collide with another site', () => {
+  // The prefix is what keeps this skill's folders apart from douyin-downloader's
+  // in a shared downloads root. A --name that could opt out would re-open the
+  // clash in the one case the user is least likely to be thinking about it.
+  assert.equal(folderNameFor({ handle: 'someone', name: 'douyin_someone' }), 'x_douyin_someone');
 });
 
 test('matchesAccount compares ids as strings, not by type', () => {
@@ -86,18 +93,18 @@ test('findAccountFolder tolerates a root that does not exist yet', async () => {
 
 test('a renamed account keeps the folder it already has', async () => {
   const dir = await root();
-  await mkdir(path.join(dir, 'oldhandle'));
+  await mkdir(path.join(dir, 'x_oldhandle'));
   await writeFile(
-    path.join(dir, 'oldhandle', 'cursor.json'),
+    path.join(dir, 'x_oldhandle', 'cursor.json'),
     JSON.stringify({ account: { id: '55', handle: 'oldhandle' } }),
   );
   const folder = await resolveFolder({ root: dir, accountId: '55', handle: 'newhandle' });
-  assert.equal(folder, 'oldhandle');
+  assert.equal(folder, 'x_oldhandle');
 });
 
 test('an account nobody has archived gets a folder named for its handle', async () => {
   const dir = await root();
-  assert.equal(await resolveFolder({ root: dir, accountId: '55', handle: 'newhandle' }), 'newhandle');
+  assert.equal(await resolveFolder({ root: dir, accountId: '55', handle: 'newhandle' }), 'x_newhandle');
 });
 
 test('writeCursor merges rather than overwrites', async () => {

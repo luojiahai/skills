@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 /**
- * collect-douyin-ids.mjs — collect every video ID from a Douyin profile.
+ * collect-douyin-ids.mjs — collect every downloadable post ID from a Douyin
+ * profile.
  *
  * Douyin's profile feed API (/aweme/v1/web/aweme/post/) requires an `a_bogus`
  * signature computed by obfuscated page JS, and returns HTTP 200 with an empty
@@ -20,7 +21,7 @@
  *                       has a working session; see --login)
  *       --login         Open the browser and wait for you to press Enter,
  *                       so you can visit douyin.com / clear a check
- *       --limit N       Stop after collecting N videos
+ *       --limit N       Stop after collecting N posts
  *       --profile DIR   Browser profile directory
  *                       (default: ${XDG_STATE_HOME:-~/.local/state}/douyin-downloader/profile)
  *       --meta FILE     Also write profile metadata (sec_uid, 抖音号, nickname,
@@ -89,8 +90,10 @@ function parseArgs(argv) {
 function usage() {
   console.log(`Usage: node scripts/collect-douyin-ids.mjs <profile-url> [options]
 
-Collects every video ID from a Douyin user profile and writes them as
-https://www.douyin.com/video/<id> URLs, one per line.
+Collects every downloadable post ID from a Douyin user profile and writes them
+as https://www.douyin.com/video/<id> URLs, one per line. Image posts (图文) are
+counted and reported, but not written: nothing downloads them yet, see
+https://github.com/luojiahai/skills/issues/39
 
 Options:
   -o, --output FILE   Where to write URLs (default: urls.txt)
@@ -98,7 +101,7 @@ Options:
                       a working session; establish one with --login first)
       --login         Open the browser and wait, so you can visit douyin.com
                       or clear a verification check, then press Enter
-      --limit N       Stop after collecting N videos
+      --limit N       Stop after collecting N posts
       --profile DIR   Browser profile directory
                       (default: \${XDG_STATE_HOME:-~/.local/state}/douyin-downloader/profile)
       --meta FILE     Also write profile metadata (sec_uid, 抖音号, nickname,
@@ -117,21 +120,39 @@ Examples:
  * Runs in the page. Cards link as /video/<id>; the modal overlay uses
  * ?modal_id=<id>. Both appear depending on layout, so harvest each.
  *
+ * Image posts (图文) link as /note/<id> and are returned separately: nothing
+ * here can download them yet (issue #39), and they used to fall through the
+ * /video/ match and vanish without trace, leaving an archive quietly short.
+ * Counting them is what makes that gap visible.
+ *
+ * A post opened through ?modal_id= cannot be told apart this way — that form
+ * carries no type — so an image post reached only by its modal link still
+ * counts as a video and fails to download. It is the rarer layout, and the
+ * /note/ cards are what the grid actually renders.
+ *
  * The page footer carries SEO recommendation links (tagged
  * `?source=Baiduspider`) pointing at *other* accounts' videos — those must be
  * excluded or you collect strangers' uploads. Grid class names are obfuscated
  * and rotate, so filter by structure rather than matching them.
  */
 function harvestInPage() {
-  const found = [];
+  const videos = [];
+  const notes = [];
   for (const a of document.querySelectorAll('a[href]')) {
     const href = a.getAttribute('href') || '';
     if (a.closest('footer')) continue;
     if (/[?&]source=Baiduspider/.test(href)) continue;
+    // Checked first, and note that these links are protocol-relative
+    // (//www.douyin.com/note/<id>) where video links are relative.
+    const note = href.match(/\/note\/(\d+)/);
+    if (note) {
+      notes.push(note[1]);
+      continue;
+    }
     const m = href.match(/\/video\/(\d+)/) || href.match(/modal_id=(\d+)/);
-    if (m) found.push(m[1]);
+    if (m) videos.push(m[1]);
   }
-  return found;
+  return { videos, notes };
 }
 
 /**
@@ -244,50 +265,62 @@ async function main() {
     if (meta.douyinId) {
       console.log(
         `[douyin] ${meta.nickname ?? '?'} (抖音号 ${meta.douyinId})` +
-          (expected !== null ? ` — ${expected} video(s)` : ''),
+          (expected !== null ? ` — ${expected} post(s)` : ''),
       );
     }
 
     const ids = new Set();
+    // Counted, never collected: nothing downloads these yet (issue #39).
+    const noteIds = new Set();
     let stable = 0;
     let rounds = 0;
+
+    const harvest = async () => {
+      const { videos, notes } = await page.evaluate(harvestInPage);
+      for (const id of notes) noteIds.add(id);
+      for (const id of videos) {
+        if (ids.size >= opts.limit) break;
+        ids.add(id);
+      }
+    };
 
     // Harvest before each scroll: the feed is virtualised, so cards scrolled
     // far off-screen get removed from the DOM.
     while (stable < STABLE_ROUNDS && rounds < MAX_ROUNDS && ids.size < opts.limit) {
-      const before = ids.size;
+      // Image posts count towards progress as well: a stretch of the grid
+      // holding nothing but 图文 is still the scroll advancing, and treating it
+      // as stalled would stop the collection short of the account's oldest
+      // posts.
+      const before = ids.size + noteIds.size;
 
-      for (const id of await page.evaluate(harvestInPage)) {
-        if (ids.size >= opts.limit) break;
-        ids.add(id);
-      }
+      await harvest();
 
       await page.evaluate(scrollInPage);
       await page.waitForTimeout(SCROLL_DELAY_MS);
       rounds++;
 
-      if (ids.size === before) {
+      if (ids.size + noteIds.size === before) {
         stable++;
       } else {
         stable = 0;
-        process.stdout.write(`\r[douyin] ${ids.size} videos…`);
+        process.stdout.write(`\r[douyin] ${ids.size} posts…`);
       }
     }
-    for (const id of await page.evaluate(harvestInPage)) {
-      if (ids.size >= opts.limit) break;
-      ids.add(id);
-    }
+    await harvest();
     process.stdout.write('\n');
 
     if (rounds >= MAX_ROUNDS) {
       console.warn('[douyin] hit the round limit — the list may be incomplete');
     }
 
-    if (ids.size === 0) {
+    // Notes found but no videos is not a login wall — it is an account whose
+    // posts are all 图文. The grid rendered; there is simply nothing here that
+    // can be downloaded yet.
+    if (ids.size === 0 && noteIds.size === 0) {
       console.error(
-        '[douyin] found 0 videos in the profile grid.\n' +
+        '[douyin] found 0 posts in the profile grid.\n' +
           (expected
-            ? `  The profile reports ${expected} video(s), so the grid exists but did\n` +
+            ? `  The profile reports ${expected} post(s), so the grid exists but did\n` +
               '  not render — almost certainly a login wall.\n'
             : '') +
           '  Re-run with --login, sign in to Douyin in the window that opens,\n' +
@@ -296,12 +329,20 @@ async function main() {
       return 1;
     }
 
+    if (noteIds.size) {
+      console.log(
+        `[douyin] note: ${noteIds.size} image post(s) skipped — not yet supported\n` +
+          '  (see https://github.com/luojiahai/skills/issues/39)',
+      );
+    }
+
     // A gap here is usually structural, not a failure: posts that are private,
     // deleted, or region-locked are counted in 作品 but never render as cards.
     // Measured on a 284-video account, this reports 282 every run.
-    if (expected !== null && ids.size < expected) {
+    const seen = ids.size + noteIds.size;
+    if (expected !== null && seen < expected) {
       console.log(
-        `[douyin] note: ${ids.size} of ${expected} — ${expected - ids.size} post(s) ` +
+        `[douyin] note: ${seen} of ${expected} — ${expected - seen} post(s) ` +
           'counted but not shown (private, deleted, or region-locked)',
       );
     }
@@ -309,7 +350,7 @@ async function main() {
     const text =
       [...ids].map((id) => `https://www.douyin.com/video/${id}`).join('\n') + '\n';
     await writeFile(opts.output, text, 'utf8');
-    console.log(`[douyin] wrote ${ids.size} video URLs to ${opts.output}`);
+    console.log(`[douyin] wrote ${ids.size} post URLs to ${opts.output}`);
 
     if (opts.meta) {
       await writeFile(
@@ -321,6 +362,8 @@ async function main() {
             nickname: meta.nickname,
             collected_count: ids.size,
             reported_works_count: expected,
+            // Seen in the grid, deliberately absent from the URL list above.
+            skipped_image_posts: noteIds.size,
             // Deliberately no "newest" field: grid order puts pinned posts
             // first, so position 0 is not reliably the newest upload. The
             // cursor derives that from downloaded files' upload dates.

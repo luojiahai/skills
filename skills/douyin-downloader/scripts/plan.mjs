@@ -3,7 +3,7 @@
  * plan.mjs — the confirm step: what a run *would* download, decided before it
  * downloads anything. Also every block this skill prints.
  *
- * Collecting an account's video list takes a browser and about half a minute,
+ * Collecting an account's post list takes a browser and about half a minute,
  * so the number a user is asked to approve cannot be known without doing that
  * work first. `build` does it once and parks the answer in
  * `<folder>/.plan.json`; `load` hands that same list to the download phase, so
@@ -14,9 +14,11 @@
  * lets `--go` find the folder for an account that has never been downloaded —
  * cursor.json does not exist yet, because no run has happened.
  *
- * It is a cache, not state: .archive.txt remains the sole record of what has
- * landed, and a plan that is missing, stale or written for another account or
- * root is refused rather than repaired.
+ * It is a cache, not state: the post folders under posts/ are the sole record
+ * of what has landed (archive.mjs), and a plan that is missing, stale or
+ * written for another account or root is refused rather than repaired. `load`
+ * re-checks the plan's list against disk before handing it on, so a --go that
+ * died halfway resumes at the first post still missing.
  *
  * The rendering lives here too, and nowhere else. The block a user approves and
  * the block a finished run reports have to agree — same columns, same rule for
@@ -25,22 +27,22 @@
  *
  * Subcommands:
  *   build --meta FILE --urls FILE --folder DIR --downloads ROOT
- *       Diffs the collected list against the archive, prints the status block,
- *       and writes .plan.json — unless there is nothing to fetch, in which case
- *       no plan is written and the block says so.
+ *       Diffs the collected list against what is on disk, prints the status
+ *       block, and writes .plan.json — unless there is nothing to fetch, in
+ *       which case no plan is written and the block says so.
  *
  *   load --folder DIR --downloads ROOT [--sec-uid UID] [--douyin-id ID]
  *        --out FILE [--ttl-hours N] [--remedy TEXT]
- *       Validates the plan and writes its pending URLs to FILE.
+ *       Validates the plan and writes the URLs still missing from disk to FILE.
  *
  *   count --folder DIR
- *       Prints how many videos the archive records — the one counting rule.
+ *       Prints how many posts are downloaded — the one counting rule.
  *
  *   summary --folder DIR --before N --after N [--exit-status N]
  *       Prints what a finished run delivered.
  *
- *   video --folder DIR --douyin-id ID --video ID
- *       Prints where a single video would land, and whether it is already here.
+ *   post --folder DIR --douyin-id ID --post ID
+ *       Prints where a single post would land, and whether it is already here.
  *
  *   clear --folder DIR
  *       Removes the plan, once its downloads have all landed.
@@ -48,6 +50,7 @@
 import { mkdir, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { isMainModule, optString, parseArgs, readJson, readText, requireOpts } from './cli.mjs';
+import { onDiskIds, unlistedIds } from './archive.mjs';
 
 export const PLAN_FILE = '.plan.json';
 export const DEFAULT_TTL_HOURS = 24;
@@ -55,37 +58,35 @@ export const DEFAULT_TTL_HOURS = 24;
 const RULE = '──────────────────────────────────────────';
 const LABEL_WIDTH = 11;
 
-/** Cards link as /video/<id>; the modal overlay uses ?modal_id=<id>. */
-export function videoIdFrom(url) {
-  const m = String(url).match(/\/video\/(\d+)/) || String(url).match(/modal_id=(\d+)/);
+/**
+ * Cards link as /video/<id>; the modal overlay uses ?modal_id=<id>.
+ *
+ * The one place a Douyin post URL is turned into an id. /note/ is matched too
+ * so that a note id already on disk is recognised rather than reported as
+ * unlisted — the collector does not yet emit them (see issue #39), but the
+ * folders would still be there once it does.
+ */
+export function postIdFromUrl(url) {
+  const m = String(url).match(/\/(?:video|note)\/(\d+)/) || String(url).match(/modal_id=(\d+)/);
   return m ? m[1] : null;
 }
 
-/**
- * yt-dlp writes `<extractor> <id>` per line. The id is the last field, which
- * holds whether or not the extractor name ever changes.
- *
- * This is the only place the archive is counted or searched. Counting its lines
- * instead — which shell makes tempting — disagrees with this the moment a line
- * is blank or a trailing newline is missing, and then the total a run reports
- * contradicts the number the user approved.
- */
-export function archivedIds(text) {
+/** The ids a collected URL list names, for diffing against what is on disk. */
+export function listedIds(collected) {
   const ids = new Set();
-  for (const line of (text ?? '').split('\n')) {
-    const fields = line.trim().split(/\s+/).filter(Boolean);
-    if (fields.length) ids.add(fields[fields.length - 1]);
+  for (const url of collected ?? []) {
+    const id = postIdFromUrl(url);
+    if (id) ids.add(id);
   }
   return ids;
 }
 
 /** Feed order is preserved, so the download phase runs in the order shown. */
-export function pendingUrls(collected, archiveText) {
-  const done = archivedIds(archiveText);
+export function pendingUrls(collected, done) {
   const seen = new Set();
   const pending = [];
   for (const url of collected) {
-    const id = videoIdFrom(url);
+    const id = postIdFromUrl(url);
     if (!id || done.has(id) || seen.has(id)) continue;
     seen.add(id);
     pending.push(url);
@@ -94,21 +95,8 @@ export function pendingUrls(collected, archiveText) {
 }
 
 /**
- * The ids the archive holds that the profile no longer lists — the question
- * pendingUrls asks, the other way round. Derived on every run and never
- * recorded; see README, "Counts will not match".
- */
-export function unlistedArchivedIds(collected, archiveText) {
-  const listed = new Set();
-  for (const url of collected ?? []) {
-    const id = videoIdFrom(url);
-    if (id) listed.add(id);
-  }
-  return [...archivedIds(archiveText)].filter((id) => !listed.has(id));
-}
-
-/**
- * The same count for a finished run, which has only the plan to work from.
+ * The count of on-disk posts the profile no longer lists, for a finished run,
+ * which has only the plan to work from.
  *
  * A plan written before the note existed carries `collected_count` but no
  * `collected` list, and the count cannot be reconstructed from the numbers: an
@@ -116,9 +104,9 @@ export function unlistedArchivedIds(collected, archiveText) {
  * Unknown is returned as null and rendered as nothing — reporting 0 would be
  * asserting the archive is fully listed, which is precisely what is not known.
  */
-export function unlistedCountFromPlan(plan, archiveText) {
+export function unlistedCountFromPlan(plan, ids) {
   if (!Array.isArray(plan?.collected)) return null;
-  return unlistedArchivedIds(plan.collected, archiveText).length;
+  return unlistedIds(listedIds(plan.collected), ids).length;
 }
 
 export function buildPlan({ meta, collected, pending, folder, downloadsRoot, now }) {
@@ -131,6 +119,9 @@ export function buildPlan({ meta, collected, pending, folder, downloadsRoot, now
     folder,
     collected_count: collected.length,
     reported_works_count: meta.reported_works_count ?? null,
+    // Carried so the finished run can repeat the note the approved block
+    // showed, without re-reading the collector's metadata.
+    skipped_image_posts: meta.skipped_image_posts ?? null,
     collected,
     pending,
   };
@@ -210,12 +201,19 @@ function headline(account) {
   return account?.nickname ? ` ${account.nickname} (抖音号 ${id})` : ` 抖音号 ${id}`;
 }
 
-/** Why the count in the profile header and the number of cards never match. */
-function hiddenPostRows(collected, reported) {
+/**
+ * Why the count in the profile header and the number of cards never match.
+ *
+ * Skipped image posts are subtracted before the gap is reported: they *were*
+ * shown in the grid, they are simply not in the collected list, and counting
+ * them here as well would blame them twice — once as skipped, once as hidden.
+ */
+function hiddenPostRows(collected, reported, skipped) {
   if (reported === null || reported === undefined) return [];
-  if (!(collected < reported)) return [];
+  const hidden = reported - collected - (skipped || 0);
+  if (hidden <= 0) return [];
   return [
-    row('note', `${reported - collected} post(s) counted but not shown`),
+    row('note', `${hidden} post(s) counted but not shown`),
     ` ${''.padEnd(LABEL_WIDTH)} (private, deleted, or region-locked)`,
   ];
 }
@@ -237,6 +235,21 @@ function unlistedPostRows(unlisted) {
   ];
 }
 
+/**
+ * Image posts (图文) are collected as a count and nothing else: neither yt-dlp
+ * nor gallery-dl can fetch them, and the harvest used to drop them silently, so
+ * an account's archive could be short by however many it had with nothing
+ * anywhere saying so. Reporting the number is what makes the gap visible until
+ * issue #39 closes it.
+ */
+function skippedImageRows(skipped) {
+  if (!skipped) return [];
+  return [
+    row('note', `${skipped} image post${skipped === 1 ? '' : 's'} skipped — not yet supported`),
+    ` ${''.padEnd(LABEL_WIDTH)} (see github.com/luojiahai/skills/issues/39)`,
+  ];
+}
+
 /** The block a user is asked to approve. */
 export function statusBlock({
   account,
@@ -247,6 +260,7 @@ export function statusBlock({
   reported,
   onDisk,
   unlisted,
+  skipped,
   pending,
 }) {
   const lines = [headline(account), row('folder', folder)];
@@ -255,7 +269,8 @@ export function statusBlock({
   }
   lines.push(
     row('collected', reported === null ? `${collected}` : `${collected} of ${reported} reported`),
-    ...hiddenPostRows(collected, reported),
+    ...hiddenPostRows(collected, reported, skipped),
+    ...skippedImageRows(skipped),
     ...unlistedPostRows(unlisted),
     row('on disk', `${onDisk}`),
     row('to fetch', pending === 0 ? '0 — already up to date' : `${pending} new`),
@@ -270,6 +285,7 @@ export function summaryBlock({
   collected,
   reported,
   unlisted,
+  skipped,
   downloaded,
   total,
   failed,
@@ -278,7 +294,8 @@ export function summaryBlock({
     headline(account),
     row('folder', folder),
     row('collected', reported === null ? `${collected}` : `${collected} of ${reported} reported`),
-    ...hiddenPostRows(collected, reported),
+    ...hiddenPostRows(collected, reported, skipped),
+    ...skippedImageRows(skipped),
     ...unlistedPostRows(unlisted),
     row('downloaded', `${downloaded} new, ${total} total`),
   ];
@@ -288,29 +305,28 @@ export function summaryBlock({
   return box(lines);
 }
 
-/** Where a single named video would land, and whether it is already there. */
-export function videoBlock({ account, folder, videoId, onDisk }) {
+/** Where a single named post would land, and whether it is already there. */
+export function postBlock({ account, folder, postId, onDisk }) {
   return box([
     headline(account),
     row('folder', folder),
-    row('video', videoId),
+    row('post', postId),
     row('to fetch', onDisk ? '0 — already downloaded' : '1 new'),
   ]);
 }
 
 // ---- CLI -------------------------------------------------------------------
 
-const archivePath = (folder) => path.join(folder, '.archive.txt');
 const planPath = (folder) => path.join(folder, PLAN_FILE);
 
 async function build(opts) {
   requireOpts(opts, 'meta', 'urls', 'folder', 'downloads');
   const meta = (await readJson(opts.meta)) ?? {};
   const collected = (await readText(opts.urls)).split('\n').filter((line) => line.trim());
-  const archive = await readText(archivePath(opts.folder));
+  const onDisk = await onDiskIds(opts.folder);
   const cursor = await readJson(path.join(opts.folder, 'cursor.json'));
 
-  const pending = pendingUrls(collected, archive);
+  const pending = pendingUrls(collected, onDisk);
 
   if (pending.length) {
     const plan = buildPlan({
@@ -337,8 +353,9 @@ async function build(opts) {
       downloadsRoot: opts.downloads,
       collected: collected.length,
       reported: meta.reported_works_count ?? null,
-      onDisk: archivedIds(archive).size,
-      unlisted: unlistedArchivedIds(collected, archive).length,
+      onDisk: onDisk.size,
+      unlisted: unlistedIds(listedIds(collected), onDisk).length,
+      skipped: meta.skipped_image_posts ?? null,
       pending: pending.length,
     }),
   );
@@ -363,25 +380,31 @@ async function load(opts) {
     process.exit(2);
   }
 
-  await writeFile(opts.out, plan.pending.join('\n') + '\n');
+  // Re-checked against disk rather than handed on as written. A --go that died
+  // partway leaves a plan still listing what it managed to fetch, and without
+  // this every one of those would cost a metadata request to discover it was
+  // already there — the fast resume the removed .archive.txt used to give.
+  const outstanding = pendingUrls(plan.pending, await onDiskIds(opts.folder));
+  await writeFile(opts.out, outstanding.length ? outstanding.join('\n') + '\n' : '');
 }
 
 async function count(opts) {
   requireOpts(opts, 'folder');
-  console.log(archivedIds(await readText(archivePath(opts.folder))).size);
+  console.log((await onDiskIds(opts.folder)).size);
 }
 
 async function summary(opts) {
   requireOpts(opts, 'folder', 'before', 'after');
   const plan = (await readJson(planPath(opts.folder))) ?? {};
-  const unlisted = unlistedCountFromPlan(plan, await readText(archivePath(opts.folder)));
+  const onDisk = await onDiskIds(opts.folder);
   console.log(
     summaryBlock({
       account: plan,
       folder: opts.folder,
       collected: plan.collected_count ?? '?',
       reported: plan.reported_works_count ?? null,
-      unlisted,
+      unlisted: unlistedCountFromPlan(plan, onDisk),
+      skipped: plan.skipped_image_posts ?? null,
       downloaded: Number(opts.after) - Number(opts.before),
       total: Number(opts.after),
       failed: Number(optString(opts, 'exit_status') || 0) !== 0,
@@ -389,15 +412,14 @@ async function summary(opts) {
   );
 }
 
-async function video(opts) {
-  requireOpts(opts, 'folder', 'douyin_id', 'video');
-  const archive = await readText(archivePath(opts.folder));
+async function post(opts) {
+  requireOpts(opts, 'folder', 'douyin_id', 'post');
   console.log(
-    videoBlock({
+    postBlock({
       account: { douyin_id: opts.douyin_id, nickname: null },
       folder: opts.folder,
-      videoId: opts.video,
-      onDisk: archivedIds(archive).has(opts.video),
+      postId: opts.post,
+      onDisk: (await onDiskIds(opts.folder)).has(opts.post),
     }),
   );
 }
@@ -411,7 +433,7 @@ async function clear(opts) {
 // is the entry point — argv alone cannot tell whose arguments these are.
 if (isMainModule(import.meta.url)) {
   const [command, ...rest] = process.argv.slice(2);
-  const commands = { build, load, count, summary, video, clear };
+  const commands = { build, load, count, summary, post, clear };
   if (commands[command]) await commands[command](parseArgs(rest));
   else {
     console.error(

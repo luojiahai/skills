@@ -1,6 +1,6 @@
 ---
 name: douyin-downloader
-description: "Download every video from a Douyin account, or a single Douyin video, into a downloads folder of your choosing — it reports what it would fetch and waits for your yes, and a re-run fetches only what is new."
+description: "Download every video from a Douyin account, or a single Douyin video, into a downloads folder of your choosing — it reports what it would fetch and waits for your yes, and a re-run fetches only what is new. Image posts (图文) are counted and reported, but not yet downloaded."
 argument-hint: "<Douyin profile or video URL> [--downloads DIR] [--name NAME]"
 disable-model-invocation: true
 ---
@@ -26,21 +26,20 @@ Run it **from the user's working directory** — call it by its full path, do no
 `cd` into the skill first. Downloads land relative to where you run it, and a
 skill directory is replaced by the next update.
 
-It auto-detects a `/user/` profile URL (every video from the account) from a
-`/video/` URL (just that one). `--user` is accepted as an alias for the
-profile URL.
+It auto-detects a `/user/` profile URL (every post from the account) from a
+`/video/` URL (just that one).
 
 ## The two steps
 
-`--plan` collects the account's video list — about half a minute in a headless
+`--plan` collects the account's post list — about half a minute in a headless
 browser — diffs it against what is already downloaded, and prints a block: the
-account, the folder, how many videos it found, how many are new. It downloads
+account, the folder, how many posts it found, how many are new. It downloads
 nothing.
 
 Report that block and ask whether to go ahead. Then **give the turn back and
 wait**. Do not run `--go` until the user has answered.
 
-`--go` downloads exactly the videos that block described, and does not collect
+`--go` downloads exactly the posts that block described, and does not collect
 again. It refuses a plan that is missing, more than 24 hours old, or made for a
 different account or a different downloads folder; each refusal prints the
 `--plan` command that fixes it.
@@ -49,16 +48,22 @@ Two cases need no question:
 
 - **`to fetch 0`** — there is nothing to approve. Report that the account is up
   to date and stop. No `--go`.
-- **a `/video/` URL** — one named video is already as specific as an
+- **a `/video/` URL** — one named post is already as specific as an
   instruction gets, so it downloads straight away.
 
 The summary block `--go` prints is the run's whole result. Report that and stop.
 
-## Where the videos go
+## Where the posts go
 
-`--downloads DIR` sets the root, and the account folder is `DIR/<抖音号>` — or
-`DIR/<NAME>` with `--name`, which is only needed the first time. Without the
-flag the root is `<git root of the current directory, else cwd>/downloads`.
+`--downloads DIR` sets the root, and the account folder is `DIR/douyin_<抖音号>`
+— or `DIR/douyin_<NAME>` with `--name`, which is only needed the first time.
+Without the flag the root is `<git root of the current directory, else
+cwd>/downloads`, the same root `x-downloader` uses.
+
+The `douyin_` prefix is what lets both skills share that root: `x-downloader`
+names its folders `x_<handle>`, so a 抖音号 and an X handle that happen to match
+still get a folder each. `--name` renames the account part and keeps the prefix
+— there is no way to name a folder that collides.
 
 Resuming means passing the same `--downloads` again: under that root the folder
 is found by matching the account's identity, whatever it is called. A different
@@ -84,7 +89,7 @@ node <skill-dir>/scripts/collect-douyin-ids.mjs --login <profile-url>
 ```
 
 That command is a **handoff**. Print it, tell them a browser will open and that
-they sign in, wait for the video grid, then press Enter — and give the turn back
+they sign in, wait for the post grid, then press Enter — and give the turn back
 so they can run it. The session persists, and every later run works headless.
 
 Session, cookies and dependencies live under
@@ -96,8 +101,8 @@ directory, so that sign-in is once per user rather than once per project.
 The script preflights yt-dlp, Playwright and the session, and each failure
 prints its own remedy — relay that rather than improvising.
 
-The one that needs a human is an expired session: the collector reports 0 videos
-in the grid while the header still shows a video count. That is the handoff
+The one that needs a human is an expired session: the collector reports 0 posts
+in the grid while the header still shows a post count. That is the handoff
 above, again.
 
 A `--go` that stops partway leaves the plan in place, so re-running `--go`
@@ -109,6 +114,12 @@ Videos the account has published publicly, for personal archival. It is subject
 to Douyin's terms and to the copyright of whatever it downloads — that
 judgement belongs to the person running it, not to you.
 
+**Image posts (图文) are not downloaded.** Neither yt-dlp nor gallery-dl can
+fetch them. They are counted during collection and reported as skipped in every
+block, so an account's archive is never quietly short without saying so — say
+that number out loud when it is not zero. Tracked in
+[issue #39](https://github.com/luojiahai/skills/issues/39).
+
 ## Changing the scripts
 
 `scripts/README.md` carries the constraints that make the design what it is,
@@ -119,12 +130,15 @@ several of them verified the hard way. Read it before modifying anything in
 
 One folder per account, under the downloads root:
 
-- `videos/` — the media, named `<upload_date> - <title> [<id>].<ext>`
-- `.archive.txt` — yt-dlp's record of what has landed, and what makes a run
-  resumable. **This alone decides whether a video is re-fetched.** Deleting it
-  re-downloads everything.
+- `posts/<date>_<id>/` — one folder per post, holding its media as `1.mp4`,
+  `2.jpg`… and a `text.txt` with the post's permalink, timestamp and full
+  caption. The name carries no caption: the date sorts the listing as a
+  timeline, the id identifies the post, and the words live in `text.txt` in full
+  rather than truncated into a directory name. **These folders are the record of
+  what has been downloaded**, and a post counts as done when it holds media.
+  Deleting one re-downloads it.
 - `cursor.json` — identity and last-run state, including the root the last run
   used. Reporting only; it gates nothing. Deleting it costs the account its
   `--name` folder association, nothing more.
 - `.plan.json` — between `--plan` and `--go`, the list awaiting approval.
-  Deleted once every video in it has landed.
+  Deleted once every post in it has landed.

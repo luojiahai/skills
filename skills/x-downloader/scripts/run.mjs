@@ -49,8 +49,10 @@ const USAGE = `Usage: download.sh <url> [--downloads DIR] [--name NAME] [--plan|
       --yes, -y         Plan and download in one run, without stopping.
 
       --downloads DIR   Root download directory. The account folder is
-                        DIR/<handle or --name>.
-      --name NAME       Folder name for this account (default: its handle).
+                        DIR/x_<handle or --name>.
+      --name NAME       Account name for the folder (default: its handle). The
+                        x_ prefix is always kept, so a shared downloads root
+                        cannot collide with douyin-downloader's folders.
       --full            Enumerate the whole timeline even when a re-run could
                         stop early.
       --browser NAME    Browser to read the X session from the first time

@@ -2,17 +2,14 @@
  * Tests for cursor.mjs — run with:
  *   node --test scripts/cursor.test.mjs
  *
- * The merge rules and the newest-upload derivation are covered; folder
- * resolution walks the real filesystem against real state files and is
- * exercised by hand against a live archive.
+ * The merge rules and the folder naming are covered; deriving the newest upload
+ * belongs to archive.mjs and is tested there, and folder *resolution* walks the
+ * real filesystem against real state files and is exercised by hand against a
+ * live archive.
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
-import os from 'node:os';
-import path from 'node:path';
-
-import { mergeCursor, newestFrom } from './cursor.mjs';
+import { folderNameFor, mergeCursor } from './cursor.mjs';
 
 const NOW = new Date('2026-08-14T10:00:00Z');
 
@@ -63,7 +60,7 @@ test('mergeCursor starts from nothing on a first run', () => {
   });
   assert.equal(cursor.sec_uid, null);
   assert.equal(cursor.douyin_id, null);
-  assert.equal(cursor.newest_video_id, null);
+  assert.equal(cursor.newest_post_id, null);
   assert.equal(cursor.last_run_at, NOW.toISOString());
 });
 
@@ -105,33 +102,27 @@ test('mergeCursor falls back to the previous root, then to the folder parent', (
 test('mergeCursor takes the newest upload from disk over the previous cursor', () => {
   const cursor = mergeCursor({
     meta: {},
-    previous: { newest_video_id: '7000', newest_upload_date: '20250101' },
-    newest: { id: '7222', date: '20260813' },
-    folder: '/data/abc123',
+    previous: { newest_post_id: '7000', newest_upload_date: '2025-01-01' },
+    newest: { id: '7222', date: '2026-08-13' },
+    folder: '/data/douyin_abc123',
     downloads: '',
     now: NOW,
   });
-  assert.equal(cursor.newest_video_id, '7222');
-  assert.equal(cursor.newest_upload_date, '20260813');
+  assert.equal(cursor.newest_post_id, '7222');
+  assert.equal(cursor.newest_upload_date, '2026-08-13');
 });
 
-test('newestFrom picks the latest upload date out of the filenames', async () => {
-  const dir = mkdtempSync(path.join(os.tmpdir(), 'douyin-cursor-'));
-  const videos = path.join(dir, 'videos');
-  mkdirSync(videos);
-  writeFileSync(path.join(videos, '20260101 - 早的 [7111].mp4'), '');
-  writeFileSync(path.join(videos, '20260813 - 新的 [7222].mp4'), '');
-  writeFileSync(path.join(videos, 'not-a-video.txt'), '');
-
-  assert.deepEqual(await newestFrom(videos), { date: '20260813', id: '7222' });
+test('folderNameFor uses the 抖音号 by default', () => {
+  assert.equal(folderNameFor({ douyinId: 'abc123' }), 'douyin_abc123');
 });
 
-test('newestFrom answers nulls for a folder with nothing readable', async () => {
-  const dir = mkdtempSync(path.join(os.tmpdir(), 'douyin-cursor-'));
-  assert.deepEqual(await newestFrom(path.join(dir, 'missing')), { id: null, date: null });
+test('folderNameFor prefers an explicit --name', () => {
+  assert.equal(folderNameFor({ douyinId: 'abc123', name: 'my archive' }), 'douyin_my archive');
+});
 
-  const videos = path.join(dir, 'videos');
-  mkdirSync(videos);
-  writeFileSync(path.join(videos, 'junk.mp4'), '');
-  assert.deepEqual(await newestFrom(videos), { id: null, date: null });
+test('folderNameFor prefixes --name too, so no name can collide with another site', () => {
+  // The prefix is what keeps this skill's folders apart from x-downloader's in
+  // a shared downloads root — both default to <git root>/downloads. A --name
+  // free to drop it would re-open the clash where nobody is looking for it.
+  assert.equal(folderNameFor({ douyinId: 'abc123', name: 'x_someone' }), 'douyin_x_someone');
 });

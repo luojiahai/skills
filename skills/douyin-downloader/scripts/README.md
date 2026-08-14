@@ -54,27 +54,35 @@ what stops it finishing.
 | File | Role |
 | --- | --- |
 | `download.sh` | Entry point. Owns folder, plan and cursor policy. Everything else is called by it. |
-| `download-douyin.sh` | General-purpose layer: a list of URLs/IDs in, files out, with throttling and a resumable archive. Knows nothing about accounts. |
-| `collect-douyin-ids.mjs` | Drives Playwright, scrolls the profile, emits video URLs and profile metadata. |
+| `download-douyin.sh` | General-purpose layer: a list of URLs/IDs in, one folder per post out, with throttling. Knows nothing about accounts. |
+| `collect-douyin-ids.mjs` | Drives Playwright, scrolls the profile, emits post URLs and profile metadata. |
 | `export-cookies.mjs` | Exports the Playwright session as a Netscape `cookies.txt` for yt-dlp. |
-| `plan.mjs` | The confirm step: diffs the collected list against the archive, owns `.plan.json`, and renders **every** block the skill prints. |
+| `plan.mjs` | The confirm step: diffs the collected list against what is on disk, owns `.plan.json`, and renders **every** block the skill prints. |
+| `archive.mjs` | What is already downloaded, answered from the post folders themselves. The layout rules, shared with x-downloader. |
 | `cli.mjs` | The argument parsing, file reading and entry-point detection `plan.mjs` and `cursor.mjs` share. |
 | `cursor.mjs` | Resolves an account's folder by identity; writes `cursor.json`; answers what the downloads root is. |
 | `paths.mjs` | Single source of truth for where state lives and how Playwright is found. |
-| `collect-douyin-ids.js` | The same harvest as a DevTools console snippet — a no-dependency fallback if Playwright breaks. |
+| `collect-douyin-ids.js` | A DevTools console snippet that harvests `/video/` ids — a no-dependency fallback if Playwright breaks. It does **not** track `collect-douyin-ids.mjs`: it has no profile-metadata read, no `--limit`, and no image-post counting, so it emits ids and nothing else. |
 
 ## State files, disjoint on purpose
 
-`.archive.txt` (yt-dlp's) is the **sole** record of what has downloaded.
+The **post folders under `posts/`** are the sole record of what has downloaded.
 `cursor.json` holds identity and last-run metadata and **gates nothing**.
 
 They deliberately do not both track downloads. If they did, a run that failed
-between writing one and the other would leave the cursor claiming videos that
+between writing one and the other would leave the cursor claiming posts that
 were never fetched, and the error would be silent and permanent.
 
 `.plan.json` is a third file but not a third source of truth: it is a cache of
-one collection pass, and every question it answers is re-derived from the
-archive next time.
+one collection pass, and every question it answers is re-derived from disk next
+time.
+
+There used to be a fourth, `.archive.txt`, and removing it is why this file
+changed. yt-dlp's `--download-archive` keys on ids, not paths, so it kept
+reporting a post as downloaded after its files had been deleted — a user who
+removed a bad download got silence instead of a re-fetch. `--no-overwrites`
+keys on the resolved path instead, which is what makes `rm -rf` on a post
+folder mean "fetch this again".
 
 ## Plan, then go
 
@@ -104,11 +112,16 @@ skill never reaches for it — an agent asks — but it outranks a `--plan` or
 their pre-authorisation when the skill appends its own mode flag.
 
 Every block printed — the one approved, the one a finished run reports, the one
-a single video gets — is rendered by `plan.mjs`, and the archive is counted in
-exactly one place (`archivedIds`). They were briefly three hand-aligned copies
-across two languages, with `wc -l` counting in one of them and unique ids in
-another; a blank line in `.archive.txt` was enough to make a run contradict the
-number the user had approved.
+a single post gets — is rendered by `plan.mjs`, and what is on disk is counted
+in exactly one place (`archive.mjs`'s `onDiskIds`). They were briefly three
+hand-aligned copies across two languages, with `wc -l` counting in one of them
+and unique ids in another; a blank line in the old `.archive.txt` was enough to
+make a run contradict the number the user had approved.
+
+`load` re-checks the plan against disk before handing it on. Without that, a
+`--go` resumed after a partial run would pay a metadata request per post just
+to discover it was already there — the fast resume the archive file used to
+give, restored without a second record.
 
 ## The downloads root is computed once
 
@@ -116,8 +129,8 @@ number the user had approved.
 expanded, made absolute, symlinks resolved as far as the path exists) and
 `downloadsRoot` for the default. `download.sh` asks for it through
 `cursor.mjs root` rather than recomputing it in shell, because a root that
-disagrees between the two languages splits `.archive.txt` and silently
-re-downloads everything.
+disagrees between the two languages names a different account folder and
+silently re-downloads everything.
 
 The symlink resolution is not fussiness: on macOS the default root comes back
 as `/private/tmp/...` while a hand-typed `--downloads /tmp/...` would not, and
@@ -132,14 +145,16 @@ nothing, forever, silently.
 
 It is also not worth defending against: a full scroll of a 284-video account
 measures **~34 seconds**, while downloads take 30–40 minutes and are already
-deduped by `.archive.txt`. If you ever point this at an account with thousands
-of videos, revisit — a `--fast` opt-in would be the shape to add.
+deduped against the post folders on disk. If you ever point this at an account
+with thousands of posts, revisit — a `--fast` opt-in would be the shape to
+add.
 
 ## Counts will not match
 
 Three numbers describe one account and none of them measure the same thing:
-`reported` is the `作品 N` in the profile header, `collected` is the cards a pass
-actually harvested, and `on disk` / `total` is ids in `.archive.txt`.
+`reported` is the `作品 N` in the profile header, `collected` is the downloadable
+cards a pass actually harvested, and `on disk` / `total` is post folders holding
+media.
 
 They part company in both directions, and a block notes each gap rather than
 leaving a disagreeing pair of numbers looking like an error:
@@ -147,19 +162,25 @@ leaving a disagreeing pair of numbers looking like an error:
 - **`collected < reported`** — `作品 N` counts posts that never render as cards:
   private, deleted, region-locked. The 284-video account used in testing
   collects 282 on every run, reproducibly.
-- **on disk > collected** — an archive only grows. A post the account stops
-  showing stays downloaded, and from then on the folder outnumbers the profile:
-  `1 archived post no longer on the profile`.
+- **on disk > collected** — no run ever removes a post. A post the account
+  stops showing stays downloaded, and from then on the folder outnumbers the
+  profile: `1 archived post no longer on the profile`. (Deleting a post folder
+  by hand is the one thing that shrinks an archive, and it is how you ask for
+  that post again.)
+- **image posts are counted, never collected** — 图文 posts link as `/note/<id>`
+  and nothing here can fetch them yet (issue #39). They are reported as skipped
+  and subtracted before the `counted but not shown` gap is worked out, so the
+  same posts are not blamed twice.
 
 That second note claims only what was observed, an id here and not in the
 listing. Deleted, hidden, region-locked, missed by a collection that stopped
 short, or fetched by `/video/` id and never on the profile at all are
 indistinguishable without fetching each one.
 
-Neither gap is recorded anywhere. A remembered count is a second account of what
-has downloaded sitting beside `.archive.txt`, which is the drift "State files,
-disjoint on purpose" exists to prevent, so both are re-derived from the
-collected list and the archive every run. Hence `summary` needs `.plan.json`'s
+No gap is recorded anywhere. A remembered count is a second account of what has
+downloaded sitting beside the folders themselves, which is the drift "State
+files, disjoint on purpose" exists to prevent, so each is re-derived from the
+collected list and the disk every run. Hence `summary` needs `.plan.json`'s
 `collected` **list** rather than its count, and a plan written before that list
 existed prints no note rather than a wrong one.
 
@@ -182,13 +203,15 @@ an agent tends to cd here first — and in a project that is not a git repositor
 deletes them. So a cwd under the skill directory is discarded: the project is
 recovered from the install path (`<project>/.claude/skills/<skill>` or
 `.agents/`), and where that names none, the run stops and asks for
-`--downloads`. Guessing is the one thing it must not do — a wrong root splits
-`.archive.txt` and silently re-downloads everything.
+`--downloads`. Guessing is the one thing it must not do — a wrong root names a
+different account folder and silently re-downloads everything.
 
 The **downloads** root is written down once, in `paths.mjs`, and `download.sh`
 asks for it through `cursor.mjs root` rather than reimplementing the rule — it
-is the root that varies per run, and two answers to it would split
-`.archive.txt`. The **state** directory is still spelled out in both languages
+is the root that varies per run, and two answers to it would split an account's
+archive in half. The `posts/` subdirectory is likewise named in both languages
+(`archive.mjs`'s `POSTS_DIR` and `download.sh`'s `POSTS_SUBDIR`); change one and
+change the other. The **state** directory is still spelled out in both languages
 (`paths.mjs` and the top of `download.sh`): it is one unchanging expression,
 `${XDG_STATE_HOME:-~/.local/state}/douyin-downloader`, and the shell needs it
 before it can afford to start Node. Change it in one place and change it in the
@@ -202,8 +225,9 @@ lands its exports on `.default` — `loadPlaywright()` normalises that.
 ## Tests
 
 The pure logic — the diff, the plan validation rules, the status rendering,
-path normalisation, the shared argument parsing, and the cursor's merge and
-newest-upload rules — has unit tests, and no dependencies beyond Node:
+path normalisation, the shared argument parsing, the cursor's merge and folder
+naming, and the layout rules in `archive.mjs` — has unit tests, and no
+dependencies beyond Node:
 
 ```bash
 node --test scripts/*.test.mjs
@@ -233,3 +257,48 @@ node collect-douyin-ids.mjs --headless "https://www.douyin.com/user/MS4w..." -o 
 `download-douyin.sh` accepts full `/video/` URLs, `/user/...?modal_id=...` URLs,
 and bare numeric IDs interchangeably, and de-duplicates them. Use `-n` to see
 the yt-dlp command without running it.
+
+## Shared with x-downloader, on purpose
+
+`archive.mjs` here and `archive.mjs` / `naming.mjs` in **x-downloader** hold the
+same rules, written twice:
+
+- `posts/<YYYY-MM-DD|undated>_<id>/`, one folder per post
+- media numbered by position — `1.mp4`, `2.jpg`
+- `text.txt`: permalink, timestamp, blank line, then the untruncated caption
+- a post counts as downloaded when its folder holds at least one media file
+- the account folder is prefixed — `douyin_<抖音号>` here, `x_<handle>` there —
+  because both skills default to the same `<git root>/downloads` root, and an
+  X handle that matches a 抖音号 would otherwise interleave two accounts in one
+  folder. `--name` renames the account part and keeps the prefix, so no name
+  can be chosen that collides.
+
+They are duplicated rather than shared. A skill is a self-contained folder under
+`skills/`, distributed and symlinked on its own, so there is nowhere a shared
+module could live that is still a skill. **Change a rule here and change it
+there** — the two archives are meant to be readable with one mental model, and
+the duplication is only worth its cost while they agree.
+
+Two deliberate differences:
+
+- x-downloader's enumerator reports how many files a post should hold, so it can
+  tell a half-fetched post from a complete one. Douyin's collector yields ids
+  and nothing else, so `isPostComplete` here takes no expected count and one
+  media file is the most that can be checked.
+- `countMedia` here matches the positional `<n>.<ext>` shape rather than
+  excluding known junk, because yt-dlp can leave `1.f137.mp4` / `1.f140.m4a`
+  behind when a stream merge fails — whole files that would make an unplayable
+  post read as finished. gallery-dl does not do that, so x-downloader's
+  exclusion list is sufficient there.
+- x-downloader *builds* its folder names in JS (`naming.mjs`). Here nothing
+  does — yt-dlp's `POST_DIR` output template in `download-douyin.sh` builds
+  them, and `archive.mjs` only reads them back. That is two spellings of one
+  rule in two languages, so `archive.test.mjs` reads the template out of the
+  shell script and checks the regex still accepts what it produces. Change the
+  template and that test tells you.
+
+`--print-to-file` appends and has no overwrite mode, so `download-douyin.sh`
+clears a post's `text.txt` before fetching it — matched by id, since the folder
+name depends on a date it does not yet have. That lives in the same script as
+the `--print-to-file` that needs it, so running the layer standalone twice does
+not double the file either.

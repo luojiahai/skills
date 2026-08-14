@@ -100,10 +100,15 @@ not to you.
 
 ## Where the media goes
 
-`--downloads DIR` sets the root, and the account folder is `DIR/<handle>` — or
-`DIR/<NAME>` with `--name`, which is only needed the first time. Without the
+`--downloads DIR` sets the root, and the account folder is `DIR/x_<handle>` — or
+`DIR/x_<NAME>` with `--name`, which is only needed the first time. Without the
 flag the root is `<git root of the current directory, else cwd>/downloads`,
 the same root `douyin-downloader` uses.
+
+The `x_` prefix is what lets both skills share that root: `douyin-downloader`
+names its folders `douyin_<抖音号>`, so an X handle and a 抖音号 that happen to
+match still get a folder each. `--name` renames the account part and keeps the
+prefix — there is no way to name a folder that collides.
 
 Resuming means passing the same `--downloads` again: under that root the folder
 is found by matching the account's numeric id, whatever the folder is called. A
