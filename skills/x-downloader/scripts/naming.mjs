@@ -1,72 +1,21 @@
 /**
- * naming.mjs — post text in, a directory name out.
+ * naming.mjs — a post's identity as a directory name, and its text as a file.
  *
- * This is the one module fed hostile input by design. A post's body is
- * arbitrary user text — newlines, emoji, slashes, right-to-left marks, four
- * thousand characters of it — and here it becomes a *directory name*, which is
- * a sharper edge than a filename: a stray separator does not produce a badly
- * named file, it produces a tree in the wrong place.
+ * A post folder is `<date>_<id>` and nothing else. Both halves are machine
+ * fields: a date gallery-dl formatted and a numeric status id. No part of a
+ * post's body reaches a path, which is the point — this module used to turn
+ * arbitrary user text into a *directory* name, a sharper edge than a filename
+ * because a stray separator does not produce a badly named file, it produces a
+ * tree in the wrong place. Keeping the body out of the path retires that entire
+ * class of bug rather than defending against it, and costs nothing: `text.txt`
+ * inside the folder already holds the full, untruncated text.
  *
- * So everything here is pure and total. Given any string it returns a name, or
- * it returns the empty string and the caller falls back to the id alone. It
- * never throws, and it never returns something that means a different path than
- * it looks like.
+ * Everything here is pure and total. It never throws, and it never returns
+ * something that means a different path than it looks like.
  */
 
-/** Illegal or hostile in a path component on some filesystem we care about. */
-const FORBIDDEN = /[/\\:*?"<>|]/g;
-
-/**
- * C0 and C1 controls, plus the bidi marks and overrides that let a name render
- * as something other than what it is.
- *
- * Written as escapes on purpose. The literal characters make this file a binary
- * blob to git -- it embeds a raw NUL -- and the one module that turns hostile
- * input into directory names is the last one that should be undiffable.
- */
-const CONTROL = /[\u0000-\u001f\u007f-\u009f\u200e\u200f\u202a-\u202e\u2066-\u2069]/g;
-
-/**
- * A single line of at most `max` characters, safe as one path component.
- *
- * Truncation counts *graphemes*, not UTF-16 units: slicing a string mid-pair
- * yields a lone surrogate, which is not valid UTF-8 and which some filesystems
- * reject and others silently mangle. An emoji is one visible character and is
- * kept or dropped whole.
- */
-export function slugify(text, max = 60) {
-  if (typeof text !== 'string') return '';
-
-  let s = text
-    .replace(CONTROL, ' ')
-    .replace(FORBIDDEN, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-
-  if (!s) return '';
-  s = truncateGraphemes(s, max).trim();
-
-  // A component that is only dots is `.` or `..`; a trailing dot or space is
-  // legal to create on Windows and then impossible to open. Strip both ends.
-  s = s.replace(/^[.\s]+/, '').replace(/[.\s]+$/, '');
-  return s;
-}
-
-function truncateGraphemes(s, max) {
-  if (max <= 0) return '';
-  if (typeof Intl !== 'undefined' && typeof Intl.Segmenter === 'function') {
-    const seg = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
-    let out = '';
-    let n = 0;
-    for (const { segment } of seg.segment(s)) {
-      if (++n > max) break;
-      out += segment;
-    }
-    return out;
-  }
-  // Code points are the floor we can always guarantee: never a split surrogate.
-  return Array.from(s).slice(0, max).join('');
-}
+/** A folder name we could have written ourselves, and the id inside it. */
+const POST_FOLDER = /^(?:\d{4}-\d{2}-\d{2}|undated)_(\d+)$/;
 
 /** `2024-03-11` from gallery-dl's `2024-03-11 07:22:19`, or `undated`. */
 export function datePart(date) {
@@ -75,22 +24,28 @@ export function datePart(date) {
 }
 
 /**
- * The folder one post lives in: `2024-03-11 - some of the text [1767...]`.
+ * The folder one post lives in: `2024-03-11_1767...`.
  *
  * Date first so the folder listing sorts chronologically — that is the whole
- * reason the date is in the name. The id last and always, because it is what
- * makes the name unique and what identifies the post again later; the text in
- * the middle is for humans and is allowed to be absent.
+ * reason the date is in the name. The id second and always, because it is what
+ * makes the name unique and what identifies the post again later.
  */
-export function postFolderName({ date, content, tweetId, max = 60 }) {
-  const slug = slugify(content, max);
-  const day = datePart(date);
-  return slug ? `${day} - ${slug} [${tweetId}]` : `${day} [${tweetId}]`;
+export function postFolderName({ date, tweetId }) {
+  return `${datePart(date)}_${tweetId}`;
 }
 
-/** The `[1767...]` id back out of a folder name, or null if it carries none. */
+/**
+ * The id back out of a folder name, or null for a folder that is not ours.
+ *
+ * Anchored to the *whole* name, not to a suffix. A loose `_(\d+)$` match would
+ * read an unrelated `drafts_2` as post 2, and the skill would then count that
+ * post as downloaded and skip it forever — a silent, permanent hole in the
+ * archive. Only a name we could have written ourselves counts as one, which is
+ * also why nothing is trimmed first: `2024-03-11_1767 ` is not a folder we
+ * wrote, and treating it as one would split a post across two directories.
+ */
 export function tweetIdFromFolder(name) {
-  const m = /\[(\d+)\]$/.exec(String(name ?? '').trim());
+  const m = POST_FOLDER.exec(String(name ?? ''));
   return m ? m[1] : null;
 }
 
@@ -100,6 +55,9 @@ export function tweetIdFromFolder(name) {
  * Written for every post, including one with no text at all. A missing file
  * would be ambiguous between "this post had no words" and "the run died before
  * writing it", and the second of those is the one you need to be able to see.
+ *
+ * This is also the only place a post's words are kept, now that the folder name
+ * carries none of them, so the body goes in whole — never truncated.
  */
 export function postText({ permalink: url, date, content, replyUrl }) {
   const header = [`${url}`, `${date}`];

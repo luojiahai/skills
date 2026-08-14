@@ -42,14 +42,14 @@ async function fixture() {
 
 test('readArchive indexes post folders by tweet id', async () => {
   const { dir, posts } = await fixture();
-  const folder = path.join(posts, '2024-03-11 - a trip [1767]');
+  const folder = path.join(posts, '2024-03-11_1767');
   await mkdir(folder);
   await writeFile(path.join(folder, '1.jpg'), 'x');
   await writeFile(path.join(folder, 'text.txt'), 'x');
 
   const archive = await readArchive(dir);
   assert.deepEqual(archive.get('1767'), {
-    folder: '2024-03-11 - a trip [1767]',
+    folder: '2024-03-11_1767',
     mediaCount: 1,
   });
 });
@@ -67,9 +67,17 @@ test('readArchive ignores folders that carry no id', async () => {
   assert.equal(archive.size, 0);
 });
 
+test('readArchive does not mistake a stray folder ending in _digits for a post', async () => {
+  const { dir, posts } = await fixture();
+  await mkdir(path.join(posts, 'drafts_2'));
+  await mkdir(path.join(posts, '2024-03-11_1767 copy'));
+  const archive = await readArchive(dir);
+  assert.equal(archive.size, 0);
+});
+
 test('readArchive reports a half-finished post as incomplete', async () => {
   const { dir, posts } = await fixture();
-  const folder = path.join(posts, '2024-03-11 [900]');
+  const folder = path.join(posts, '2024-03-11_900');
   await mkdir(folder);
   await writeFile(path.join(folder, '1.jpg'), 'x');
   await writeFile(path.join(folder, 'text.txt'), 'x');

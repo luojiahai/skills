@@ -16,8 +16,8 @@ out of a browser a human already signed in to.
 the record of what has landed would mean either a SQLite dependency in every
 counting path, or a second bookkeeping file maintained beside it. So there is
 **no archive file at all**: the post folders *are* the record. A post is on disk
-when `posts/… [<id>]/` exists, and complete when it holds as many media files as
-the post has. A record derived from the files cannot drift from the files, which
+when `posts/<date>_<id>/` exists, and complete when it holds as many media files
+as the post has. A record derived from the files cannot drift from the files, which
 is the failure a second record invites — a run that dies between two writes
 leaves them disagreeing, silently and permanently.
 
@@ -112,7 +112,7 @@ filename format.
 | `gallerydl.mjs` | Everything said to gallery-dl and read back from it: policy, throttling, the print format, the row parser, failure classification. |
 | `plan.mjs` | The diff, the plan's validation rules, and **every** block the skill prints. |
 | `archive.mjs` | What is already on disk, read from the post folders. |
-| `naming.mjs` | Arbitrary post text into a safe directory name, and the `text.txt` body. |
+| `naming.mjs` | A post's `<date>_<id>` folder name, the id back out of one, and the `text.txt` body. |
 | `cursor.mjs` | Resolves an account's folder by numeric identity; writes `cursor.json`. |
 | `paths.mjs` | Single source of truth for the state directory and the downloads root. |
 | `target.mjs` | Which of the two entry points a URL is, and refusal by name for everything else. |
@@ -176,6 +176,21 @@ is its own outcome with its own message, and `classifyFailure` exists to keep
 protected, suspended, missing, rate-limited and unauthorized apart from each
 other and from success.
 
+## No post text reaches a path
+
+A post folder is `<date>_<id>`: a date gallery-dl formatted and a numeric id,
+with none of the post's body in it. That is deliberate. Putting arbitrary user
+text into a *directory* name is a sharper edge than a filename — a stray
+separator does not produce a badly named file, it produces a tree in the wrong
+place — and it previously needed a sanitiser stripping path separators, control
+characters, bidi overrides and Windows-hostile trailing dots, truncating by
+grapheme so a name never ended mid-surrogate. Keeping the body out of the path
+retires that whole class of bug instead of defending against it, and costs
+nothing: `text.txt` holds the full untruncated text anyway.
+
+The reverse direction has a matching rule, and `naming.mjs` carries the reason:
+`tweetIdFromFolder` anchors to the *whole* folder name, never a suffix.
+
 ## Tests
 
 The pure logic has unit tests, and no dependencies beyond Node:
@@ -186,13 +201,8 @@ node --test scripts/*.test.mjs
 
 That covers the diff, plan validation and rendering, path normalisation,
 argument parsing, cursor identity and merging, URL classification, failure
-classification, the archive scan, the `text.txt` builder, and — mandatorily —
-the slug sanitiser, which turns arbitrary post text into *directory* names.
-
-The slug sanitiser's character class is written as `\uXXXX` escapes rather than
-literal characters. The literals include a raw NUL, which makes the file a
-binary blob to git — undiffable and unreviewable, which is the last thing the
-module handling hostile input should be.
+classification, the archive scan, the `text.txt` builder, and post folder
+naming in both directions.
 
 `collect.mjs` is tested against a fake `gallery-dl` shell script, which is what
 covers the streaming, the early-stop kill and the two process-lifecycle races

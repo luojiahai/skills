@@ -116,7 +116,7 @@ export function listArgs({ url, cookies }) {
  * One post, into a folder we have already named.
  *
  * `--directory` is an exact path, which is what lets naming.mjs own the layout
- * rather than expressing it as a gallery-dl format string — the slug rules are
+ * rather than expressing it as a gallery-dl format string — the naming rules are
  * ours, they are unit-tested, and they are not re-implemented in a config file.
  */
 export function fetchArgs({ url, directory, cookies }) {

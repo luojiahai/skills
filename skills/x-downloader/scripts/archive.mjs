@@ -2,7 +2,7 @@
  * archive.mjs — what has already landed.
  *
  * There is no archive *file*. The folder is the record: a post is on disk when
- * `posts/<name> [<id>]/` exists, and it is complete when that folder holds as
+ * `posts/<date>_<id>/` exists, and it is complete when that folder holds as
  * many media files as the post has. Nothing else is consulted, and nothing else
  * is written down.
  *

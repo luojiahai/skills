@@ -149,10 +149,13 @@ several of them verified the hard way. Read it before modifying anything in
 
 One folder per account, under the downloads root:
 
-- `posts/<date> - <text> [<id>]/` — one folder per post, holding its media as
-  `1.jpg`, `2.mp4`… and a `text.txt` with the post's text and a short header.
-  **These folders are the record of what has been downloaded**, and a post
-  counts as done when it holds all of its files. Deleting one re-downloads it.
+- `posts/<date>_<id>/` — one folder per post, holding its media as `1.jpg`,
+  `2.mp4`… and a `text.txt` with the post's text and a short header. The name
+  carries no post text: the date sorts the listing as a timeline, the id
+  identifies the post, and the words live in `text.txt` in full rather than
+  truncated into a directory name. **These folders are the record of what has
+  been downloaded**, and a post counts as done when it holds all of its files.
+  Deleting one re-downloads it.
 - `cursor.json` — identity and last-run state. Reporting only; it gates
   nothing. Deleting it costs the account its folder association, nothing more.
 - `.plan.json` — between `--plan` and `--go`, the list awaiting approval.

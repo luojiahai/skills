@@ -69,7 +69,7 @@ test('diff of an empty archive is everything', () => {
 
 test('diff omits posts already complete on disk', () => {
   const posts = groupFiles(rows);
-  const archive = new Map([['1', { folder: 'x [1]', mediaCount: 2 }]]);
+  const archive = new Map([['1', { folder: '2024-01-01_1', mediaCount: 2 }]]);
   const result = diff(posts, archive);
   assert.deepEqual(result.toFetch.map((p) => p.tweetId), ['2']);
   assert.equal(result.counts.onDiskPosts, 1);
@@ -77,13 +77,13 @@ test('diff omits posts already complete on disk', () => {
 
 test('diff re-fetches a post whose files are only half there', () => {
   const posts = groupFiles(rows);
-  const archive = new Map([['1', { folder: 'x [1]', mediaCount: 1 }]]);
+  const archive = new Map([['1', { folder: '2024-01-01_1', mediaCount: 1 }]]);
   const result = diff(posts, archive);
   assert.deepEqual(result.toFetch.map((p) => p.tweetId), ['1', '2']);
 });
 
 test('diff counts found files across every post, fetched or not', () => {
-  const archive = new Map([['1', { folder: 'x [1]', mediaCount: 2 }]]);
+  const archive = new Map([['1', { folder: '2024-01-01_1', mediaCount: 2 }]]);
   const result = diff(groupFiles(rows), archive);
   assert.equal(result.counts.foundPosts, 2);
   assert.equal(result.counts.foundFiles, 3);

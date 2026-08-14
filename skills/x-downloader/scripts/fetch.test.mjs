@@ -69,7 +69,7 @@ test('a post whose media partly failed still gets its text.txt', async () => {
   assert.equal(result.fetched.posts, 0);
   assert.equal(result.stopped, null, 'a dead-media 404 must not end the run');
 
-  const folder = path.join(dir, 'posts', '2024-03-11 - hi [1]');
+  const folder = path.join(dir, 'posts', '2024-03-11_1');
   assert.match(await readFile(path.join(folder, 'text.txt'), 'utf8'), /hi/);
 });
 

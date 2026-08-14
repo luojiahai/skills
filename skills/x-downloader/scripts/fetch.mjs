@@ -55,7 +55,7 @@ export function postDir(accountDir, post) {
   return path.join(
     accountDir,
     POSTS_DIR,
-    postFolderName({ date: post.date, content: post.content, tweetId: post.tweetId }),
+    postFolderName({ date: post.date, tweetId: post.tweetId }),
   );
 }
 

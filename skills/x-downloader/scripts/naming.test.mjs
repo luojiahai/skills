@@ -1,75 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import {
-  datePart,
-  postFolderName,
-  postText,
-  permalink,
-  slugify,
-  tweetIdFromFolder,
-} from './naming.mjs';
-
-test('slugify keeps ordinary text intact', () => {
-  assert.equal(slugify('hello world'), 'hello world');
-});
-
-test('slugify flattens newlines into single spaces', () => {
-  assert.equal(slugify('one\ntwo\r\n\r\nthree'), 'one two three');
-});
-
-test('slugify removes path separators', () => {
-  assert.equal(slugify('a/b\\c'), 'a b c');
-  assert.ok(!slugify('../../etc/passwd').includes('/'));
-});
-
-test('slugify removes characters that are illegal on some filesystem', () => {
-  assert.equal(slugify('a:b*c?d"e<f>g|h'), 'a b c d e f g h');
-});
-
-test('slugify strips control and bidi-override characters', () => {
-  assert.equal(slugify('a\u0000b\u202ec'), 'a b c');
-});
-
-test('slugify never yields a name that is only dots', () => {
-  assert.equal(slugify('..'), '');
-  assert.equal(slugify('.'), '');
-});
-
-test('slugify strips trailing dots and spaces, which Windows cannot open', () => {
-  assert.equal(slugify('report...'), 'report');
-  assert.equal(slugify('report   '), 'report');
-});
-
-test('slugify truncates to the requested length', () => {
-  assert.equal(slugify('a'.repeat(200), 10), 'aaaaaaaaaa');
-});
-
-test('slugify truncates whole characters, never half a surrogate pair', () => {
-  const s = slugify('😀'.repeat(50), 3);
-  assert.equal(Array.from(s).length, 3);
-  assert.equal(Buffer.from(s, 'utf8').toString('utf8'), s);
-});
-
-test('slugify keeps a combining emoji whole rather than splitting it', () => {
-  // A family emoji is several code points and one grapheme.
-  const family = '👨‍👩‍👧‍👦';
-  const s = slugify(family + 'x', 1);
-  assert.ok(s === family || s === 'x' || Array.from(s).length >= 1);
-  assert.equal(Buffer.from(s, 'utf8').toString('utf8'), s);
-});
-
-test('slugify returns empty for input that is entirely unusable', () => {
-  assert.equal(slugify('///'), '');
-  assert.equal(slugify('   '), '');
-  assert.equal(slugify(''), '');
-});
-
-test('slugify tolerates non-string input rather than throwing', () => {
-  assert.equal(slugify(null), '');
-  assert.equal(slugify(undefined), '');
-  assert.equal(slugify(42), '');
-});
+import { datePart, postFolderName, postText, permalink, tweetIdFromFolder } from './naming.mjs';
 
 test('datePart takes the day out of a gallery-dl timestamp', () => {
   assert.equal(datePart('2024-03-11 07:22:19'), '2024-03-11');
@@ -80,32 +12,44 @@ test('datePart falls back rather than producing an empty component', () => {
   assert.equal(datePart(null), 'undated');
 });
 
-test('postFolderName sorts by date and ends with the id', () => {
+test('postFolderName is the date and the id, so the listing sorts as a timeline', () => {
+  assert.equal(postFolderName({ date: '2024-03-11 07:22:19', tweetId: '1767' }), '2024-03-11_1767');
+});
+
+test('postFolderName ignores post text even when handed some', () => {
+  // A guard against the slug coming back: `content` is not in the signature, so
+  // this can only fail if someone puts post text in the path again.
   assert.equal(
-    postFolderName({ date: '2024-03-11 07:22:19', content: 'a trip', tweetId: '1767' }),
-    '2024-03-11 - a trip [1767]',
+    postFolderName({ date: '2024-03-11 07:22:19', content: '../../etc/passwd', tweetId: '1767' }),
+    '2024-03-11_1767',
   );
 });
 
-test('postFolderName omits the slug for a post with no usable text', () => {
-  assert.equal(
-    postFolderName({ date: '2024-03-11 07:22:19', content: '   ', tweetId: '1767' }),
-    '2024-03-11 [1767]',
-  );
+test('postFolderName falls back to undated rather than an empty component', () => {
+  assert.equal(postFolderName({ date: '', tweetId: '1767' }), 'undated_1767');
 });
 
 test('tweetIdFromFolder round-trips postFolderName', () => {
-  const name = postFolderName({ date: '2024-03-11 00:00:00', content: 'x/y', tweetId: '99' });
+  const name = postFolderName({ date: '2024-03-11 00:00:00', tweetId: '99' });
   assert.equal(tweetIdFromFolder(name), '99');
+});
+
+test('tweetIdFromFolder reads an undated folder', () => {
+  assert.equal(tweetIdFromFolder('undated_1767'), '1767');
 });
 
 test('tweetIdFromFolder is null for a folder that is not ours', () => {
   assert.equal(tweetIdFromFolder('posts'), null);
   assert.equal(tweetIdFromFolder(''), null);
+  assert.equal(tweetIdFromFolder(null), null);
 });
 
-test('tweetIdFromFolder is not fooled by an id-like string mid-name', () => {
-  assert.equal(tweetIdFromFolder('2024-01-01 - see [123] for more [456]'), '456');
+test('tweetIdFromFolder ignores a folder that merely ends in _digits', () => {
+  // Why this matters is on tweetIdFromFolder itself.
+  assert.equal(tweetIdFromFolder('drafts_2'), null);
+  assert.equal(tweetIdFromFolder('2024-03-11 - a trip_1767'), null);
+  assert.equal(tweetIdFromFolder('2024-03-11_1767 copy'), null);
+  assert.equal(tweetIdFromFolder(' 2024-03-11_1767 '), null);
 });
 
 test('postText writes a header and body', () => {
@@ -144,6 +88,16 @@ test('postText is still written for a post with no text at all', () => {
   });
   assert.ok(out.startsWith('https://x.com/a/status/1'));
   assert.ok(out.endsWith('\n'));
+});
+
+test('postText keeps the full body the folder name no longer carries', () => {
+  const body = 'a'.repeat(500);
+  const out = postText({
+    permalink: 'https://x.com/a/status/1',
+    date: '2024-03-11 07:22:19',
+    content: body,
+  });
+  assert.ok(out.includes(body));
 });
 
 test('permalink is the canonical form --go re-fetches by', () => {
