@@ -15,7 +15,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { collectSkills, lintSkills, pluginSkillPaths } from './skill-manifest.mjs';
+import { collectSkills, lintSkills, pluginSkillPaths, warnSkills } from './skill-manifest.mjs';
 
 const repo = join(dirname(fileURLToPath(import.meta.url)), '..');
 const pluginPath = join(repo, '.claude-plugin', 'plugin.json');
@@ -28,6 +28,8 @@ if (errors.length > 0) {
   for (const error of errors) console.error(`error: ${error}`);
   process.exit(1);
 }
+
+for (const warning of warnSkills(skills)) console.warn(`warning: ${warning}`);
 
 const wanted = pluginSkillPaths(skills);
 const plugin = JSON.parse(readFileSync(pluginPath, 'utf8'));

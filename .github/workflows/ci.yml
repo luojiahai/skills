@@ -28,3 +28,6 @@ jobs:
       # if plugin.json's skills array no longer matches skills/published.
       - name: Check plugin skills manifest
         run: node scripts/sync-plugin-skills.mjs --check
+
+      - name: Test
+        run: npm test

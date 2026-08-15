@@ -2,7 +2,7 @@ Every skill is a folder one level under a tier: `skills/published/<name>` or `sk
 
 A skill is retired by adding `metadata.internal: true` to its `SKILL.md` frontmatter — an unquoted YAML boolean, because the skills.sh CLI tests `metadata?.internal === true` and a quoted `"true"` ships the skill. That flag is the only thing that stops distribution. Directory placement does not: the CLI treats `skills/` as a priority container walked three deep, and its fallback sweep (`findSkillDirs(dir, depth = 0, maxDepth = 5)`) recurses five levels through the whole tree, so it reaches `skills/deprecated/` and would reach a `deprecated/` at the repo root too. `INSTALL_INTERNAL_SKILLS=1` is the documented escape hatch for installing flagged skills.
 
-Retiring is therefore two moves that must happen together — `git mv` the folder into `skills/deprecated/` and add the flag. `scripts/skill-manifest.mjs` enforces the pair: a skill outside a tier, a deprecated skill without the flag, or a published skill wearing one all fail `npm run check:skills`.
+Adding the flag is what retires, on its own: the CLI stops offering the skill and it drops out of `plugin.json` the moment the flag lands. `git mv` into `skills/deprecated/` is the tidy-up that follows, and `npm run check:skills` warns until it does. What that check *fails* on is anything that could leak — a skill filed outside a tier, a deprecated skill without the flag, a flag that isn't a YAML boolean, or frontmatter `scripts/skill-manifest.mjs` cannot parse faithfully. It refuses a parse it can't vouch for rather than guessing, because a misread `metadata.internal` would pass the lint while the CLI went on offering the skill.
 
 Re-test retirement after touching any of this. All three commands, in this order:
 

@@ -20,44 +20,87 @@ const SKIP_DIRS = new Set(['node_modules', '.git']);
 
 export const TIERS = ['published', 'deprecated'];
 
-function parseScalar(raw) {
+// A real YAML parser reads these as booleans; the skills CLI tests `=== true`,
+// so anything outside this set has to stay a string or the lint cannot tell a
+// flag from a word that looks like one.
+const BOOLEANS = new Map([
+  ['true', true], ['True', true], ['TRUE', true],
+  ['false', false], ['False', false], ['FALSE', false],
+]);
+
+export class FrontmatterError extends Error {}
+
+function parseScalar(raw, line) {
   const value = raw.trim();
-  if (value === 'true') return true;
-  if (value === 'false') return false;
+
   const quoted = /^"(.*)"$/.exec(value) ?? /^'(.*)'$/.exec(value);
-  return quoted ? quoted[1] : value;
+  if (quoted) return quoted[1];
+
+  if (/^[|>]/.test(value)) {
+    throw new FrontmatterError(`block scalars are not supported: ${line.trim()}`);
+  }
+
+  // In a plain scalar YAML starts a comment at " #", so dropping it is what a
+  // real parser does — but only outside quotes, hence after the quoted check.
+  const bare = value.replace(/\s+#.*$/, '').trim();
+  return BOOLEANS.has(bare) ? BOOLEANS.get(bare) : bare;
 }
 
 // Enough YAML for skill frontmatter: top-level scalars plus one level of
-// nesting. Deliberately not a general parser — it exists to read `name`,
-// `description` and `metadata.internal` exactly as the skills CLI reads them,
-// including keeping a quoted "true" a string, since the CLI tests `=== true`.
+// nesting, which is all `name`, `description` and `metadata.internal` need.
+//
+// It throws on everything else rather than guessing. Guessing is what makes a
+// hand-rolled parser dangerous here: silently flattening a deeper `internal:`
+// into `metadata.internal` would pass the lint while the CLI — reading real
+// YAML — went on offering the skill, which is the one outcome this module
+// exists to prevent. A parse it cannot vouch for is reported as a lint error.
 export function parseFrontmatter(text) {
   const match = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/.exec(text);
   if (!match) return null;
 
   const data = {};
   let parent = null;
+  let nestedIndent = null;
 
   for (const line of match[1].split(/\r?\n/)) {
     if (line.trim() === '' || line.trimStart().startsWith('#')) continue;
 
-    const nested = /^\s+([A-Za-z0-9_.-]+):\s*(.*)$/.exec(line);
-    if (nested && parent) {
-      data[parent][nested[1]] = parseScalar(nested[2]);
+    if (line.trimStart().startsWith('- ')) {
+      throw new FrontmatterError(`sequences are not supported: ${line.trim()}`);
+    }
+
+    const entry = /^(\s*)([A-Za-z0-9_.-]+):(?:\s+(.*))?$/.exec(line);
+    if (!entry) {
+      throw new FrontmatterError(`cannot parse: ${line.trim()}`);
+    }
+
+    const [, indent, key, rawValue = ''] = entry;
+
+    if (indent.length === 0) {
+      if (rawValue.trim() === '') {
+        parent = key;
+        nestedIndent = null;
+        data[key] = {};
+      } else {
+        parent = null;
+        data[key] = parseScalar(rawValue, line);
+      }
       continue;
     }
 
-    const top = /^([A-Za-z0-9_.-]+):\s*(.*)$/.exec(line);
-    if (!top) continue;
-
-    if (top[2].trim() === '') {
-      parent = top[1];
-      data[parent] = {};
-    } else {
-      parent = null;
-      data[top[1]] = parseScalar(top[2]);
+    if (parent === null) {
+      throw new FrontmatterError(`unexpected indentation: ${line.trim()}`);
     }
+
+    nestedIndent ??= indent.length;
+    if (indent.length !== nestedIndent) {
+      throw new FrontmatterError(`nesting deeper than one level is not supported: ${line.trim()}`);
+    }
+    if (rawValue.trim() === '') {
+      throw new FrontmatterError(`nesting deeper than one level is not supported: ${line.trim()}`);
+    }
+
+    data[parent][key] = parseScalar(rawValue, line);
   }
 
   return data;
@@ -91,7 +134,17 @@ export async function collectSkills(root) {
   relPaths.sort();
 
   return Promise.all(relPaths.map(async (relPath) => {
-    const data = parseFrontmatter(await readFile(path.join(root, relPath), 'utf8'));
+    const text = await readFile(path.join(root, relPath), 'utf8');
+
+    let data = null;
+    let parseError = null;
+    try {
+      data = parseFrontmatter(text);
+    } catch (error) {
+      if (!(error instanceof FrontmatterError)) throw error;
+      parseError = error.message;
+    }
+
     const segments = relPath.split('/');
     const tiered = segments.length === 4 && TIERS.includes(segments[1]);
     const rawInternal = data?.metadata?.internal;
@@ -101,6 +154,7 @@ export async function collectSkills(root) {
       dir: path.dirname(relPath),
       dirName: segments.at(-2),
       tier: tiered ? segments[1] : null,
+      parseError,
       hasFrontmatter: data !== null,
       name: typeof data?.name === 'string' ? data.name : null,
       description: typeof data?.description === 'string' ? data.description : null,
@@ -114,6 +168,11 @@ export function lintSkills(skills) {
   const errors = [];
 
   for (const skill of skills) {
+    if (skill.parseError) {
+      errors.push(`${skill.relPath}: ${skill.parseError}`);
+      continue;
+    }
+
     if (!skill.hasFrontmatter) {
       errors.push(`${skill.relPath}: no YAML frontmatter — a skill needs name and description`);
       continue;
@@ -139,10 +198,6 @@ export function lintSkills(skills) {
       continue;
     }
 
-    if (skill.tier === 'published' && skill.internal) {
-      errors.push(`${skill.relPath}: a published skill must not carry metadata.internal`);
-    }
-
     if (skill.tier === 'deprecated' && !skill.internal) {
       errors.push(
         `${skill.relPath}: a deprecated skill needs metadata.internal: true` +
@@ -152,6 +207,19 @@ export function lintSkills(skills) {
   }
 
   return errors;
+}
+
+// Flagging a skill retires it on its own: the CLI stops offering it and
+// pluginSkillPaths drops it. Moving the folder into deprecated/ is the tidy-up
+// that follows, and until it happens the skill has quietly left the plugin —
+// so say so, rather than failing a build over a folder in the wrong place.
+export function warnSkills(skills) {
+  return skills
+    .filter((skill) => skill.tier === 'published' && skill.internal)
+    .map((skill) => (
+      `${skill.relPath}: retired by metadata.internal but still in published/` +
+      ' — it has dropped out of the plugin; git mv it into skills/deprecated/'
+    ));
 }
 
 export function pluginSkillPaths(skills) {

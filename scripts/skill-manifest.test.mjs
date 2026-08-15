@@ -4,7 +4,14 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
-import { collectSkills, lintSkills, parseFrontmatter, pluginSkillPaths } from './skill-manifest.mjs';
+import {
+  collectSkills,
+  FrontmatterError,
+  lintSkills,
+  parseFrontmatter,
+  pluginSkillPaths,
+  warnSkills,
+} from './skill-manifest.mjs';
 
 const SKILL = (frontmatter) => `---\n${frontmatter}\n---\n\nBody text.\n`;
 
@@ -44,6 +51,49 @@ test('parseFrontmatter keeps a quoted "true" a string', () => {
 
 test('parseFrontmatter returns null when there is no frontmatter', () => {
   assert.equal(parseFrontmatter('# Just a heading\n'), null);
+});
+
+test('parseFrontmatter refuses nesting it cannot represent rather than flattening it', () => {
+  // Flattening is the dangerous failure: a deeper `internal: true` read as
+  // metadata.internal would satisfy the lint while the CLI, reading real YAML,
+  // saw no flag and went on offering the skill.
+  assert.throws(
+    () => parseFrontmatter(SKILL('name: alpha\ndescription: d\nmetadata:\n  nested:\n    internal: true')),
+    FrontmatterError,
+  );
+});
+
+test('parseFrontmatter refuses block scalars rather than reading the indicator as the value', () => {
+  assert.throws(() => parseFrontmatter(SKILL('name: alpha\ndescription: >-\n  a long description')), FrontmatterError);
+});
+
+test('parseFrontmatter refuses sequences and stray indentation', () => {
+  assert.throws(() => parseFrontmatter(SKILL('name: alpha\ntools:\n- one')), FrontmatterError);
+  assert.throws(() => parseFrontmatter(SKILL('name: alpha\n  orphaned: true')), FrontmatterError);
+});
+
+test('parseFrontmatter strips an inline comment from a plain scalar but not from a quoted one', () => {
+  const data = parseFrontmatter(SKILL('name: alpha # the retired one\ndescription: "a # b"'));
+  assert.equal(data.name, 'alpha');
+  assert.equal(data.description, 'a # b');
+});
+
+test('parseFrontmatter reads the boolean casings a real YAML parser accepts', () => {
+  // `True` is a boolean to the CLI's parser, so treating it as a string here
+  // would report a flag that is genuinely doing its job as malformed.
+  for (const literal of ['true', 'True', 'TRUE']) {
+    const data = parseFrontmatter(SKILL(`name: a\ndescription: d\nmetadata:\n  internal: ${literal}`));
+    assert.equal(data.metadata.internal, true, literal);
+  }
+});
+
+test('lintSkills reports a frontmatter it could not parse', async () => {
+  const root = await fixture({
+    'skills/deprecated/beta/SKILL.md': SKILL('name: beta\ndescription: d\nmetadata:\n  a:\n    internal: true'),
+  });
+  const errors = lintSkills(await collectSkills(root));
+  assert.equal(errors.length, 1);
+  assert.match(errors[0], /nesting deeper than one level/);
 });
 
 test('collectSkills finds every skill under skills/ and records its tier', async () => {
@@ -120,13 +170,18 @@ test('lintSkills rejects a retired skill that never got the flag', async () => {
   assert.match(errors[0], /metadata\.internal/);
 });
 
-test('lintSkills rejects a published skill wearing the flag', async () => {
+test('a published skill wearing the flag is a warning, not an error', async () => {
+  // The flag alone retires: the CLI stops offering it and it drops out of the
+  // plugin either way. Only the folder is in the wrong place, so failing the
+  // build would make retirement two moves instead of one.
   const root = await fixture({
     'skills/published/alpha/SKILL.md': SKILL('name: alpha\ndescription: a\nmetadata:\n  internal: true'),
   });
-  const errors = lintSkills(await collectSkills(root));
-  assert.equal(errors.length, 1);
-  assert.match(errors[0], /published/);
+  const skills = await collectSkills(root);
+  assert.deepEqual(lintSkills(skills), []);
+  assert.equal(warnSkills(skills).length, 1);
+  assert.match(warnSkills(skills)[0], /skills\/deprecated/);
+  assert.deepEqual(pluginSkillPaths(skills), []);
 });
 
 test('lintSkills rejects a non-boolean internal flag', async () => {
