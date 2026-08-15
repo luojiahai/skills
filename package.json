@@ -10,8 +10,10 @@
   "license": "MIT",
   "scripts": {
     "changeset": "changeset",
-    "test": "node --test skills/*/scripts/*.test.mjs",
-    "version": "changeset version && node scripts/sync-plugin-version.mjs"
+    "sync:skills": "node scripts/sync-plugin-skills.mjs",
+    "check:skills": "node scripts/sync-plugin-skills.mjs --check",
+    "test": "node --test scripts/*.test.mjs skills/published/*/scripts/*.test.mjs",
+    "version": "changeset version && node scripts/sync-plugin-version.mjs && node scripts/sync-plugin-skills.mjs"
   },
   "devDependencies": {
     "@changesets/changelog-github": "^0.7.0",

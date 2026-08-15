@@ -43,8 +43,8 @@ Two ways to install, two philosophies:
 
 Full entries, including what each one costs you, are in the [catalogue](./skills/README.md).
 
-- **[douyin-downloader](./skills/douyin-downloader/SKILL.md)** — download every video from a Douyin account, or a single video; re-runs fetch only what's new.
-- **[x-downloader](./skills/x-downloader/SKILL.md)** — download the images, videos and GIFs an account has posted on X (formerly Twitter), or a single post.
+- **[douyin-downloader](./skills/published/douyin-downloader/SKILL.md)** — download every video from a Douyin account, or a single video; re-runs fetch only what's new.
+- **[x-downloader](./skills/published/x-downloader/SKILL.md)** — download the images, videos and GIFs an account has posted on X (formerly Twitter), or a single post.
 
 Both run on your own signed-in session and archive to your own disk — read the catalogue before you point them at anything.
 

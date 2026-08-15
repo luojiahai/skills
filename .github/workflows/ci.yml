@@ -1,0 +1,33 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  skills:
+    name: Skills manifest
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # Fails if a skill is filed outside a tier, is missing the frontmatter the
+      # skills CLI requires, disagrees with its tier about metadata.internal, or
+      # if plugin.json's skills array no longer matches skills/published.
+      - name: Check plugin skills manifest
+        run: node scripts/sync-plugin-skills.mjs --check
+
+      - name: Test
+        run: npm test

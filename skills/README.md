@@ -10,9 +10,11 @@ npx skills@latest add luojiahai/skills
 
 The [root README](../README.md) covers the Claude Code plugin install too.
 
+Skills live in one of two tiers. `published/` is what installs; `deprecated/` is what used to, and is listed at the bottom of this page for the record.
+
 ## douyin-downloader
 
-**[`/douyin-downloader`](./douyin-downloader/SKILL.md)** downloads every video from a Douyin account, or a single video. Re-runs fetch only what is new, so an account can be re-archived later without pulling down what you already have. Image posts (图文) are counted and reported, but not yet downloaded — no tool can fetch them ([#39](https://github.com/luojiahai/skills/issues/39)).
+**[`/douyin-downloader`](./published/douyin-downloader/SKILL.md)** downloads every video from a Douyin account, or a single video. Re-runs fetch only what is new, so an account can be re-archived later without pulling down what you already have. Image posts (图文) are counted and reported, but not yet downloaded — no tool can fetch them ([#39](https://github.com/luojiahai/skills/issues/39)).
 
 **It asks before it downloads.** It reads the account's post list first and tells you whose it is, where the posts would go, how many there are and how many you don't already have — then waits for your yes. Nothing is fetched until you give it.
 
@@ -28,7 +30,7 @@ The [root README](../README.md) covers the Claude Code plugin install too.
 
 ## x-downloader
 
-**[`/x-downloader`](./x-downloader/SKILL.md)** downloads the media an account has posted on **X, formerly Twitter** — or a single post. Images, videos and GIFs; re-runs fetch only what's new.
+**[`/x-downloader`](./published/x-downloader/SKILL.md)** downloads the media an account has posted on **X, formerly Twitter** — or a single post. Images, videos and GIFs; re-runs fetch only what's new.
 
 **It asks before it downloads.** Same shape as its Douyin sibling: it reads the account's posts first and tells you whose they are, where they'd go, how many there are and how many you don't already have — then waits for your yes.
 
@@ -39,3 +41,13 @@ The [root README](../README.md) covers the Claude Code plugin install too.
 **You'll need** [gallery-dl](https://github.com/mikf/gallery-dl) (`brew install gallery-dl`) and Node, plus a browser you're already signed in to X on. There's no sign-in step to automate — X's login can't be scripted, by this or anything else.
 
 **What it takes, and what it leaves.** The account's own media, including its replies to itself. Not retweets or quoted posts — those are someone else's uploads and filing them here would misattribute them. Not text-only posts. Likes and bookmarks are out of scope.
+
+## Retired
+
+Retired skills stay in the repo, under [`deprecated/`](./deprecated), because the work in them is still worth reading. They are not shipped, not installed by default, and not maintained. Each carries `metadata.internal: true` in its frontmatter, which is what keeps the skills.sh CLI from offering it — including under `--full-depth`. If you want one anyway:
+
+```bash
+INSTALL_INTERNAL_SKILLS=1 npx skills@latest add luojiahai/skills --skill <name>
+```
+
+- **[preparing-tax-return](./deprecated/preparing-tax-return/SKILL.md)** — Australia only: prepared an individual tax return for self-lodgement in myTax, walking you from documents through prefill reconciliation and deduction tests to a label-by-label worksheet. Retired because it is no longer maintained — and since it encodes rates and thresholds for a particular tax year, treat anything it tells you as out of date until you have checked it yourself.

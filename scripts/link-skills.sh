@@ -11,8 +11,16 @@ set -euo pipefail
 # Each entry is a symlink into this repo, so a `git pull` is all that's needed
 # to keep installed skills up to date.
 #
-# Retired skills in deprecated/ are never linked; that directory sits outside
-# skills/ and so is simply not searched.
+# Every skill is linked, retired ones in skills/deprecated/ included. Retirement
+# is about what this repo distributes, not about what the maintainer can run:
+# `metadata.internal: true` already keeps those skills out of the skills.sh CLI
+# and out of the plugin bundle, and it keeps working once they are linked —
+# ~/.claude/skills is itself one of the CLI's search directories.
+#
+# Codex is the exception worth knowing about: its skill metadata schema has no
+# hide/disable field and its frontmatter parser never reads metadata.internal,
+# so a retired skill linked into ~/.agents/skills is indistinguishable there
+# from a live one.
 
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 DESTS=("$HOME/.claude/skills" "$HOME/.agents/skills")
