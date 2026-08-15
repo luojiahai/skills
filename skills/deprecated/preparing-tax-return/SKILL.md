@@ -2,6 +2,8 @@
 name: preparing-tax-return
 description: "Australia only — prepare an individual tax return for self-lodgement in myTax: gather your documents, reconcile prefill, test every deduction, and produce a label-by-label worksheet."
 disable-model-invocation: true
+metadata:
+  internal: true
 ---
 
 # Preparing your own Australian tax return
