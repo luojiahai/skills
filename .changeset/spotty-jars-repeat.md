@@ -1,5 +1,5 @@
 ---
-"luojiahai-skills": minor
+"luojiahai-skills": patch
 ---
 
 Skills now live under a tier: `skills/published/<name>` for what ships, `skills/deprecated/<name>` for what used to. Retirement is no longer a matter of where a folder sits — a retired skill carries `metadata.internal: true` in its frontmatter, which is what actually stops the skills.sh CLI offering it, at any depth and under `--full-depth`.
