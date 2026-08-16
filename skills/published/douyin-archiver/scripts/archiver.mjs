@@ -1,44 +1,87 @@
 /**
- * archiver.mjs — the archives root's schema version, and nothing else.
+ * archiver.mjs — the archives root's schema version, and the alias map.
  *
- * `archiver.json` is the one file that sits above the platform folders, and it
- * holds a single number:
+ * `archiver.json` is the one file that sits above the platform folders:
  *
- *   { "schema": 2 }
+ *   {
+ *     "schema": 3,
+ *     "accounts": { "douyin": { "MS4wLjABAAAA…": "jia" } }
+ *   }
  *
- * It is advisory on the way in and load-bearing on the way out. Missing is an
- * ordinary answer — an archive copied out subtree-first, or one made before this
- * file existed — and reads as "the current schema", because refusing to read an
- * archive whose layout is in fact correct would be the worse failure. A version
- * this build does not know is the opposite: the layout may put an account's
- * folder somewhere else entirely, so the run stops and says so rather than
- * enumerating an empty tree and silently re-downloading an entire archive.
+ * The schema is advisory on the way in and load-bearing on the way out. Missing
+ * is an ordinary answer — an archive copied out subtree-first, or one made
+ * before this file existed — and reads as "the current schema", because refusing
+ * to read an archive whose layout is in fact correct would be the worse failure.
+ * A version this build does not know is the opposite: the layout may put an
+ * account's folder somewhere else entirely, so the run stops and says so rather
+ * than enumerating an empty tree and silently re-downloading an entire archive.
  *
- * It is deliberately not an index. Which accounts are here, and which folder
- * belongs to whom, are answered by scanning the account.json files — an index
- * would be a second answer to a question the directory tree already settles,
- * and one that goes stale the moment a folder is moved by hand.
+ * `accounts` maps an account's immutable id to the alias its folder is named
+ * for, nested per platform. Keyed by the id because the id is the half that
+ * cannot change, and because an object then cannot hold two aliases for one
+ * account. Nested per platform because x-archiver writes this same file in this
+ * same root, and a Douyin account and an X account may both be called jia.
  *
- * The same file, with the same number, is written by x-archiver. The two
- * skills share an archives root and share this contract; the copy of this module
- * over there has to keep agreeing with this one.
+ * An account with no alias has no entry. Its folder is its id, which the
+ * directory listing already says, and an entry saying it again is one more thing
+ * to go stale.
+ *
+ * The map is a cache, not an authority. Which accounts are here, and which
+ * folder belongs to whom, are answerable by scanning the account.json files, and
+ * that scan is what repairs this file after a folder is moved by hand — see
+ * resolveAccountDir in account.mjs. So a stale entry costs a scan, never an
+ * archive. What is *not* tolerated is a file this build cannot parse: that may
+ * be a schema from the future, and rebuilding it would clobber it.
+ *
+ * The same file, with the same number, is written by x-archiver. The two skills
+ * share an archives root and share this contract; the copy of this module over
+ * there has to keep agreeing with this one.
  */
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 
-import { isMainModule, optString, parseArgs, writeJson } from './cli.mjs';
+import { isMainModule, optString, parseArgs, readJson, writeJson } from './cli.mjs';
 import { archivesRoot, normalizeRoot } from './paths.mjs';
 
 export const ARCHIVER_FILE = 'archiver.json';
 
 /**
- * 2, not 1. Schema 1 is the flat `douyin_<抖音号>` / `x_<handle>` layout that
- * had no root file at all — so an archive in the old shape is exactly the
- * "missing" case, and would be read as current. That is why nothing here is the
- * guard against an old archive: it cannot be. The old layout is simply invisible
- * to this build, and the migration is a one-off the user runs by hand.
+ * 3, not 2. Schema 2 filed every account under its id and had no alias map; 3
+ * lets a folder be named for an alias instead. Nothing moved between them, which
+ * is why 2 is *readable* rather than refused — see READABLE_SCHEMAS.
+ *
+ * Schema 1 is the flat `douyin_<抖音号>` / `x_<handle>` layout that had no root
+ * file at all — so an archive in the old shape is exactly the "missing" case,
+ * and would be read as current. That is why nothing here is the guard against an
+ * old archive: it cannot be. The old layout is simply invisible to this build,
+ * and the migration is a one-off the user runs by hand.
  */
-export const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 3;
+
+/**
+ * Schemas this build may write into.
+ *
+ * 2 is here because every schema-2 account folder — named for the account's id,
+ * with no alias anywhere — is already a legal schema-3 folder. The upgrade adds
+ * a number and an empty map and moves nothing, so refusing a schema-2 archive
+ * would strand every existing archive on a change that costs it nothing.
+ * stampRoot performs the upgrade the first time such a root is written into.
+ */
+const READABLE_SCHEMAS = new Set([2, SCHEMA_VERSION]);
+
+/**
+ * The root file as it was parsed, or null when there is not a readable one.
+ *
+ * The second reader of this file, and deliberately the blunter one: readSchema
+ * below tells "absent" from "present but unparseable" because the difference
+ * decides whether a run may proceed, while this collapses both to null because
+ * by the time anything asks for the alias map, checkRoot has already refused
+ * every archive where that distinction mattered. Nothing here may be called
+ * before that refusal.
+ */
+async function readArchiverFile(root) {
+  return readJson(path.join(root, ARCHIVER_FILE));
+}
 
 /**
  * `{ present, schema }` for the root's archiver.json.
@@ -81,7 +124,7 @@ export async function readSchema(root) {
  */
 export function checkSchema({ present, schema }) {
   if (!present) return { ok: true };
-  if (schema === SCHEMA_VERSION) return { ok: true };
+  if (READABLE_SCHEMAS.has(schema)) return { ok: true };
 
   if (!Number.isInteger(schema)) {
     return {
@@ -120,19 +163,88 @@ export async function checkRoot(root) {
 }
 
 /**
- * Stamp a root that has never been stamped.
+ * Stamp a root that has never been stamped, or lift a schema-2 one to 3.
  *
  * Called once the run is committed to writing into this root — after the
  * account folder is resolved — so the only directories that acquire an
  * `archiver.json` are ones that are really becoming archives.
  *
- * Silent when the file already exists, whatever it says: checkRoot has already
- * passed judgement on that, and re-deciding it here would be a second answer.
+ * The upgrade rewrites the number and adds an empty map, and touches nothing
+ * else in the file or in the tree: a schema-2 archive is a schema-3 archive in
+ * which no account has been given an alias yet.
+ *
+ * Silent when the root already says 3, whatever else it says: checkRoot has
+ * already passed judgement on that, and re-deciding it here would be a second
+ * answer.
  */
 export async function stampRoot(root) {
-  if ((await readSchema(root)).present) return SCHEMA_VERSION;
-  await writeJson(path.join(root, ARCHIVER_FILE), { schema: SCHEMA_VERSION });
+  const { present, schema } = await readSchema(root);
+  if (present && schema === SCHEMA_VERSION) return SCHEMA_VERSION;
+
+  if (!present) {
+    await writeJson(path.join(root, ARCHIVER_FILE), { schema: SCHEMA_VERSION, accounts: {} });
+    return SCHEMA_VERSION;
+  }
+
+  // Present and readable but not current — schema 2, the only other member of
+  // READABLE_SCHEMAS. Anything else never reaches here, because checkRoot threw.
+  const file = (await readArchiverFile(root)) ?? {};
+  await writeJson(path.join(root, ARCHIVER_FILE), {
+    ...file,
+    schema: SCHEMA_VERSION,
+    accounts: aliasTable(file.accounts),
+  });
   return SCHEMA_VERSION;
+}
+
+/** The `accounts` object, or an empty one when it is missing or the wrong shape. */
+function aliasTable(accounts) {
+  if (!accounts || typeof accounts !== 'object' || Array.isArray(accounts)) return {};
+  return accounts;
+}
+
+/**
+ * This platform's `{ id: alias }` map, holding only entries that could name a
+ * folder.
+ *
+ * An entry that is not two non-empty strings is dropped rather than repaired.
+ * The file is a cache a human is invited to read, so it is also one a human can
+ * mistype, and the cost of dropping a junk entry is a scan — where the cost of
+ * trusting it is a number or a null reaching a path.
+ */
+export async function readAliases(root, platform) {
+  const byPlatform = aliasTable((await readArchiverFile(root))?.accounts);
+  const table = aliasTable(byPlatform[platform]);
+
+  return Object.fromEntries(
+    Object.entries(table).filter(
+      ([id, alias]) => typeof id === 'string' && id !== '' && typeof alias === 'string' && alias !== '',
+    ),
+  );
+}
+
+/**
+ * Record — or, with a null alias, forget — one account's alias.
+ *
+ * Read-modify-write rather than a rewrite of the whole shape: the other
+ * platform's entries are in this file, and so is anything a future version of
+ * either skill has started keeping here.
+ *
+ * This is the last of the three writes an alias change makes — the folder moves
+ * first, then account.json inside it, then this. It is the only one that is
+ * merely a cache, so a crash before it lands is repaired by the next scan.
+ */
+export async function writeAlias(root, platform, id, alias) {
+  const file = (await readArchiverFile(root)) ?? {};
+  const accounts = { ...aliasTable(file.accounts) };
+  const table = { ...aliasTable(accounts[platform]) };
+
+  if (alias) table[String(id)] = String(alias);
+  else delete table[String(id)];
+
+  accounts[platform] = table;
+  await writeJson(path.join(root, ARCHIVER_FILE), { ...file, schema: SCHEMA_VERSION, accounts });
+  return table;
 }
 
 // ---- CLI -------------------------------------------------------------------
@@ -145,7 +257,7 @@ export async function stampRoot(root) {
 //   check [--archives DIR]   exits 0, or exits 2 saying why this archive cannot
 //                            be read. Reads nothing else and writes nothing.
 //   stamp [--archives DIR]   records the schema, once the run is committed to
-//                            writing into this root.
+//                            writing into this root. Upgrades a schema-2 root.
 
 if (isMainModule(import.meta.url)) {
   const [command, ...rest] = process.argv.slice(2);

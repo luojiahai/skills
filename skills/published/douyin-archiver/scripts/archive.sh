@@ -34,7 +34,8 @@ STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/douyin-archiver"
 PROFILE_DIR="${STATE_DIR}/profile"
 COOKIE_FILE="${STATE_DIR}/cookies.txt"
 
-NAME=""
+ALIAS=""
+UNALIAS=""
 URL=""
 ARCHIVES_ARG=""
 MODE=""
@@ -51,7 +52,7 @@ usage() {
   cat <<'EOF'
 archive.sh — archive a Douyin account's posts, or download a single post.
 
-Usage: archive.sh <url> [--archives DIR] [--name NAME] [--plan|--go|--yes]
+Usage: archive.sh <url> [--archives DIR] [--alias NAME] [--plan|--go|--yes]
 
   <url>   https://www.douyin.com/user/MS4w...   every post from the account
           https://www.douyin.com/video/711...   one post
@@ -67,23 +68,27 @@ Modes (profile URLs):
 
 Options:
       --archives DIR    Root directory the archives live in. The account
-                        folder is DIR/douyin/<sec_uid>.
+                        folder is DIR/douyin/<alias>, or DIR/douyin/<sec_uid>
+                        for an account that has no alias.
                         (default: <git root, else cwd>/archives — required
                         when run from inside the skill directory)
-      --name NAME       A label for this account, recorded in account.json.
-                        It does not name the folder — the account's sec_uid
-                        does, so changing a 抖音号 can never orphan an
-                        archive — but a later run can find the account by it.
+      --alias NAME      Name this account's folder NAME instead of its sec_uid,
+                        so the archive is readable to a person. An existing
+                        folder is renamed on the next --go; a new one is created
+                        with this name. Recorded in archiver.json against the
+                        sec_uid, which is what finds the folder again after.
+      --unalias         Put this account's folder back under its sec_uid.
       --profile DIR     Playwright session profile
                         (default: ${XDG_STATE_HOME:-~/.local/state}/douyin-archiver/profile)
   -h, --help            Show this help
 
-Each post lands in <archives>/douyin/<sec_uid>/posts/<date>_<id>/, holding a
+Each post lands in the account folder under posts/<date>_<id>/, holding a
 post.json — permalink, timestamp, caption and the media it carries — plus that
 media as 1.mp4. post.json is written before the download, and a post counts as
 landed when every file it lists is there; delete one and it is fetched again.
 Beside posts/ sit account.json (whose account this folder is) and sync.json
 (the list awaiting approval between --plan and --go, plus the last run).
+<archives>/archiver.json records the schema and maps each sec_uid to its alias.
 
 Image posts (图文) are counted and reported, but not yet downloaded:
 https://github.com/luojiahai/skills/issues/39
@@ -92,7 +97,8 @@ EOF
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --name)      NAME="$2"; shift 2 ;;
+    --alias)     ALIAS="$2"; shift 2 ;;
+    --unalias)   UNALIAS=1; shift ;;
     --archives)  ARCHIVES_ARG="$2"; shift 2 ;;
     --profile)   PROFILE_DIR="$2"; shift 2 ;;
     --plan)      set_mode plan; shift ;;
@@ -118,6 +124,11 @@ if [[ -z "$URL" ]]; then
   exit 2
 fi
 
+if [[ -n "$ALIAS" && -n "$UNALIAS" ]]; then
+  echo "error: --alias and --unalias ask for opposite things. Pass one or the other." >&2
+  exit 2
+fi
+
 # Where archives live is decided in one place, paths.mjs, rather than being
 # recomputed here: a root that disagrees with the one the Node scripts use
 # would name a different account folder and silently re-download everything. It
@@ -140,7 +151,7 @@ stamp_root() {
 
 # The command that makes a plan, quoted back to the user in every message that
 # needs one to exist.
-PLAN_HINT="${SCRIPT_DIR}/archive.sh '${URL}'${ARCHIVES_ARG:+ --archives '${ARCHIVES_ARG}'}${NAME:+ --name '${NAME}'} --plan"
+PLAN_HINT="${SCRIPT_DIR}/archive.sh '${URL}'${ARCHIVES_ARG:+ --archives '${ARCHIVES_ARG}'}${ALIAS:+ --alias '${ALIAS}'} --plan"
 
 # ---- preflight -------------------------------------------------------------
 # Three cheap checks with a one-line remedy each. Session expiry is the fourth
@@ -237,6 +248,38 @@ resolve_folder() {
   node "${SCRIPT_DIR}/account.mjs" resolve --archives "$ARCHIVES" "$@"
 }
 
+# Refuses an unusable or already-taken alias before anything is collected,
+# written or downloaded — it needs the archives root and nothing else, so a typo
+# costs no browser and no scroll.
+#
+# The sec_uid may be empty — a single post that named none, or a profile URL
+# that carried none. The 抖音号 and the URL go with it so the check can still
+# work out whose account this is: without them it would read the account's own
+# alias as a collision with itself. The authoritative check is inside `alias`,
+# once the sec_uid is in hand.
+check_alias() {
+  [[ -n "$ALIAS" ]] || return 0
+  node "${SCRIPT_DIR}/account.mjs" check-alias --archives "$ARCHIVES" \
+    --sec-uid "${1:-}" --douyin-id "${2:-}" --url "$URL" --alias "$ALIAS"
+}
+
+# Moves the account's folder where --alias or --unalias says it goes, and prints
+# where that now is. Called only on the paths that download: a --plan that
+# silently reorganised the archive would be a preview that lied, and a rename
+# between the two invalidates nothing, because a plan records the archives root
+# and the account rather than the folder.
+apply_alias() {
+  local sec_uid="$1" folder="$2"
+  if [[ -n "$UNALIAS" ]]; then
+    node "${SCRIPT_DIR}/account.mjs" unalias --archives "$ARCHIVES" --sec-uid "$sec_uid"
+  elif [[ -n "$ALIAS" ]]; then
+    node "${SCRIPT_DIR}/account.mjs" alias --archives "$ARCHIVES" \
+      --sec-uid "$sec_uid" --alias "$ALIAS"
+  else
+    printf '%s\n' "$folder"
+  fi
+}
+
 # ---- single post -----------------------------------------------------------
 if [[ "$URL" =~ /video/([0-9]+) ]]; then
   POST_ID="${BASH_REMATCH[1]}"
@@ -276,14 +319,19 @@ if [[ "$URL" =~ /video/([0-9]+) ]]; then
     exit 1
   fi
 
-  # With a sec_uid the folder is known outright. Without one there is no name to
-  # invent — the 抖音号 is the mutable identifier this layout stopped filing by —
-  # so the only hope is a folder some earlier run already made for this account.
+  check_alias "$SEC_UID" "$DOUYIN_ID"
+
+  # With a sec_uid the folder is known outright, and an alias may name it — the
+  # sec_uid is what the alias is recorded against, so everything that makes an
+  # alias safe is present. Without one there is no name to invent — the 抖音号 is
+  # the mutable identifier this layout stopped filing by, and an alias with no id
+  # behind it has nothing to record — so an alias may only *find* a folder here,
+  # and the only hope is one some earlier run already made for this account.
   if [[ -n "$SEC_UID" ]]; then
-    FOLDER="$(resolve_folder --sec-uid "$SEC_UID")"
+    FOLDER="$(resolve_folder --sec-uid "$SEC_UID" --alias "$ALIAS")"
   else
     FOLDER_STATUS=0
-    FOLDER="$(resolve_folder --douyin-id "$DOUYIN_ID" --name "$NAME")" || FOLDER_STATUS=$?
+    FOLDER="$(resolve_folder --douyin-id "$DOUYIN_ID" --alias "$ALIAS")" || FOLDER_STATUS=$?
     if [[ "$FOLDER_STATUS" != 0 ]]; then
       echo "error: this post did not name its account's sec_uid, and no folder here" >&2
       echo "belongs to 抖音号 ${DOUYIN_ID} yet — so there is nowhere to file it." >&2
@@ -293,14 +341,21 @@ if [[ "$URL" =~ /video/([0-9]+) ]]; then
     fi
   fi
 
+  # A single post downloads rather than plans, so the move happens now — except
+  # under --plan, which only reports. No sec_uid means no move: there is no id to
+  # record the alias against.
+  if [[ "$MODE" != "plan" && -n "$SEC_UID" ]]; then
+    FOLDER="$(apply_alias "$SEC_UID" "$FOLDER")"
+  fi
+
   # Identity, written as soon as the folder is known and before anything is
   # fetched: which account this folder belongs to, never how much of it has
   # been downloaded. That is what lets a later full run find this folder
   # instead of starting a second one for the same account. No --url: the URL
   # here names a post, and the recorded one is the profile's.
   stamp_root
-  node "${SCRIPT_DIR}/account.mjs" write --folder "$FOLDER" \
-    --sec-uid "$SEC_UID" --douyin-id "$DOUYIN_ID" --name "$NAME"
+  node "${SCRIPT_DIR}/account.mjs" write --folder "$FOLDER" --archives "$ARCHIVES" \
+    --sec-uid "$SEC_UID" --douyin-id "$DOUYIN_ID"
 
   # A single post is already as specific as an instruction gets, so it is not
   # planned or confirmed — but --plan still answers where it would land.
@@ -377,8 +432,10 @@ run_plan() {
   fi
 
   # Only the profile URL: the identity was written by `build` before anything
-  # was fetched, and by an earlier run's `build` on the --go path.
-  node "${SCRIPT_DIR}/account.mjs" write --folder "$folder" --url "$URL"
+  # was fetched, and by an earlier run's `build` on the --go path. It also
+  # re-derives the alias from the folder, which is what settles the records after
+  # a move that happened between then and now.
+  node "${SCRIPT_DIR}/account.mjs" write --folder "$folder" --archives "$ARCHIVES" --url "$URL"
 
   after="$(plan_mjs count --folder "$folder")"
 
@@ -398,6 +455,8 @@ run_plan() {
 
 # ---- --go: fetch an approved plan, no browser involved -------------------
 if [[ "$MODE" == "go" ]]; then
+  check_alias "$SEC_UID"
+
   RESOLVE_STATUS=0
   FOLDER="$(resolve_folder --sec-uid "$SEC_UID" --require-match)" || RESOLVE_STATUS=$?
 
@@ -412,12 +471,20 @@ if [[ "$MODE" == "go" ]]; then
     exit "$RESOLVE_STATUS"
   fi
 
+  # The move happens before the download, so what is fetched goes straight into
+  # its final home.
+  FOLDER="$(apply_alias "$SEC_UID" "$FOLDER")"
+
   # Plain call: a failure exits the script with run_plan's status via errexit.
   run_plan "$FOLDER"
   exit 0
 fi
 
 # ---- --plan / --yes: collect, diff, report ---------------------------------
+# Before the browser opens: the sec_uid is in a profile URL, so an alias that
+# cannot be used is refused without collecting anything at all.
+check_alias "$SEC_UID"
+
 TMP_COLLECTED="$(mktemp -t douyin-urls)"
 TMP_META="$(mktemp -t douyin-meta)"
 
@@ -439,13 +506,18 @@ if [[ -z "$SEC_UID" ]]; then
   exit 1
 fi
 
-FOLDER="$(resolve_folder --sec-uid "$SEC_UID")"
+# Asked again now the sec_uid is certain — the URL may not have carried one, and
+# the check above then ran without knowing whose account this is.
+check_alias "$SEC_UID" "$DOUYIN_ID"
+
+FOLDER="$(resolve_folder --sec-uid "$SEC_UID" --alias "$ALIAS")"
 
 stamp_root
 
 echo
 node "${SCRIPT_DIR}/plan.mjs" build --meta "$TMP_META" --urls "$TMP_COLLECTED" \
-  --folder "$FOLDER" --archives "$ARCHIVES" --url "$URL" --name "$NAME"
+  --folder "$FOLDER" --archives "$ARCHIVES" --url "$URL" \
+  --alias "$ALIAS" ${UNALIAS:+--unalias}
 
 # Nothing pending means nothing to fetch, so the scan was the whole run and
 # there is nothing to confirm. build has already recorded the account's
@@ -463,6 +535,10 @@ if [[ "$MODE" != "yes" ]]; then
 fi
 
 echo
+# --yes is the one path that plans and fetches in a breath, so the move it just
+# reported happens here, before the download.
+FOLDER="$(apply_alias "$SEC_UID" "$FOLDER")"
+
 # Plain call: a failure exits the script with run_plan's status via errexit.
 run_plan "$FOLDER"
 exit 0

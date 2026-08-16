@@ -4,7 +4,16 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
-import { ARCHIVER_FILE, SCHEMA_VERSION, checkRoot, checkSchema, readSchema, stampRoot } from './archiver.mjs';
+import {
+  ARCHIVER_FILE,
+  SCHEMA_VERSION,
+  checkRoot,
+  checkSchema,
+  readAliases,
+  readSchema,
+  stampRoot,
+  writeAlias,
+} from './archiver.mjs';
 import { readJson } from './cli.mjs';
 
 const root = () => mkdtemp(path.join(os.tmpdir(), 'douyin-archiver-root-'));
@@ -44,9 +53,16 @@ test('a newer schema is refused, and says so', () => {
 });
 
 test('an older schema is refused too', () => {
-  const verdict = checkSchema({ present: true, schema: SCHEMA_VERSION - 1 });
+  const verdict = checkSchema({ present: true, schema: 1 });
   assert.equal(verdict.ok, false);
   assert.match(verdict.reason, /older version/);
+});
+
+test('schema 2 is readable, because every schema-2 folder is a legal schema-3 one', () => {
+  // 2 → 3 moved nothing: it added aliases, and an archive with no aliases in it
+  // is exactly a schema-2 archive. Refusing it would strand every existing
+  // archive on a change that costs them nothing.
+  assert.equal(checkSchema({ present: true, schema: 2 }).ok, true);
 });
 
 test('a stamp that is present but not a number is refused, never ignored', () => {
@@ -83,7 +99,7 @@ test('checkRoot reads and never writes', async () => {
 test('stampRoot stamps a root nobody has archived into', async () => {
   const dir = await root();
   assert.equal(await stampRoot(dir), SCHEMA_VERSION);
-  assert.deepEqual(await readJson(path.join(dir, ARCHIVER_FILE)), { schema: SCHEMA_VERSION });
+  assert.deepEqual(await readJson(path.join(dir, ARCHIVER_FILE)), { schema: SCHEMA_VERSION, accounts: {} });
 });
 
 test('stampRoot leaves an already-stamped root alone', async () => {
@@ -92,7 +108,79 @@ test('stampRoot leaves an already-stamped root alone', async () => {
   assert.equal((await readJson(path.join(dir, ARCHIVER_FILE))).note, 'kept');
 });
 
+test('stampRoot upgrades a schema-2 root in place, keeping what it held', async () => {
+  // Nothing moves. Every folder in a schema-2 archive is already a legal
+  // un-aliased schema-3 folder, so the upgrade is the number and an empty map.
+  const dir = await stamp(await root(), '{"schema":2,"note":"kept"}');
+  assert.equal(await stampRoot(dir), SCHEMA_VERSION);
+  assert.deepEqual(await readJson(path.join(dir, ARCHIVER_FILE)), {
+    schema: SCHEMA_VERSION,
+    note: 'kept',
+    accounts: {},
+  });
+});
+
 test('checkRoot throws on a mismatch rather than returning a verdict to ignore', async () => {
   const dir = await stamp(await root(), `{"schema":${SCHEMA_VERSION + 1}}`);
   await assert.rejects(() => checkRoot(dir), /schema/);
+});
+
+test('a root with no aliases reads as an empty map, not as an error', async () => {
+  assert.deepEqual(await readAliases(await root(), 'douyin'), {});
+  assert.deepEqual(await readAliases(await stamp(await root(), '{"schema":3}'), 'douyin'), {});
+});
+
+test('aliases are keyed by id and nested per platform', async () => {
+  // Both skills write this one file, so an X "jia" and a Douyin "jia" have to be
+  // able to coexist. Keyed by id because an object cannot then hold two aliases
+  // for one account.
+  const dir = await root();
+  await writeAlias(dir, 'douyin', 'MS4wLjABAAAA', 'jia');
+  await writeAlias(dir, 'x', '55', 'jia');
+
+  assert.deepEqual(await readAliases(dir, 'douyin'), { MS4wLjABAAAA: 'jia' });
+  assert.deepEqual(await readAliases(dir, 'x'), { 55: 'jia' });
+  assert.equal((await readJson(path.join(dir, ARCHIVER_FILE))).schema, SCHEMA_VERSION);
+});
+
+test('writing an alias leaves the other platform, and unknown keys, alone', async () => {
+  const dir = await stamp(await root(), '{"schema":3,"note":"kept","accounts":{"x":{"55":"bee"}}}');
+  await writeAlias(dir, 'douyin', 'MS4w', 'jia');
+
+  const file = await readJson(path.join(dir, ARCHIVER_FILE));
+  assert.equal(file.note, 'kept');
+  assert.deepEqual(file.accounts.x, { 55: 'bee' });
+  assert.deepEqual(file.accounts.douyin, { MS4w: 'jia' });
+});
+
+test('an alias can be taken back off, and the entry goes rather than emptying', async () => {
+  const dir = await root();
+  await writeAlias(dir, 'douyin', 'MS4w', 'jia');
+  await writeAlias(dir, 'douyin', 'MS4w', null);
+  assert.deepEqual(await readAliases(dir, 'douyin'), {});
+});
+
+test('a hand-edited mapping entry that is not two strings is ignored', async () => {
+  // The file is a cache a human is invited to read, so it is also one a human
+  // can mistype. A junk entry reads as no entry, which self-heals on the next
+  // scan, rather than putting a number or a null into a path.
+  const dir = await stamp(
+    await root(),
+    '{"schema":3,"accounts":{"douyin":{"MS4w":"jia","b":null,"c":12,"d":"","":"nope"}}}',
+  );
+  assert.deepEqual(await readAliases(dir, 'douyin'), { MS4w: 'jia' });
+});
+
+test('a mapping that is not an object at all reads as no aliases', async () => {
+  for (const junk of ['{"schema":3,"accounts":[]}', '{"schema":3,"accounts":"x"}', '{"schema":3,"accounts":{"douyin":[]}}']) {
+    assert.deepEqual(await readAliases(await stamp(await root(), junk), 'douyin'), {});
+  }
+});
+
+test('writeAlias upgrades a schema-2 root rather than writing a 2 with aliases in it', async () => {
+  const dir = await stamp(await root(), '{"schema":2}');
+  await writeAlias(dir, 'douyin', 'MS4w', 'jia');
+  const file = await readJson(path.join(dir, ARCHIVER_FILE));
+  assert.equal(file.schema, SCHEMA_VERSION);
+  assert.deepEqual(file.accounts.douyin, { MS4w: 'jia' });
 });

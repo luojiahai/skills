@@ -1,7 +1,7 @@
 ---
 name: x-archiver
 description: "Archive media from X (formerly Twitter) — every image and video an account has posted — or download a single post, into an archives folder of your choosing. It reports what it would fetch and waits for your yes, and a re-run fetches only what is new."
-argument-hint: "<X profile or post URL> [--archives DIR] [--name NAME]"
+argument-hint: "<X profile or post URL> [--archives DIR] [--alias NAME]"
 disable-model-invocation: true
 ---
 
@@ -100,22 +100,38 @@ not to you.
 
 ## Where the media goes
 
-`--archives DIR` sets the root, and the account folder is
-`DIR/x/<numeric user id>`. Without the flag the root is `<git root of the
-current directory, else cwd>/archives`, the same root `douyin-archiver` uses.
+`--archives DIR` sets the root, and the account folder is `DIR/x/<alias>` if
+the account has one and `DIR/x/<numeric user id>` if it does not. Without the
+flag the root is `<git root of the current directory, else cwd>/archives`, the
+same root `douyin-archiver` uses.
 
 The `x/` folder is what lets both skills share that root: `douyin-archiver`
 files its accounts under `douyin/<sec_uid>`, so there is no id the two could
 collide on.
 
 X handles are mutable and the numeric id is not, which is why the id is the
-folder. A renamed account goes on filling the folder it already has without
-anything having to notice the rename — there is nothing to detect and nothing
-to report.
+default folder. A renamed account goes on filling the folder it already has
+without anything having to notice the rename — there is nothing to detect and
+nothing to report.
 
-`--name NAME` is a label, not a location: it is recorded inside `account.json`,
-and a later run can find the account by it. It cannot move or collide with a
-folder.
+`--alias NAME` overrides that, because a folder full of numbers is unreadable to
+the person whose archive it is. It **names the folder**: an account already
+archived is renamed on the next `--go`, and one that is new is created with that
+name straight away. `--plan` reports the move and performs it on `--go`, never
+before — so a preview never reorganises the archive.
+
+What keeps that safe is `archiver.json`, which records the account's id against
+its alias. A known id is one lookup from its folder, and because `account.json`
+inside the folder carries the same alias, the map is rebuilt by scanning
+whenever it turns out to be wrong — so a stale entry costs a directory read,
+never an archive. Rename a folder by hand and the next run adopts the new name:
+where the two disagree, the folder wins.
+
+An alias may be letters — in any script, so 罗嘉海 is fine — digits, dots,
+dashes and underscores. No spaces, no slashes, not starting with a dot, and not
+another account's id. One already in use is refused before anything is fetched,
+naming the account that holds it. `--unalias` puts the folder back under the id;
+an empty `--alias` means nothing at all, not removal.
 
 Resuming means passing the same `--archives` again. A different root is a
 different archive and starts from nothing, so if the user has downloaded this
@@ -157,8 +173,8 @@ several of them verified the hard way. Read it before modifying anything in
 
 ```
 <archives root>/
-  archiver.json                          {"schema": 2}
-  x/<numeric user id>/
+  archiver.json                          {"schema": 3, "accounts": {…}}
+  x/<alias, else numeric user id>/
     account.json
     sync.json
     assets/{avatar.<ext>, banner.<ext>}
@@ -175,7 +191,7 @@ several of them verified the hard way. Read it before modifying anything in
   written *before* the media, so it describes the post rather than claiming it
   landed — a post counts as done when every file it lists is present, and
   deleting any of them re-downloads it.
-- `account.json` — the account's identity, its `--name` if it has one, and the
+- `account.json` — the account's identity, its alias if it has one, and the
   URL it was archived from. Written as soon as the folder is resolved, before
   anything is downloaded. It is **authoritative for identity** and **never for
   progress**: what has been downloaded is answered by `posts/` alone.
@@ -184,5 +200,9 @@ several of them verified the hard way. Read it before modifying anything in
   expires after 24 hours anyway.
 - `assets/` — the account's current avatar and banner, overwritten each run.
   A history of them is not kept.
-- `archiver.json` at the root records which schema the archive uses. A version
-  this build does not know stops the run before anything is read or written.
+- `archiver.json` — at the root, holding the schema this archive uses and each
+  account's id mapped to its alias, per platform. A schema this build does not
+  know stops the run before anything is read or written. The map is a **cache,
+  not an authority**: the folders and their `account.json` files are the truth,
+  and it is rebuilt from them when it disagrees. An account with no alias has no
+  entry.

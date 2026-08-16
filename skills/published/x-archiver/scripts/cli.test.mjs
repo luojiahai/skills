@@ -16,11 +16,19 @@ test('a boolean flag does not swallow the argument after it', () => {
 });
 
 test('a value flag followed by another flag neither eats nor loses it', () => {
-  // --name has no value here, but --plan must still be parsed as a flag in its
-  // own right rather than disappearing into --name.
-  const { opts } = parseCommandLine(['--name', '--plan']);
-  assert.equal(opts.name, true);
+  // --alias has no value here, but --plan must still be parsed as a flag in its
+  // own right rather than disappearing into --alias.
+  const { opts } = parseCommandLine(['--alias', '--plan']);
+  assert.equal(opts.alias, true);
   assert.equal(opts.plan, true);
+});
+
+test('--unalias is a flag in its own right, not an alias with a value', () => {
+  // It has to be: an empty --alias is how archive.sh passes a flag it has no
+  // value for, so "" cannot also mean "take the alias off".
+  const { opts } = parseCommandLine(['--unalias', '--go']);
+  assert.equal(opts.unalias, true);
+  assert.equal(opts.go, true);
 });
 
 test('dashes in a flag name become underscores', () => {
@@ -41,10 +49,12 @@ test('an unknown flag is reported rather than guessed at', () => {
 test('the accepted flags are exactly the documented ones', () => {
   // Anything admitted here but absent from USAGE is a surface nobody can find
   // and nobody maintains.
-  for (const flag of ['--archives', '--name', '--browser', '--cookies', '--full', '--plan', '--go', '--yes']) {
+  for (const flag of [
+    '--archives', '--alias', '--unalias', '--browser', '--cookies', '--full', '--plan', '--go', '--yes',
+  ]) {
     assert.deepEqual(parseCommandLine([flag, 'v']).unknown, [], flag);
   }
-  for (const flag of ['--bin', '--abort', '--url']) {
+  for (const flag of ['--bin', '--abort', '--url', '--name']) {
     assert.deepEqual(parseCommandLine([flag, 'v']).unknown, [flag], flag);
   }
 });
@@ -62,7 +72,7 @@ test('a URL is never mistaken for a flag value', () => {
 });
 
 test('optString treats a valueless flag as absent', () => {
-  assert.equal(optString({ name: true }, 'name'), '');
-  assert.equal(optString({ name: 'x' }, 'name'), 'x');
-  assert.equal(optString({}, 'name'), '');
+  assert.equal(optString({ alias: true }, 'alias'), '');
+  assert.equal(optString({ alias: 'jia' }, 'alias'), 'jia');
+  assert.equal(optString({}, 'alias'), '');
 });

@@ -27,13 +27,13 @@ export function isMainModule(importMetaUrl) {
 }
 
 /** Flags that are on or off. Everything else takes the argument after it. */
-export const BOOLEAN_FLAGS = new Set(['plan', 'go', 'yes', 'y', 'full', 'help', 'h']);
+export const BOOLEAN_FLAGS = new Set(['plan', 'go', 'yes', 'y', 'full', 'unalias', 'help', 'h']);
 
 /** Every flag this entry point accepts. Anything else is a usage error. */
 export const KNOWN_FLAGS = new Set([
   ...BOOLEAN_FLAGS,
   'archives',
-  'name',
+  'alias',
   'browser',
   'cookies',
 ]);
@@ -42,7 +42,7 @@ export const KNOWN_FLAGS = new Set([
  * A command line into `{ opts, positional, unknown }`.
  *
  * Boolean flags are declared rather than guessed: `--full --archives DIR`
- * must not read DIR as the value of --full, and `--name --plan` must not
+ * must not read DIR as the value of --full, and `--alias --plan` must not
  * silently name a folder "--plan".
  */
 export function parseCommandLine(argv, { booleans = BOOLEAN_FLAGS, known = KNOWN_FLAGS } = {}) {
@@ -81,9 +81,12 @@ export function parseCommandLine(argv, { booleans = BOOLEAN_FLAGS, known = KNOWN
 
 /**
  * A flag's value as a string, treating "present but valueless" as absent.
- * archive.sh passes optional flags through unconditionally — `--name ""`
- * rather than omitting them — because a `${NAME:+--name "$NAME"}` that is
+ * archive.sh passes optional flags through unconditionally — `--alias ""`
+ * rather than omitting them — because a `${ALIAS:+--alias "$ALIAS"}` that is
  * meant to vanish splits on spaces when it does not.
+ *
+ * It is also why an empty `--alias` cannot mean "remove the alias": an empty
+ * value is how a flag says nothing at all. `--unalias` is the removal.
  */
 export function optString(opts, key) {
   const value = opts[key];
