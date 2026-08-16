@@ -119,11 +119,12 @@ export function validatePlan(plan, { account, root, now = Date.now() } = {}) {
   }
   // The only identity check, and it compares ids. `--go` used to have no id to
   // compare and fell back to matching the URL the plan was made from, which was
-  // a second answer to this question and a wrong one: an archive made before
-  // single-post runs were removed may hold a parked plan whose url names a
-  // *post*, and the next account-level --go was refused as "for another account"
-  // when it was for this one. Nothing writes such a plan any more, and the ones
-  // already on disk still have to load. --go resolves the folder before it reads
+  // a second answer to this question and a wrong one: an archive written by
+  // 0.1.22 or earlier, when a single post could be fetched by URL, may hold a
+  // parked plan whose url names a *post*, and the next account-level --go was
+  // refused as "for another account" when it was for this one. Nothing writes
+  // such a plan any more — this guard can go once no such archive is expected
+  // to turn up. --go resolves the folder before it reads
   // the plan, and the account.json in that folder has the id.
   if (account?.id && plan.account?.id && String(plan.account.id) !== String(account.id)) {
     return { ok: false, reason: `the plan is for @${plan.account.handle} (id ${plan.account.id}), not this account` };

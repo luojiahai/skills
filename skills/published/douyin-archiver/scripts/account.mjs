@@ -39,12 +39,11 @@
  * losing anything.
  *
  * Subcommands:
- *   resolve --sec-uid UID [--douyin-id ID] [--alias NAME] [--archives DIR]
- *           [--require-match]
+ *   resolve --sec-uid UID [--alias NAME] [--archives DIR] [--require-match]
  *       Prints the folder path for an account, creating nothing. A sec_uid is
- *       looked up through the alias map; without one, the 抖音号 or the alias is
- *       looked up by scanning. --require-match exits 3 rather than naming a
- *       folder that does not exist yet.
+ *       looked up through the alias map; without one, the alias is looked up by
+ *       scanning. --require-match exits 3 rather than naming a folder that does
+ *       not exist yet.
  *
  *   write --folder DIR [--meta FILE] [--sec-uid UID] [--douyin-id ID] [--url URL]
  *       Merges what this run knows into <folder>/account.json, and records the
@@ -341,9 +340,11 @@ export async function resolveAccountDir(root, { id } = {}) {
  *   url       the very URL the archive was made from — exact, survives a rename
  *   douyin_id what the account is called today — right until it is changed
  *
- * `douyin_id` is kept for archives made before single-post runs were removed:
- * nothing writes a folder identified by the 抖音号 alone any more, and the ones
- * already on disk still have to be findable.
+ * `douyin_id` is kept for archives written by 0.1.22 or earlier, when a single
+ * video could be fetched by URL and that run learned the 抖音号 before anything
+ * else. Nothing files a folder by it alone now, and the ones already on disk
+ * still have to be findable. Removable once no such archive is expected to turn
+ * up.
  *
  * One pass over the directory for the last three, because the answer is wanted
  * once and the alternative is three passes that stop at different folders.
@@ -543,11 +544,10 @@ function rootFor(opts) {
 async function resolve(opts) {
   const root = rootFor(opts);
   const secUid = optString(opts, 'sec_uid');
-  const douyinId = optString(opts, 'douyin_id');
   const alias = optString(opts, 'alias');
 
-  if (!secUid && !douyinId && !alias) {
-    console.error('error: resolve needs --sec-uid, --douyin-id or --alias');
+  if (!secUid && !alias) {
+    console.error('error: resolve needs --sec-uid or --alias');
     process.exit(2);
   }
 
@@ -574,15 +574,17 @@ async function resolve(opts) {
     return;
   }
 
-  const existing = await findAccountDir(root, { alias, douyinId });
+  // The 抖音号 was a third way in here, for the single-post run that learned it
+  // before anything else. That run is gone, and with it the only caller — the
+  // key survives in findAccountDir, which check-alias still reaches it through.
+  const existing = await findAccountDir(root, { alias });
   if (existing) {
     console.log(existing);
     return;
   }
 
-  // Without a sec_uid there is no folder to invent: the 抖音号 cannot name one,
-  // because it is the mutable identifier this layout stopped filing by, and an
-  // alias with no id behind it has nothing to record in the map.
+  // Without a sec_uid there is no folder to invent: an alias with no id behind
+  // it has nothing to record in the map.
   process.exit(3);
 }
 

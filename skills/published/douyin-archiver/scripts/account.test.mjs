@@ -143,8 +143,8 @@ test('readAccount reads nothing as null rather than failing', async () => {
 
 test('an archive that only recorded a 抖音号 still finds its account', async () => {
   // Compatibility, not a feature: single-post runs were the thing that filed a
-  // folder knowing nothing but the 抖音号, and they are gone. The folders they
-  // made are not, so the lookup key stays.
+  // folder knowing nothing but the 抖音号, and they are gone. The folders 0.1.22
+  // and earlier made are not, so the lookup key stays.
   const dir = await root();
   const folder = await seed(dir, 'MS4wSEC', { account: { id: 'MS4wSEC', douyin_id: 'abc123' } });
   assert.equal(await findAccountDir(dir, { douyinId: 'abc123' }), folder);
