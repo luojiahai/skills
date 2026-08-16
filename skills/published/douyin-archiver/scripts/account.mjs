@@ -231,7 +231,13 @@ export async function writeAccount(dir, next, options) {
  * against an un-aliased account does not rewrite the root file at all.
  */
 export async function recordIdentity(root, dir, { account, url = null } = {}) {
-  const id = String(account?.id ?? '');
+  // The folder's own account.json is consulted for the id when the caller has
+  // none. A finished run writes only the url — by then the account was recorded
+  // before the download — and taking the caller's word for the id meant that
+  // write silently skipped the map, leaving account.json holding an alias
+  // archiver.json had never heard of. The folder always knows whose it is.
+  const existing = await readAccount(dir);
+  const id = String(account?.id ?? existing?.account?.id ?? '');
   const base = path.basename(dir);
   const alias = base !== id && isSafeAlias(base) ? base : null;
 

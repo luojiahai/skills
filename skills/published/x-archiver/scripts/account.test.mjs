@@ -334,6 +334,20 @@ test('recordIdentity derives the alias from where the folder actually is', async
   assert.deepEqual(await readAliases(dir, PLATFORM), { 55: 'jiahai' });
 });
 
+test('recordIdentity finds the id in the folder when the caller has none', async () => {
+  // The folder already says whose it is, and a caller that passes only a url —
+  // the write a finished run makes, after the move — must still be able to
+  // record where the account now lives. Guarding on the *caller's* id left
+  // account.json holding an alias that archiver.json had never heard of.
+  const dir = await root();
+  const folder = await seed(dir, 'jia', { account: { id: '55', handle: 'someone' } });
+
+  await recordIdentity(dir, folder, { url: 'https://x.com/someone' });
+
+  assert.equal((await readAccount(folder)).account.alias, 'jia');
+  assert.deepEqual(await readAliases(dir, PLATFORM), { 55: 'jia' });
+});
+
 test('recordIdentity leaves no alias on a folder that is named for its id', async () => {
   const dir = await root();
   const folder = await seed(dir, '55', { account: { id: '55', alias: 'jia' } });
