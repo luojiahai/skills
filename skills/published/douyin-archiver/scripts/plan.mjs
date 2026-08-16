@@ -27,7 +27,7 @@
  * The rendering lives here too, and nowhere else. The block a user approves and
  * the block a finished run reports have to agree — same columns, same rule for
  * counting what is on disk — and they only reliably agree by being the same
- * code. An earlier version hand-aligned two further copies of it in shell.
+ * code. Do not hand-align a second copy of it anywhere, least of all in shell.
  *
  * Subcommands:
  *   build --meta FILE --urls FILE --folder DIR --archives ROOT [--url URL]
@@ -50,9 +50,6 @@
  *
  *   summary --folder DIR --before N --after N [--exit-status N]
  *       Prints what a finished run delivered.
- *
- *   post --folder DIR --douyin-id ID --post ID
- *       Prints where a single post would land, and whether it is already here.
  *
  *   clear --folder DIR
  *       Retires the plan, once its posts have all landed.
@@ -107,9 +104,9 @@ export function pendingUrls(collected, done) {
  * The count of on-disk posts the profile no longer lists, for a finished run,
  * which has only the plan to work from.
  *
- * A plan written before the note existed carries `collected_count` but no
- * `collected` list, and the count cannot be reconstructed from the numbers: an
- * account that had simply posted since would come out looking like a deletion.
+ * A plan carrying `collected_count` but no `collected` list cannot have the
+ * count reconstructed from the numbers: an account that had simply posted since
+ * would come out looking like a deletion.
  * Unknown is returned as null and rendered as nothing — reporting 0 would be
  * asserting the archive is fully listed, which is precisely what is not known.
  */
@@ -233,8 +230,8 @@ function hiddenPostRows(collected, reported, skipped) {
  * by a collection that stopped short, and none of those can be told apart
  * without fetching each one.
  *
- * Unknown (a plan written before this note existed carries no collected list)
- * is not zero, and says nothing rather than a reassuring nothing.
+ * Unknown — a plan carrying no collected list — is not zero, and says nothing
+ * rather than a reassuring nothing.
  */
 function unlistedPostRows(unlisted) {
   if (!unlisted) return [];
@@ -245,10 +242,9 @@ function unlistedPostRows(unlisted) {
 
 /**
  * Image posts (图文) are collected as a count and nothing else: neither yt-dlp
- * nor gallery-dl can fetch them, and the harvest used to drop them silently, so
- * an account's archive could be short by however many it had with nothing
- * anywhere saying so. Reporting the number is what makes the gap visible until
- * issue #39 closes it.
+ * nor gallery-dl can fetch them, so an account's archive is short by however
+ * many it has. Reporting the number is what keeps that gap visible rather than
+ * silent, until issue #39 closes it.
  */
 function skippedImageRows(skipped) {
   if (!skipped) return [];
@@ -322,16 +318,6 @@ export function summaryBlock({
     lines.push(row('warning', 'some downloads failed — re-run --go to retry only those'));
   }
   return box(lines);
-}
-
-/** Where a single named post would land, and whether it is already there. */
-export function postBlock({ account, folder, postId, onDisk }) {
-  return box([
-    headline(account),
-    row('folder', folder),
-    row('post', postId),
-    row('to fetch', onDisk ? '0 — already downloaded' : '1 new'),
-  ]);
 }
 
 // ---- CLI -------------------------------------------------------------------
@@ -432,7 +418,7 @@ async function load(opts) {
   // Re-checked against disk rather than handed on as written. A --go that died
   // partway leaves a plan still listing what it managed to fetch, and without
   // this every one of those would cost a metadata request to discover it was
-  // already there — the fast resume the removed .archive.txt used to give.
+  // already there.
   const outstanding = pendingUrls(plan.pending, await onDiskIds(opts.folder));
   await writeText(opts.out, outstanding.length ? outstanding.join('\n') + '\n' : '');
 }
@@ -440,9 +426,8 @@ async function load(opts) {
 /**
  * How many posts the parked plan still has to fetch, 0 when there is none.
  *
- * The shell's way of asking "is there anything to confirm" — it used to test
- * for the existence of a dotfile, which stopped being a question a path can
- * answer once the plan moved inside sync.json.
+ * The shell's way of asking "is there anything to confirm". The plan lives
+ * inside sync.json, so no path can answer it — only reading the file can.
  */
 async function pendingCount(opts) {
   requireOpts(opts, 'folder');
@@ -488,18 +473,6 @@ async function summary(opts) {
   );
 }
 
-async function post(opts) {
-  requireOpts(opts, 'folder', 'douyin_id', 'post');
-  console.log(
-    postBlock({
-      account: { douyin_id: opts.douyin_id, nickname: null },
-      folder: opts.folder,
-      postId: opts.post,
-      onDisk: (await onDiskIds(opts.folder)).has(opts.post),
-    }),
-  );
-}
-
 async function clear(opts) {
   requireOpts(opts, 'folder');
   await clearPlan(opts.folder);
@@ -510,7 +483,7 @@ async function clear(opts) {
 // these are.
 if (isMainModule(import.meta.url)) {
   const [command, ...rest] = process.argv.slice(2);
-  const commands = { build, load, pending: pendingCount, count, summary, post, clear };
+  const commands = { build, load, pending: pendingCount, count, summary, clear };
   if (commands[command]) await commands[command](parseArgs(rest));
   else {
     console.error(

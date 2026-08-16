@@ -14,7 +14,7 @@ Skills live in one of two tiers. `published/` is what installs; `deprecated/` is
 
 ## douyin-archiver
 
-**[`/douyin-archiver`](./published/douyin-archiver/SKILL.md)** archives every video from a Douyin account, or downloads a single video. It was named `douyin-downloader` until the rename. Re-runs fetch only what is new, so an account can be re-archived later without pulling down what you already have. Image posts (图文) are counted and reported, but not yet downloaded — no tool can fetch them ([#39](https://github.com/luojiahai/skills/issues/39)).
+**[`/douyin-archiver`](./published/douyin-archiver/SKILL.md)** archives every video from a Douyin account. It was named `douyin-downloader` until the rename. Re-runs fetch only what is new, so an account can be re-archived later without pulling down what you already have. Image posts (图文) are counted and reported, but not yet downloaded — no tool can fetch them ([#39](https://github.com/luojiahai/skills/issues/39)).
 
 **It asks before it downloads.** It reads the account's post list first and tells you whose it is, where the posts would go, how many there are and how many you don't already have — then waits for your yes. Nothing is fetched until you give it.
 
@@ -32,7 +32,7 @@ Skills live in one of two tiers. `published/` is what installs; `deprecated/` is
 
 ## x-archiver
 
-**[`/x-archiver`](./published/x-archiver/SKILL.md)** archives the media an account has posted on **X, formerly Twitter** — or downloads a single post. It was named `x-downloader` until the rename. Images, videos and GIFs; re-runs fetch only what's new.
+**[`/x-archiver`](./published/x-archiver/SKILL.md)** archives the media an account has posted on **X, formerly Twitter**. It was named `x-downloader` until the rename. Images, videos and GIFs; re-runs fetch only what's new.
 
 **It asks before it downloads.** Same shape as its Douyin sibling: it reads the account's posts first and tells you whose they are, where they'd go, how many there are and how many you don't already have — then waits for your yes.
 

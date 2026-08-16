@@ -10,7 +10,6 @@
 #   archive.sh <profile-url> --plan     collect, report what would be fetched
 #   archive.sh <profile-url> --go       fetch what that plan listed
 #   archive.sh <profile-url> --yes      both, without stopping to confirm
-#   archive.sh <post-url>               one post, straight away
 #
 # An account is never archived without an explicit --go or --yes: the list is
 # collected first and reported, so the account, the folder and the number of
@@ -50,14 +49,13 @@ set_mode() {
 
 usage() {
   cat <<'EOF'
-archive.sh — archive a Douyin account's posts, or download a single post.
+archive.sh — archive a Douyin account's posts.
 
 Usage: archive.sh <url> [--archives DIR] [--alias NAME] [--plan|--go|--yes]
 
   <url>   https://www.douyin.com/user/MS4w...   every post from the account
-          https://www.douyin.com/video/711...   one post
 
-Modes (profile URLs):
+Modes:
       --plan            Collect the post list, report what would be fetched,
                         and stop. The default: nothing is fetched until a
                         plan has been made and approved.
@@ -126,6 +124,21 @@ fi
 
 if [[ -n "$ALIAS" && -n "$UNALIAS" ]]; then
   echo "error: --alias and --unalias ask for opposite things. Pass one or the other." >&2
+  exit 2
+fi
+
+# The URL's shape is settled here — before the archives root, before the
+# preflight, before anything is read or written — because refusing one needs
+# nothing else installed. A /video/ URL is refused by this too, and that is the
+# point: this skill archives accounts, and the handle-shaped part of a post URL
+# must never be read as "archive whoever posted it".
+if [[ ! "$URL" =~ douyin\.com/user/ ]]; then
+  echo "error: not a Douyin profile URL: $URL" >&2
+  echo "Expected .../user/MS4wLjABAAAA..." >&2
+  if [[ "$URL" =~ v\.douyin\.com ]]; then
+    echo "v.douyin.com share links have to be expanded first: open the link in" >&2
+    echo "a browser and copy the douyin.com URL it lands on." >&2
+  fi
   exit 2
 fi
 
@@ -252,11 +265,10 @@ resolve_folder() {
 # written or downloaded — it needs the archives root and nothing else, so a typo
 # costs no browser and no scroll.
 #
-# The sec_uid may be empty — a single post that named none, or a profile URL
-# that carried none. The 抖音号 and the URL go with it so the check can still
-# work out whose account this is: without them it would read the account's own
-# alias as a collision with itself. The authoritative check is inside `alias`,
-# once the sec_uid is in hand.
+# The sec_uid may be empty — a profile URL that carried none. The 抖音号 and the
+# URL go with it so the check can still work out whose account this is: without
+# them it would read the account's own alias as a collision with itself. The
+# authoritative check is inside `alias`, once the sec_uid is in hand.
 check_alias() {
   [[ -n "$ALIAS" ]] || return 0
   node "${SCRIPT_DIR}/account.mjs" check-alias --archives "$ARCHIVES" \
@@ -280,120 +292,7 @@ apply_alias() {
   fi
 }
 
-# ---- single post -----------------------------------------------------------
-if [[ "$URL" =~ /video/([0-9]+) ]]; then
-  POST_ID="${BASH_REMATCH[1]}"
-
-  [[ -f "$COOKIE_FILE" ]] || mint_cookies
-
-  # yt-dlp's `channel_id` is the sec_uid, which now *is* the folder name, and
-  # `uploader` is the 抖音号, which is what a human reads. Both come from one
-  # metadata request, so a single post is still filed correctly without opening
-  # a browser.
-  #
-  # `|| true` is load-bearing: under `set -e -o pipefail` a yt-dlp that exits
-  # non-zero would take the whole script down here, with its stderr already sent
-  # to /dev/null — a silent exit 1, and the retry and diagnosis below would
-  # never be reached.
-  identity_of() {
-    yt-dlp --cookies "$COOKIE_FILE" --print "%(channel_id|)s	%(uploader|)s" \
-      --skip-download "https://www.douyin.com/video/$1" 2>/dev/null | head -1 || true
-  }
-
-  IDENTITY="$(identity_of "$POST_ID")"
-
-  if [[ -z "${IDENTITY//[[:space:]]/}" ]]; then
-    echo "[douyin] no metadata — re-minting cookies and retrying once…"
-    mint_cookies
-    IDENTITY="$(identity_of "$POST_ID")"
-  fi
-
-  SEC_UID="${IDENTITY%%$'\t'*}"
-  DOUYIN_ID="${IDENTITY#*$'\t'}"
-
-  if [[ -z "${IDENTITY//[[:space:]]/}" ]]; then
-    echo "error: could not read metadata for post ${POST_ID}." >&2
-    echo "The post may be private, deleted or region-locked; failing that, the" >&2
-    echo "session is dead — re-establish it with:" >&2
-    echo "  node ${SCRIPT_DIR}/collect-douyin-ids.mjs --login <profile-url>" >&2
-    exit 1
-  fi
-
-  check_alias "$SEC_UID" "$DOUYIN_ID"
-
-  # With a sec_uid the folder is known outright, and an alias may name it — the
-  # sec_uid is what the alias is recorded against, so everything that makes an
-  # alias safe is present. Without one there is no name to invent — the 抖音号 is
-  # the mutable identifier this layout stopped filing by, and an alias with no id
-  # behind it has nothing to record — so an alias may only *find* a folder here,
-  # and the only hope is one some earlier run already made for this account.
-  if [[ -n "$SEC_UID" ]]; then
-    FOLDER="$(resolve_folder --sec-uid "$SEC_UID" --alias "$ALIAS")"
-  else
-    FOLDER_STATUS=0
-    FOLDER="$(resolve_folder --douyin-id "$DOUYIN_ID" --alias "$ALIAS")" || FOLDER_STATUS=$?
-    if [[ "$FOLDER_STATUS" != 0 ]]; then
-      echo "error: this post did not name its account's sec_uid, and no folder here" >&2
-      echo "belongs to 抖音号 ${DOUYIN_ID} yet — so there is nowhere to file it." >&2
-      echo "Archive the profile once first:" >&2
-      echo "  ${SCRIPT_DIR}/archive.sh 'https://www.douyin.com/user/<sec_uid>' --plan" >&2
-      exit 1
-    fi
-  fi
-
-  # A single post downloads rather than plans, so the move happens now — except
-  # under --plan, which only reports. No sec_uid means no move: there is no id to
-  # record the alias against.
-  if [[ "$MODE" != "plan" && -n "$SEC_UID" ]]; then
-    FOLDER="$(apply_alias "$SEC_UID" "$FOLDER")"
-  fi
-
-  # Identity, written as soon as the folder is known and before anything is
-  # fetched: which account this folder belongs to, never how much of it has
-  # been downloaded. That is what lets a later full run find this folder
-  # instead of starting a second one for the same account. No --url: the URL
-  # here names a post, and the recorded one is the profile's.
-  stamp_root
-  node "${SCRIPT_DIR}/account.mjs" write --folder "$FOLDER" --archives "$ARCHIVES" \
-    --sec-uid "$SEC_UID" --douyin-id "$DOUYIN_ID"
-
-  # A single post is already as specific as an instruction gets, so it is not
-  # planned or confirmed — but --plan still answers where it would land.
-  if [[ "$MODE" == "plan" ]]; then
-    plan_mjs post --folder "$FOLDER" --douyin-id "$DOUYIN_ID" --post "$POST_ID"
-    exit 0
-  fi
-
-  echo "[douyin] single post ${POST_ID}"
-  mkdir -p "${FOLDER}/${POSTS_SUBDIR}"
-
-  TMP_PENDING="$(mktemp -t douyin-single)"
-  echo "https://www.douyin.com/video/${POST_ID}" >"$TMP_PENDING"
-
-  SINGLE_STATUS=0
-  download_list "$TMP_PENDING" "$FOLDER" || SINGLE_STATUS=$?
-
-  # The same block every other run ends with, read back off disk: on success it
-  # shows the post downloaded, after a failure still to fetch.
-  echo
-  plan_mjs post --folder "$FOLDER" --douyin-id "$DOUYIN_ID" --post "$POST_ID"
-  if [[ "$SINGLE_STATUS" != 0 ]]; then
-    echo "warning: the download failed — re-run the same command to retry" >&2
-  fi
-  exit "$SINGLE_STATUS"
-fi
-
 # ---- whole account ---------------------------------------------------------
-if [[ ! "$URL" =~ douyin\.com/user/ ]]; then
-  echo "error: not a Douyin profile or post URL: $URL" >&2
-  echo "Expected .../user/MS4wLjABAAAA... or .../video/<id>" >&2
-  if [[ "$URL" =~ v\.douyin\.com ]]; then
-    echo "v.douyin.com share links have to be expanded first: open the link in" >&2
-    echo "a browser and copy the douyin.com URL it lands on." >&2
-  fi
-  exit 2
-fi
-
 # The sec_uid is in the URL, so --go can find the account's folder without
 # opening a browser at all.
 SEC_UID=""

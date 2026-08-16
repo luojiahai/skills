@@ -28,8 +28,7 @@
  * disagree between one write and the next.
  *
  * The 抖音号 is still kept inside the file, because it is the identifier a human
- * can actually read and type, and because a single-post download may learn it
- * before it learns anything else.
+ * can actually read and type.
  *
  * `account.json` is authoritative for *identity* — which account is this folder
  * — and never for *progress*. What has been downloaded is answered by the post
@@ -40,12 +39,11 @@
  * losing anything.
  *
  * Subcommands:
- *   resolve --sec-uid UID [--douyin-id ID] [--alias NAME] [--archives DIR]
- *           [--require-match]
+ *   resolve --sec-uid UID [--alias NAME] [--archives DIR] [--require-match]
  *       Prints the folder path for an account, creating nothing. A sec_uid is
- *       looked up through the alias map; without one, the 抖音号 or the alias is
- *       looked up by scanning. --require-match exits 3 rather than naming a
- *       folder that does not exist yet.
+ *       looked up through the alias map; without one, the alias is looked up by
+ *       scanning. --require-match exits 3 rather than naming a folder that does
+ *       not exist yet.
  *
  *   write --folder DIR [--meta FILE] [--sec-uid UID] [--douyin-id ID] [--url URL]
  *       Merges what this run knows into <folder>/account.json, and records the
@@ -157,8 +155,8 @@ export function aliasDirFor(root, alias) {
  * The fields a caller actually knows.
  *
  * The collector's metadata carries every key it knows *of*, null where it found
- * nothing, and a single-post run knows only the 抖音号. Spread as-is, those
- * blanks would overwrite what a full sweep had already recorded.
+ * nothing. Spread as-is, those blanks would overwrite what an earlier sweep had
+ * already recorded.
  */
 function known(fields) {
   return Object.fromEntries(
@@ -188,10 +186,8 @@ function identity(existing, next, drop) {
  *
  * A blank cannot mean erasure, because every run passes fields it happens not to
  * know — so `--unalias` names the key it is removing instead. The shape is
- * written out rather than spread from the old file, so the fields this skill no
- * longer keeps — `root` and `updated_at`, which moved to sync.json's last_run,
- * and `name`, which became `alias` — cannot survive in an archive by being
- * copied forward.
+ * written out rather than spread from the file being merged, so a key this
+ * skill does not keep cannot survive in an archive by being copied forward.
  *
  * `platform` is stamped even though the parent directory already says it. It is
  * what makes a lone account.json self-describing when it has been copied out of
@@ -334,10 +330,9 @@ export async function resolveAccountDir(root, { id } = {}) {
 /**
  * The folder for an account whose sec_uid we do not know, or null.
  *
- * A single-post download learns the 抖音号 before anything else, and a user may
- * only remember what they called the archive. The keys are tried in the order of
- * how much they prove, and the alias is tried as a path first because it *is*
- * the folder's name:
+ * A user may only remember what they called the archive. The keys are tried in
+ * the order of how much they prove, and the alias is tried as a path first
+ * because it *is* the folder's name:
  *
  *   alias     as a path, then through the mapping — theirs, and it names the folder
  *   url       the very URL the archive was made from — exact, survives a rename
@@ -541,16 +536,15 @@ function rootFor(opts) {
 async function resolve(opts) {
   const root = rootFor(opts);
   const secUid = optString(opts, 'sec_uid');
-  const douyinId = optString(opts, 'douyin_id');
   const alias = optString(opts, 'alias');
 
-  if (!secUid && !douyinId && !alias) {
-    console.error('error: resolve needs --sec-uid, --douyin-id or --alias');
+  if (!secUid && !alias) {
+    console.error('error: resolve needs --sec-uid or --alias');
     process.exit(2);
   }
 
-  // The sec_uid identifies the account, but no longer names its folder on its
-  // own — the alias map does that, and a scan repairs the map. An account that
+  // The sec_uid identifies the account; the alias map names its folder, and a
+  // scan repairs the map. An account that
   // has never been archived has no folder at all, and --require-match is how the
   // caller asks to be told that rather than given a path.
   if (secUid) {
@@ -572,15 +566,14 @@ async function resolve(opts) {
     return;
   }
 
-  const existing = await findAccountDir(root, { alias, douyinId });
+  const existing = await findAccountDir(root, { alias });
   if (existing) {
     console.log(existing);
     return;
   }
 
-  // Without a sec_uid there is no folder to invent: the 抖音号 cannot name one,
-  // because it is the mutable identifier this layout stopped filing by, and an
-  // alias with no id behind it has nothing to record in the map.
+  // Without a sec_uid there is no folder to invent: an alias with no id behind
+  // it has nothing to record in the map.
   process.exit(3);
 }
 
@@ -612,12 +605,12 @@ async function checkAliasCommand(opts) {
   const alias = optString(opts, 'alias');
   let id = optString(opts, 'sec_uid');
 
-  // A run that has no sec_uid yet — the single-post fallback, or a profile URL
-  // that carried none — still has to be able to name the account, or the check
-  // reads the account's *own* alias as a collision with itself and refuses the
-  // one thing that was always allowed. The 抖音号 and the alias are enough to
-  // find a folder that already exists, and an account nothing has archived
-  // cannot be holding the name anyway.
+  // A run that has no sec_uid yet — a profile URL that carried none — still has
+  // to be able to name the account, or the check reads the account's *own* alias
+  // as a collision with itself and refuses the one thing that was always
+  // allowed. The 抖音号 and the alias are enough to find a folder that already
+  // exists, and an account nothing has archived cannot be holding the name
+  // anyway.
   if (!id) {
     const existing = await findAccountDir(root, {
       url: optString(opts, 'url'),

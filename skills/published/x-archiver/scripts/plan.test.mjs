@@ -137,16 +137,14 @@ test('validatePlan refuses a plan made for another account', () => {
   assert.match(result.reason, /not this account/);
 });
 
-test('a plan parked by a single-post run does not refuse the account it belongs to', () => {
-  // The bug this replaced: a failed single-post run parks a plan whose url names
-  // the post, and the URL comparison then read that as "a plan for someone
-  // else". The folder is resolved before the plan is read, so the id in it is
-  // what the plan is checked against.
+test('a parked plan whose url names a post does not refuse the account it belongs to', () => {
+  // The folder is resolved before the plan is read, so the id in it is what the
+  // plan is checked against — never the URL the plan happens to carry.
   const postPlan = { ...goodPlan, url: 'https://x.com/someone/status/9' };
   assert.equal(validatePlan(postPlan, { account: { id: '55' }, root: '/data', now }).ok, true);
 });
 
-test('the URL a plan was made from no longer decides whose plan it is', () => {
+test('the URL a plan was made from does not decide whose plan it is', () => {
   assert.equal(validatePlan(goodPlan, { account: { id: '55' }, now }).ok, true);
 });
 
@@ -231,10 +229,9 @@ test('the plan block states its own age', () => {
   assert.match(block(), /plan collected 4 minutes ago/);
 });
 
-test('there is no folder-drift note left to print', () => {
+test('no folder-drift note is printed', () => {
   // A folder named for the id, or for an alias the user chose, cannot fall out
-  // of step with the account, so the warning that used to be here has nothing
-  // left to warn about.
+  // of step with the account, so there is nothing to warn about.
   assert.doesNotMatch(block(), /folder was created as/);
 });
 

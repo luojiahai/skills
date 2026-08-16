@@ -20,7 +20,6 @@ import {
   buildPlan,
   listedIds,
   pendingUrls,
-  postBlock,
   postIdFromUrl,
   statusBlock,
   summaryBlock,
@@ -90,8 +89,8 @@ test('unlistedCountFromPlan counts what a finished run holds and the listing dro
 });
 
 test('unlistedCountFromPlan says unknown, not zero, for a plan with no collected list', () => {
-  // A plan written before the note existed. Zero would assert the archive is
-  // fully listed; null renders as no note at all.
+  // Zero would assert the archive is fully listed; null renders as no note at
+  // all.
   assert.equal(unlistedCountFromPlan({ collected_count: 86 }, new Set(['7111'])), null);
   assert.equal(unlistedCountFromPlan({}, new Set(['7111'])), null);
   assert.equal(unlistedCountFromPlan(null, new Set(['7111'])), null);
@@ -308,8 +307,8 @@ test('statusBlock stays quiet when the profile still lists the whole archive', (
     pending: 0,
   };
   assert.doesNotMatch(statusBlock({ ...args, unlisted: 0 }), /no longer on the profile/);
-  // A plan written before this note existed carries no collected list, so the
-  // count is unknown rather than zero — say nothing either way.
+  // A plan with no collected list makes the count unknown rather than zero —
+  // say nothing either way.
   assert.doesNotMatch(statusBlock({ ...args, unlisted: null }), /no longer on the profile/);
   assert.doesNotMatch(statusBlock(args), /no longer on the profile/);
 });
@@ -435,16 +434,9 @@ test('statusBlock and summaryBlock line their columns up with each other', () =>
   assert.equal(column(status, 'collected'), column(summary, 'collected'));
 });
 
-test('postBlock says whether a single post is already here', () => {
-  const args = { account: { douyin_id: 'abc123' }, folder: '/data/douyin_abc123', postId: '7111' };
-  assert.match(postBlock({ ...args, onDisk: false }), /to fetch\s+1 new/);
-  assert.match(postBlock({ ...args, onDisk: true }), /to fetch\s+0 — already downloaded/);
-  assert.match(postBlock({ ...args, onDisk: true }), /抖音号 abc123/);
-});
-
 test('statusBlock reports image posts it skipped, with the ticket that tracks them', () => {
-  // Invisible loss is the failure this note exists to prevent: before it, an
-  // account's 图文 posts were dropped during harvest with nothing said.
+  // Invisible loss is the failure this note exists to prevent: 图文 posts are
+  // dropped during harvest, and saying nothing would read as a full archive.
   const args = {
     account: { douyin_id: 'abc123' },
     folder: '/data/douyin_abc123',

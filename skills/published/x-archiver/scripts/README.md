@@ -1,8 +1,8 @@
 # x-archiver scripts
 
 Read this before changing anything here. The constraints below are why the
-design looks the way it does; several of the obvious simplifications do not
-work, and two of them were found the hard way.
+design looks the way it does, and several of the obvious simplifications do not
+work.
 
 ## Constraints
 
@@ -63,8 +63,8 @@ decoded in `parseRow`.
 **An 'exit' listener attached after the read loop is attached too late.**
 gallery-dl can finish before its stdout has been drained — a short timeline, a
 cached response — and the event then fires before anything is listening, so the
-run hangs forever on a promise nothing can settle. It was intermittent: it
-passed the unit tests and failed roughly one invocation in three by hand. The
+run hangs forever on a promise nothing can settle. It is intermittent — the
+unit tests pass and roughly one invocation in three fails by hand — so the
 listener is created immediately after `spawn`, and awaited later.
 
 It is `exit` rather than `close` for a second reason: `close` additionally waits
@@ -106,15 +106,14 @@ someone else. What the last run *did* is run history and lives in `sync.json`.
 **Deleting `sync.json` loses no archive content.** That sentence is the whole
 specification of the file, and every field in it has to keep the sentence true.
 It holds the plan awaiting approval and a record of the last run, and nothing
-that a run consults to decide what to fetch. A resumption cursor was considered
-and rejected: it would make a run *shorter in result*, not just cheaper, and the
-sibling skill deleted exactly that mechanism for missing posts a reordered feed
-had pushed below it.
+that a run consults to decide what to fetch. Do not add a resumption cursor: it
+would make a run *shorter in result* rather than merely cheaper, missing posts a
+reordered feed has pushed below the mark.
 
 **`post.json` is written before the media, not after.** It is the post's
 description, not a receipt. A marker written last would be a second record, free
-to go on claiming a post had landed after its media was deleted by hand — the
-failure that got `--download-archive` removed from the sibling skill. Writing it
+to go on claiming a post had landed after its media was deleted by hand, which
+is why neither skill keeps a download-archive file. Writing it
 first also means a post that got three of its four images sits in a folder that
 still says what it was, and its media list is what makes the fourth read as
 missing. A folder whose `post.json` could not be written counts the post as
@@ -122,13 +121,13 @@ failed rather than downloading into a folder that can never satisfy the
 completeness check.
 
 **The archives root carries a schema version.** `archiver.json` holds
-`{"schema": 2}` and is checked before the session, before the first API call and
+`{"schema": 3}` and is checked before the session, before the first API call and
 before anything is written. Absent is an ordinary answer and reads as the
 current schema, so a subtree copied to another disk still works; a version this
-build does not know stops the run. It is not a guard against the old flat
-`x_<handle>` layout — that layout had no root file either, so it is invisible to
-this build by construction, and moving an old archive across is a one-off the
-user does by hand.
+build does not know stops the run; schema 2 is readable and upgraded in place.
+It is no guard against the flat `x_<handle>` layout, which has no root file
+either and so is invisible to this build by construction — converting one is a
+job the user does by hand.
 
 **The pauses are what let a long run finish.** X rate-limits the timeline
 endpoints hard, and the failure is not a slow run but a stopped one — and, with
@@ -166,15 +165,15 @@ the tool actually does, and it is the only marker of which layer you are in.
 | `archiver.mjs` | The archives root's schema version, and the refusal when it is one this build cannot read. |
 | `assets.mjs` | The account's current avatar and banner, fetched from the URLs the listing pass already carried. |
 | `paths.mjs` | Single source of truth for the state directory and the archives root. |
-| `target.mjs` | Which of the two entry points a URL is, and refusal by name for everything else. |
+| `target.mjs` | The account a URL names. Everything else on x.com — a single post included — is refused rather than read as an account. |
 
 ## Why bash holds no logic
 
 `archive.sh` preflights and `exec`s. The sibling skill records what the
 alternative costs: a shell function called under `||` runs with errexit switched
-off for its whole body, and a refused plan there printed its refusal and then
-kept going — through the state write and a summary telling the user to re-run
-the `--go` that had just failed.
+off for its whole body, so a refused plan prints its refusal and then keeps
+going — through the state write and a summary telling the user to re-run the
+`--go` that just failed.
 
 ## Plan, then go
 
@@ -233,11 +232,11 @@ A post folder is `<date>_<id>`: a date gallery-dl formatted and a numeric id,
 with none of the post's body in it. That is deliberate. Putting arbitrary user
 text into a *directory* name is a sharper edge than a filename — a stray
 separator does not produce a badly named file, it produces a tree in the wrong
-place — and it previously needed a sanitiser stripping path separators, control
-characters, bidi overrides and Windows-hostile trailing dots, truncating by
-grapheme so a name never ended mid-surrogate. Keeping the body out of the path
-retires that whole class of bug instead of defending against it, and costs
-nothing: `post.json` holds the full untruncated text anyway.
+place. Defending against it means a sanitiser stripping path separators,
+control characters, bidi overrides and Windows-hostile trailing dots, truncating
+by grapheme so a name never ends mid-surrogate. Keeping the body out of the path
+retires the whole class instead, and costs nothing: `post.json` holds the full
+untruncated text anyway.
 
 The reverse direction has a matching rule, and `naming.mjs` carries the reason:
 `tweetIdFromFolder` anchors to the *whole* folder name, never a suffix.
@@ -251,10 +250,10 @@ node --test scripts/*.test.mjs
 ```
 
 That covers the diff, plan validation and rendering, path normalisation,
-argument parsing, account identity and merging, URL classification, failure
-classification, the archive scan, the `post.json` shape and its completeness
-rule, `sync.json`'s merge and lifetimes, the schema check, avatar sniffing, and
-post folder naming in both directions.
+argument parsing, account identity and merging, which URLs name an account and
+which are refused, failure classification, the archive scan, the `post.json`
+shape and its completeness rule, `sync.json`'s merge and lifetimes, the schema
+check, avatar sniffing, and post folder naming in both directions.
 
 `collect.mjs` is tested against a fake `gallery-dl` shell script, which is what
 covers the streaming, the early-stop kill and the two process-lifecycle races

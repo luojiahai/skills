@@ -9,8 +9,8 @@
  *   }
  *
  * The schema is advisory on the way in and load-bearing on the way out. Missing
- * is an ordinary answer — an archive copied out subtree-first, or one made
- * before this file existed — and reads as "the current schema", because refusing
+ * is an ordinary answer — an archive copied out subtree-first, say — and reads
+ * as "the current schema", because refusing
  * to read an archive whose layout is in fact correct would be the worse failure.
  * A version this build does not know is the opposite: the layout may put an
  * account's folder somewhere else entirely, so the run stops and says so rather
@@ -49,11 +49,11 @@ export const ARCHIVER_FILE = 'archiver.json';
  * lets a folder be named for an alias instead. Nothing moved between them, which
  * is why 2 is *readable* rather than refused — see READABLE_SCHEMAS.
  *
- * Schema 1 is the flat `x_<handle>` / `douyin_<抖音号>` layout that had no root
- * file at all — so an archive in the old shape is exactly the "missing" case,
- * and would be read as current. That is why nothing here is the guard against an
- * old archive: it cannot be. The old layout is simply invisible to this build,
- * and the migration is a one-off the user runs by hand.
+ * Schema 1 is the flat `x_<handle>` / `douyin_<抖音号>` layout, which has no root
+ * file at all — so it is indistinguishable from the "missing" case and reads as
+ * current. Nothing here can guard against it, and nothing should try: that
+ * layout is invisible to this build, and converting one is a job the user does
+ * by hand.
  */
 export const SCHEMA_VERSION = 3;
 

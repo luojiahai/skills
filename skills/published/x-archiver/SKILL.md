@@ -1,7 +1,7 @@
 ---
 name: x-archiver
-description: "Archive media from X (formerly Twitter) — every image and video an account has posted — or download a single post, into an archives folder of your choosing. It reports what it would fetch and waits for your yes, and a re-run fetches only what is new."
-argument-hint: "<X profile or post URL> [--archives DIR] [--alias NAME]"
+description: "Archive media from X (formerly Twitter) — every image and video an account has posted — into an archives folder of your choosing. It reports what it would fetch and waits for your yes, and a re-run fetches only what is new."
+argument-hint: "<X profile URL> [--archives DIR] [--alias NAME]"
 disable-model-invocation: true
 ---
 
@@ -30,8 +30,10 @@ Run it **from the user's working directory** — call it by its full path, do no
 `cd` into the skill first. Archives land relative to where you run it, and a
 skill directory is replaced by the next update.
 
-It auto-detects a profile URL (`x.com/<handle>` — every media post from the
-account) from a post URL (`x.com/<handle>/status/<id>` — just that one).
+It takes a profile URL — `x.com/<handle>` — and archives the whole account.
+Downloading one named post is out of scope; that is a job for gallery-dl, which
+this skill already needs installed. A `/status/` URL is refused rather than read
+as the account that posted it.
 
 ## The two steps
 
@@ -51,12 +53,8 @@ A `--go` that stops partway leaves the plan in place, so re-running `--go`
 picks up only what is missing — and needs no new question, because the user
 already approved that list.
 
-Two cases need no question:
-
-- **`to fetch 0`** — there is nothing to approve. Report that the account is up
-  to date and stop. No `--go`.
-- **a `/status/` URL** — one named post is already as specific as an
-  instruction gets, so it downloads straight away.
+One case needs no question: **`to fetch 0`** — there is nothing to approve.
+Report that the account is up to date and stop. No `--go`.
 
 The summary block `--go` prints is the run's whole result. Report that and stop.
 
@@ -165,9 +163,8 @@ remedy — relay that rather than improvising.
 
 ## Changing the scripts
 
-`scripts/README.md` carries the constraints that make the design what it is,
-several of them verified the hard way. Read it before modifying anything in
-`scripts/`.
+`scripts/README.md` carries the constraints that make the design what it is.
+Read it before modifying anything in `scripts/`.
 
 ## State
 

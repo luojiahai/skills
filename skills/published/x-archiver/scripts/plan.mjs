@@ -117,12 +117,10 @@ export function validatePlan(plan, { account, root, now = Date.now() } = {}) {
   if (age > MAX_PLAN_AGE_MS) {
     return { ok: false, reason: `the plan is ${describeAge(age)} old, and a plan expires after 24 hours` };
   }
-  // The only identity check, and it compares ids. `--go` used to have no id to
-  // compare and fell back to matching the URL the plan was made from, which was
-  // a second answer to this question and a wrong one: a single-post run parks a
-  // plan whose url names the *post*, so the next account-level --go was refused
-  // as "for another account" when it was for this one. --go resolves the folder
-  // before it reads the plan, and the account.json in that folder has the id.
+  // The only identity check, and it compares ids rather than the URL the plan
+  // was made from: --go resolves the folder before it reads the plan, and the
+  // account.json in that folder has the id. A plan whose url names something
+  // other than the account is still that account's plan.
   if (account?.id && plan.account?.id && String(plan.account.id) !== String(account.id)) {
     return { ok: false, reason: `the plan is for @${plan.account.handle} (id ${plan.account.id}), not this account` };
   }
@@ -155,11 +153,10 @@ const n = (value) => Number(value || 0).toLocaleString('en-US');
  * sweep line, `to fetch 0` cannot be told apart from "gave up before reaching
  * anything new".
  *
- * The folder-drift note that used to sit here is gone with the layout that
- * needed it. A folder named for a handle could fall out of step with the
- * account; a folder named for the id or for an alias the user chose cannot, so
- * there is nothing left to warn about — and the path may now be a name rather
- * than a number, which is why the handle and id are on the line above it.
+ * There is no folder-drift note, because the layout cannot drift: a folder named
+ * for a handle could fall out of step with the account, and one named for the id
+ * or for an alias the user chose cannot. The path may be a name rather than a
+ * number, which is why the handle and id are on the line above it.
  *
  * `folder` is passed in rather than recomputed from the id. It has to be: the
  * folder may be named for an alias, and a block that derived the path itself

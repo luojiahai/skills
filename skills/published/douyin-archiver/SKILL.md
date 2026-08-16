@@ -1,7 +1,7 @@
 ---
 name: douyin-archiver
-description: "Archive every video from a Douyin account, or download a single Douyin video, into an archives folder of your choosing — it reports what it would fetch and waits for your yes, and a re-run fetches only what is new. Image posts (图文) are counted and reported, but not yet downloaded."
-argument-hint: "<Douyin profile or video URL> [--archives DIR] [--alias NAME]"
+description: "Archive every video from a Douyin account into an archives folder of your choosing — it reports what it would fetch and waits for your yes, and a re-run fetches only what is new. Image posts (图文) are counted and reported, but not yet downloaded."
+argument-hint: "<Douyin profile URL> [--archives DIR] [--alias NAME]"
 disable-model-invocation: true
 ---
 
@@ -26,8 +26,10 @@ Run it **from the user's working directory** — call it by its full path, do no
 `cd` into the skill first. Archives land relative to where you run it, and a
 skill directory is replaced by the next update.
 
-It auto-detects a `/user/` profile URL (every post from the account) from a
-`/video/` URL (just that one).
+It takes a `/user/` profile URL and archives the whole account. Downloading one
+named video is out of scope; that is a job for yt-dlp, which this skill already
+needs installed. A `/video/` URL is refused rather than read as the account that
+posted it.
 
 ## The two steps
 
@@ -44,12 +46,8 @@ again. It refuses a plan that is missing, more than 24 hours old, or made for a
 different account or a different archives folder; each refusal prints the
 `--plan` command that fixes it.
 
-Two cases need no question:
-
-- **`to fetch 0`** — there is nothing to approve. Report that the account is up
-  to date and stop. No `--go`.
-- **a `/video/` URL** — one named post is already as specific as an
-  instruction gets, so it downloads straight away.
+One case needs no question: **`to fetch 0`** — there is nothing to approve.
+Report that the account is up to date and stop. No `--go`.
 
 The summary block `--go` prints is the run's whole result. Report that and stop.
 
@@ -86,11 +84,6 @@ dashes and underscores. No spaces, no slashes, not starting with a dot, and not
 another account's sec_uid. One already in use is refused before the browser
 opens, naming the account that holds it. `--unalias` puts the folder back under
 the sec_uid; an empty `--alias` means nothing at all, not removal.
-
-A single video URL takes `--alias` too: yt-dlp reports the sec_uid alongside the
-post, so the folder can be named and recorded exactly as a profile run would. On
-the rare post that names no sec_uid, an alias can only *find* an existing folder
-— there is no id to record it against — and the run stops as it does today.
 
 Resuming means passing the same `--archives` again. A different root is a
 different archive and starts from nothing, so if the user has downloaded this
@@ -148,9 +141,8 @@ that number out loud when it is not zero. Tracked in
 
 ## Changing the scripts
 
-`scripts/README.md` carries the constraints that make the design what it is,
-several of them verified the hard way. Read it before modifying anything in
-`scripts/`.
+`scripts/README.md` carries the constraints that make the design what it is.
+Read it before modifying anything in `scripts/`.
 
 ## State
 

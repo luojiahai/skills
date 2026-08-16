@@ -5,11 +5,11 @@
  * a readable `post.json`, and holds every file that `post.json` lists. Deleting
  * any of the media re-downloads the post, and that is the whole rule.
  *
- * yt-dlp's `--download-archive` used to own this and was removed deliberately:
- * it keyed on ids rather than paths, so it went on claiming a post was done
- * after its files had been deleted, and a user who removed a bad download got
- * silence instead of a re-fetch. Two records of the same thing are free to
- * disagree, and the one that cannot is the media on disk.
+ * Do not add yt-dlp's `--download-archive` beside this, or any other list of
+ * what has landed. Such a file keys on ids rather than paths, so it goes on
+ * claiming a post is done after its files are deleted, and a user who removes a
+ * bad download gets silence instead of a re-fetch. Two records of the same thing
+ * are free to disagree, and the one that cannot is the media on disk.
  *
  * `post.json` does not weaken that, because it is written *before* the media
  * rather than after — a description of the post, not a claim about it. What it

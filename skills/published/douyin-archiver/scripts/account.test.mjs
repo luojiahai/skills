@@ -79,8 +79,8 @@ test('aliasDirFor refuses rather than joining an unsafe alias into a path', () =
 });
 
 test('mergeAccount keeps what an earlier run knew', () => {
-  // A single-post download knows only the 抖音号 and must not erase the
-  // nickname a full sweep recorded.
+  // A run that learned only the 抖音号 must not erase the nickname a full sweep
+  // recorded.
   const merged = mergeAccount(
     { account: { id: 'MS4wSEC', douyin_id: 'old', nickname: '小明' }, url: 'https://www.douyin.com/user/MS4wSEC' },
     { account: { douyin_id: 'new' } },
@@ -141,7 +141,7 @@ test('readAccount reads nothing as null rather than failing', async () => {
   assert.equal(await readAccount(path.join(await root(), 'douyin', 'nobody')), null);
 });
 
-test('a single post finds its account by the 抖音号 it learned', async () => {
+test('an archive that only recorded a 抖音号 still finds its account', async () => {
   const dir = await root();
   const folder = await seed(dir, 'MS4wSEC', { account: { id: 'MS4wSEC', douyin_id: 'abc123' } });
   assert.equal(await findAccountDir(dir, { douyinId: 'abc123' }), folder);
@@ -373,8 +373,8 @@ const CLI = new URL('./account.mjs', import.meta.url).pathname;
 const runCli = (...args) => execFile(process.execPath, [CLI, ...args]);
 
 test('check-alias without a sec_uid does not refuse an account its own alias', async () => {
-  // The single-post fallback: yt-dlp named no sec_uid, so all the run has is the
-  // 抖音号 and the alias. Passing the alias this account already has must find
+  // A profile URL that carried no sec_uid: all the run has is the 抖音号 and the
+  // alias. Passing the alias this account already has must find
   // it, not be read as a collision with itself — the account cannot take a name
   // off itself.
   const dir = await root();

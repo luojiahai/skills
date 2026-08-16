@@ -116,8 +116,7 @@ export function aliasDirFor(root, alias) {
 /**
  * The fields a caller actually knows.
  *
- * A run that fetched one post by URL knows the handle but not the nickname, and
- * an enumeration that yielded rows but never named the account falls back to
+ * An enumeration that yielded rows but never named the account falls back to
  * blanks. Spread as-is, those blanks would overwrite what an earlier run had
  * already recorded.
  */
@@ -149,20 +148,19 @@ function identity(existing, next, drop) {
  *
  * A blank cannot mean erasure, because every run passes fields it happens not to
  * know — so `--unalias` names the key it is removing instead. The shape is
- * written out rather than spread from the old file, so the fields this skill no
- * longer keeps — `root` and `updated_at`, which moved to sync.json's last_run,
- * and `name`, which became `alias` — cannot survive in an archive by being
- * copied forward.
+ * written out rather than spread from the file being merged, so a key this
+ * skill does not keep cannot survive in an archive by being copied forward.
  *
  * `platform` is stamped even though the parent directory already says it. It is
  * what makes a lone account.json self-describing when it has been copied out of
- * the tree, which matters more now that no spec ships beside the skill.
+ * the tree, since no spec ships beside the skill.
  */
 export function mergeAccount(existing, next, { drop = [] } = {}) {
   return {
     version: ACCOUNT_VERSION,
     platform: PLATFORM,
     account: identity(existing?.account, next?.account, drop),
+    // A write with no url leaves the recorded one alone rather than blanking it.
     url: next?.url || existing?.url || null,
   };
 }

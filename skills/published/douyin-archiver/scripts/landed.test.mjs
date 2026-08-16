@@ -65,11 +65,11 @@ test('a post whose media failed is not landed', async () => {
 });
 
 test('everything yt-dlp leaves behind mid-download fails by construction', () => {
-  // .part is a transfer that stopped and .ytdl its resume state — but the one
-  // that used to need a rule of its own is f-prefixed streams: video and audio
-  // fetched separately and never merged are whole files, so a folder holding
-  // them looked finished while the post was not playable. Against a named list
-  // of expected files, none of them is `1.mp4`.
+  // .part is a transfer that stopped and .ytdl its resume state. The awkward
+  // case is f-prefixed streams: video and audio fetched separately and never
+  // merged are whole files, so a folder holding them would read as finished
+  // while the post is not playable. Against a named list of expected files,
+  // none of them is `1.mp4`.
   const described = buildPost({ id: '1', media: [{ file: '1.mp4', type: 'video' }] });
   assert.equal(isComplete(described, ['1.mp4.part']), false);
   assert.equal(isComplete(described, ['1.mp4.part', '1.mp4.ytdl']), false);

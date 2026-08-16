@@ -14,9 +14,9 @@
  * field is ever added here whose loss costs the user a post, the field is wrong,
  * not the sentence.
  *
- * It replaces the hidden `.plan.json`, unhidden because an archive you browse
- * should not have working files you cannot see, and it absorbs the `updated_at`
- * that used to sit in the identity file — run history is not identity.
+ * It is not hidden, because an archive you browse should not have working files
+ * you cannot see, and it holds `updated_at` rather than the identity file doing
+ * so — run history is not identity.
  *
  * One lifetime per key: `plan` expires after a day (a plan describes a list the
  * user approved, and a day later it describes the past), `last_run` does not

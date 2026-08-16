@@ -3,12 +3,12 @@
  *
  * A post folder is `<date>_<id>` and nothing else. Both halves are machine
  * fields: a date gallery-dl formatted and a numeric status id. No part of a
- * post's body reaches a path, which is the point — this module used to turn
- * arbitrary user text into a *directory* name, a sharper edge than a filename
- * because a stray separator does not produce a badly named file, it produces a
- * tree in the wrong place. Keeping the body out of the path retires that entire
- * class of bug rather than defending against it, and costs nothing: `post.json`
- * inside the folder holds the full, untruncated text.
+ * post's body reaches a path, which is the point. User text in a *directory*
+ * name is a sharper edge than in a filename, because a stray separator does not
+ * produce a badly named file, it produces a tree in the wrong place. Keeping the
+ * body out of the path retires that entire class of bug rather than defending
+ * against it, and costs nothing: `post.json` inside the folder holds the full,
+ * untruncated text.
  *
  * The date is in the name even though `post.json` also carries the timestamp.
  * That is the one duplication in this archive that pays for itself: it makes a
