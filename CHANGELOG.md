@@ -1,5 +1,19 @@
 # luojiahai-skills
 
+## 0.1.23
+
+### Patch Changes
+
+- [#57](https://github.com/luojiahai/skills/pull/57) [`b08ae3a`](https://github.com/luojiahai/skills/commit/b08ae3a45a1b2717b837df18b6aab6abc7d24f2e) Thanks [@luojiahai](https://github.com/luojiahai)! - `douyin-archiver` and `x-archiver` archive an account and nothing else.
+
+  Both take a profile URL. A post URL — `x.com/<handle>/status/<id>`,
+  `douyin.com/video/<id>` — is refused before anything is read or written, rather
+  than resolved to the account that posted it.
+
+  Downloading a single post is out of scope: use gallery-dl or yt-dlp directly.
+
+  Archives already on disk are unaffected, and the schema is unchanged.
+
 ## 0.1.22
 
 ### Patch Changes
