@@ -20,8 +20,8 @@ const RESERVED = new Set(['i', 'home', 'explore', 'notifications', 'messages', '
  * `{ handle, url }`, or a throw naming what is wrong with the URL.
  *
  * Refusal is a throw rather than a returned verdict because there is one kind of
- * answer left: a caller that reads past this has an account, and nothing to
- * branch on.
+ * answer: a caller that reads past this has an account, and nothing to branch
+ * on.
  *
  * The URL is rebuilt canonically rather than passed through: a profile URL
  * carrying `?f=live` or a tracking parameter is the same account, and letting

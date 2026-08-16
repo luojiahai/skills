@@ -340,12 +340,6 @@ export async function resolveAccountDir(root, { id } = {}) {
  *   url       the very URL the archive was made from — exact, survives a rename
  *   douyin_id what the account is called today — right until it is changed
  *
- * `douyin_id` is kept for archives written by 0.1.22 or earlier, when a single
- * video could be fetched by URL and that run learned the 抖音号 before anything
- * else. Nothing files a folder by it alone now, and the ones already on disk
- * still have to be findable. Removable once no such archive is expected to turn
- * up.
- *
  * One pass over the directory for the last three, because the answer is wanted
  * once and the alternative is three passes that stop at different folders.
  */
@@ -574,9 +568,6 @@ async function resolve(opts) {
     return;
   }
 
-  // The 抖音号 was a third way in here, for the single-post run that learned it
-  // before anything else. That run is gone, and with it the only caller — the
-  // key survives in findAccountDir, which check-alias still reaches it through.
   const existing = await findAccountDir(root, { alias });
   if (existing) {
     console.log(existing);

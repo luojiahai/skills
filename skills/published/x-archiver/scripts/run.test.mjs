@@ -61,11 +61,10 @@ test('archive.sh refuses --downloads before it preflights gallery-dl', async () 
 });
 
 test('a post URL is refused before anything is fetched', async () => {
-  // The one guard left over the removed single-post path, and it is not there to
-  // stop the feature coming back. A /status/ URL carries the handle in exactly
-  // the position a profile URL does, so what this prevents is a request for one
-  // post being answered by archiving the entire account. --yes is passed because
-  // the pre-authorised path must refuse it too.
+  // A /status/ URL carries the handle in exactly the position a profile URL
+  // does, so what this prevents is a request for one post being answered by
+  // archiving the entire account. --yes is passed because the pre-authorised
+  // path must refuse it too.
   const root = await mkdtemp(path.join(os.tmpdir(), 'x-archive-'));
   const { code, stderr } = await runMain([
     'https://x.com/someone/status/1767', '--yes', '--archives', root,
@@ -74,8 +73,8 @@ test('a post URL is refused before anything is fetched', async () => {
   assert.equal(code, 2);
   assert.match(stderr, /out of scope/);
   assert.match(stderr, /takes an account URL/);
-  // Refused is not enough: the point is that nothing was archived. An empty
-  // root means no folder was resolved, no schema stamped and nothing fetched.
+  // An empty root means no folder was resolved, no schema stamped, nothing
+  // fetched.
   assert.deepEqual(await readdir(root), []);
 });
 

@@ -138,11 +138,8 @@ test('validatePlan refuses a plan made for another account', () => {
 });
 
 test('a parked plan whose url names a post does not refuse the account it belongs to', () => {
-  // Compatibility, not a feature: nothing writes a post-named plan any more, but
-  // an archive written by 0.1.22 or earlier still holds them. The bug this
-  // replaced: the URL comparison read such a plan as "a plan for someone
-  // else". The folder is resolved before the plan is read, so the id in it is
-  // what the plan is checked against.
+  // The folder is resolved before the plan is read, so the id in it is what the
+  // plan is checked against — never the URL the plan happens to carry.
   const postPlan = { ...goodPlan, url: 'https://x.com/someone/status/9' };
   assert.equal(validatePlan(postPlan, { account: { id: '55' }, root: '/data', now }).ok, true);
 });
