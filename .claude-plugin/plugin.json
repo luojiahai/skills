@@ -10,7 +10,7 @@
   "repository": "https://github.com/luojiahai/skills",
   "license": "MIT",
   "skills": [
-    "./skills/published/douyin-downloader",
-    "./skills/published/x-downloader"
+    "./skills/published/douyin-archiver",
+    "./skills/published/x-archiver"
   ]
 }

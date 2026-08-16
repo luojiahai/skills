@@ -1,0 +1,10 @@
+{
+  "name": "douyin-archiver-skill",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Dependencies for the douyin-archiver skill. Kept skill-local so the skill is portable and the host repo stays clean. Install with ./setup.sh.",
+  "type": "module",
+  "dependencies": {
+    "playwright": "^1.62.1"
+  }
+}

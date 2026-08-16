@@ -1,5 +1,0 @@
-interface:
-  display_name: "Douyin Downloader"
-  short_description: "Download a Douyin account's videos, or a single video"
-policy:
-  allow_implicit_invocation: false

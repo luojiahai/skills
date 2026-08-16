@@ -1,0 +1,5 @@
+interface:
+  display_name: "Douyin Archiver"
+  short_description: "Archive a Douyin account's videos, or download a single video"
+policy:
+  allow_implicit_invocation: false
