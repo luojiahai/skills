@@ -137,7 +137,7 @@ test('validatePlan refuses a plan made for another account', () => {
   assert.match(result.reason, /not this account/);
 });
 
-test('a plan parked by an older single-post run does not refuse the account it belongs to', () => {
+test('a parked plan whose url names a post does not refuse the account it belongs to', () => {
   // Compatibility, not a feature: nothing writes a post-named plan any more, but
   // archives made before single-post runs were removed still hold them. The bug
   // this replaced: the URL comparison read such a plan as "a plan for someone
