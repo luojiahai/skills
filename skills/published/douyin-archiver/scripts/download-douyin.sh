@@ -180,7 +180,7 @@ POST_TEMPLATE='{"version":1,"id":%(id)j,"permalink":"https://www.douyin.com/vide
 #   partway through and can get the session challenged.
 # --no-overwrites: what makes re-runs resume. It keys on the resolved path, so
 #   deleting a post's folder re-downloads it — unlike --download-archive, which
-#   kept claiming a deleted post was done and used to own this job.
+#   keys on ids and goes on claiming a deleted post is done.
 # --print-to-file: the default WHEN fires after extraction and before the
 #   download, which is precisely what post.json needs — it is the post's
 #   description, written before its media, not a receipt written after. A post

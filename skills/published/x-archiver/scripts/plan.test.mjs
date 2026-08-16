@@ -144,7 +144,7 @@ test('a parked plan whose url names a post does not refuse the account it belong
   assert.equal(validatePlan(postPlan, { account: { id: '55' }, root: '/data', now }).ok, true);
 });
 
-test('the URL a plan was made from no longer decides whose plan it is', () => {
+test('the URL a plan was made from does not decide whose plan it is', () => {
   assert.equal(validatePlan(goodPlan, { account: { id: '55' }, now }).ok, true);
 });
 
@@ -229,10 +229,9 @@ test('the plan block states its own age', () => {
   assert.match(block(), /plan collected 4 minutes ago/);
 });
 
-test('there is no folder-drift note left to print', () => {
+test('no folder-drift note is printed', () => {
   // A folder named for the id, or for an alias the user chose, cannot fall out
-  // of step with the account, so the warning that used to be here has nothing
-  // left to warn about.
+  // of step with the account, so there is nothing to warn about.
   assert.doesNotMatch(block(), /folder was created as/);
 });
 

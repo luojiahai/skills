@@ -1,13 +1,8 @@
 # douyin-archiver scripts
 
 Read this before changing anything here. The constraints below are why the
-design looks the way it does; each was verified against the live site, and
+design looks the way it does; each is verified against the live site, and
 several of the obvious simplifications do not work.
-
-Some of what follows is written in the past tense, about bugs that were fixed.
-Those passages keep the names things had at the time: this skill was
-`douyin-downloader` until this rename, its entry point was `download.sh`, and its
-root directory was `downloads/`.
 
 ## Constraints
 
@@ -31,20 +26,20 @@ once; it persists, and later runs work headless.
 
 **Footer links are other people's videos.** The page footer carries SEO
 recommendations tagged `?source=Baiduspider`. Harvesting all `/video/` links
-without filtering collects strangers' uploads — an early version did exactly
-that, returning 7 videos, none of them the account's.
+without filtering collects a handful of strangers' uploads and none of the
+account's own.
 
 **Grid class names are obfuscated and rotate** (`a.RZuwF26I`, `div.gsF4XxDR`).
 Filter structurally — exclude `footer`, exclude the SEO marker — never by class.
 
 **A shell function called under `||` runs with errexit off.** `run_plan … ||
-status=$?` read like status capture; it was bash turning `set -e` off for the
-whole function body — a refused plan printed its refusal and then *kept going*,
-through the metadata write and a bogus summary telling the user to re-run the
-`--go` that had just failed. So `run_plan` is invoked plainly, failure exiting
-the script through errexit, and the plan load carries its own `|| return $?`
-so the refusal holds even if a guarded call sneaks back in. `download_list` is
-the one function still called under `||`: it manages `set +e` around its
+status=$?` reads like status capture; it is bash turning `set -e` off for the
+whole function body, so a refused plan prints its refusal and then *keeps
+going*, through the metadata write and a bogus summary telling the user to
+re-run the `--go` that just failed. So `run_plan` is invoked plainly, failure
+exiting the script through errexit, and the plan load carries its own
+`|| return $?` so the refusal holds even if a guarded call sneaks back in.
+`download_list` is the one function called under `||`: it manages `set +e` around its
 pipeline itself and returns an explicit status, which is the pattern that
 makes such a call safe.
 
@@ -98,23 +93,22 @@ second answer to a question `posts/` already answers correctly.
 `post.json` inside a post folder is not a second record either, because it is
 written **before** the media rather than after. It describes the post; whether
 the post landed is still answered by looking for the files it names. That is
-also what finally gives this skill an expected file count — yt-dlp reports none
-for Douyin, so before it, "downloaded" could only mean "the folder holds at
-least one file", and a post whose media failed after its text was written read
-as complete.
+also what gives this skill an expected file count at all: yt-dlp reports none
+for Douyin, so without `post.json` "downloaded" could only mean "the folder
+holds at least one file", and a post whose media failed after its text was
+written would read as complete.
 
 `sync.json` is a third file but not a third source of truth: it holds a cache of
 one collection pass and a note of what the last run did, and **deleting it loses
 no archive content**. Every question it answers is re-derived from disk next
 time. A resumption cursor would break that sentence and is deliberately absent —
-it is the same mistake as `.archive.txt` below, wearing a newer name.
+it is the same mistake as a download-archive file, wearing a newer name.
 
-There used to be a fourth, `.archive.txt`, and removing it is why this file
-changed. yt-dlp's `--download-archive` keys on ids, not paths, so it kept
-reporting a post as downloaded after its files had been deleted — a user who
-removed a bad download got silence instead of a re-fetch. `--no-overwrites`
-keys on the resolved path instead, which is what makes `rm -rf` on a post
-folder mean "fetch this again".
+There is no fourth file, and there must not be one. yt-dlp's
+`--download-archive` keys on ids, not paths, so it reports a post as downloaded
+after its files are deleted — a user who removes a bad download gets silence
+instead of a re-fetch. `--no-overwrites` keys on the resolved path instead,
+which is what makes `rm -rf` on a post folder mean "fetch this again".
 
 ## Plan, then go
 
@@ -146,15 +140,14 @@ their pre-authorisation when the skill appends its own mode flag.
 
 Every block printed — the one approved, and the one a finished run reports — is
 rendered by `plan.mjs`, and what is on disk is counted in exactly one place
-(`landed.mjs`'s `onDiskIds`). They were briefly three
-hand-aligned copies across two languages, with `wc -l` counting in one of them
-and unique ids in another; a blank line in the old `.archive.txt` was enough to
-make a run contradict the number the user had approved.
+(`landed.mjs`'s `onDiskIds`). Do not hand-align a second copy of either in
+another language: counting lines in one place and unique ids in another is all
+it takes for a run to contradict the number the user approved.
 
 `load` re-checks the plan against disk before handing it on. Without that, a
 `--go` resumed after a partial run would pay a metadata request per post just
-to discover it was already there — the fast resume the archive file used to
-give, restored without a second record.
+to discover it was already there — a fast resume, and without a second record
+of what has landed.
 
 ## The archives root is computed once
 
@@ -171,10 +164,10 @@ a plan made one way would then be refused the other.
 
 ## No early-stop
 
-Collection always scrolls the whole feed. An earlier design stopped once it hit
-already-downloaded IDs, which is unsafe — Douyin pins up to 3 posts at the top
-regardless of age, so a stop-at-first-known rule halts immediately and collects
-nothing, forever, silently.
+Collection always scrolls the whole feed. Do not stop it at the first
+already-downloaded ID: Douyin pins up to 3 posts at the top regardless of age,
+so a stop-at-first-known rule halts immediately and collects nothing, forever,
+silently.
 
 It is also not worth defending against: a full scroll of a 284-video account
 measures **~34 seconds**, while downloads take 30–40 minutes and are already
@@ -213,8 +206,8 @@ No gap is recorded anywhere. A remembered count is a second account of what has
 downloaded sitting beside the folders themselves, which is the drift "State
 files, disjoint on purpose" exists to prevent, so each is re-derived from the
 collected list and the disk every run. Hence `summary` needs the parked plan's
-`collected` **list** rather than its count, and a plan written before that list
-existed prints no note rather than a wrong one.
+`collected` **list** rather than its count, and a plan carrying no such list
+prints no note rather than a wrong one.
 
 ## Where things live
 
@@ -230,9 +223,9 @@ paths are never derived from its location.
 
 **A cwd inside the skill is not a project.** Asked to run `scripts/archive.sh`,
 an agent tends to cd here first — and in a project that is not a git repository,
-the root resolved to the skill's own folder. Whole archives landed in
-`<project>/.claude/skills/douyin-downloader/downloads/` — the names both had at
-the time — where the next update deletes them. So a cwd under the skill
+the root would resolve to the skill's own folder, putting whole archives under
+`<project>/.claude/skills/<skill>/archives/`, where the next update deletes
+them. So a cwd under the skill
 directory is discarded: the project is recovered from the install path
 (`<project>/.claude/skills/<skill>` or `.agents/`), and where that names none,
 the run stops and asks for `--archives`. Guessing is the one thing it must not
@@ -371,12 +364,11 @@ Four deliberate differences:
   into filenames; this one has neither and takes `{file, …}`, because by the time
   anything in Node sees a media entry the name has already been decided by the
   template.
-- **The junk-file problem solved itself.** `countMedia` used to match the
-  positional `<n>.<ext>` shape rather than excluding known junk, because yt-dlp
-  can leave `1.f137.mp4` / `1.f140.m4a` behind when a stream merge fails —
-  whole files that made an unplayable post read as finished. Against a named
-  list of expected files, none of those is `1.mp4`, so no rule is needed for
-  them at all.
+- **Junk files need no rule of their own.** yt-dlp can leave `1.f137.mp4` /
+  `1.f140.m4a` behind when a stream merge fails — whole files, which would make
+  an unplayable post read as finished under any rule that merely matched the
+  positional `<n>.<ext>` shape. Against a named list of expected files, none of
+  those is `1.mp4`, so nothing has to know about them.
 - **x-archiver *builds* its folder names in JS (`naming.mjs`). Here nothing
   does** — yt-dlp's `POST_DIR` output template builds them, and `landed.mjs`
   only reads them back. That is two spellings of one rule in two languages, so

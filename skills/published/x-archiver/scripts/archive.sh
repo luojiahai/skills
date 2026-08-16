@@ -12,10 +12,10 @@
 #
 # This script deliberately does almost nothing. It checks that the tools are
 # present and hands the whole run to run.mjs, because orchestration in bash is
-# how the sibling skill acquired its worst bug: a function called under `||`
-# runs with errexit switched off for its entire body, so a refused plan printed
-# its refusal and then carried on through the state write and a summary telling
-# the user to re-run the command that had just failed.
+# where the sibling skill's worst class of bug lives: a function called under
+# `||` runs with errexit switched off for its entire body, so a refused plan
+# prints its refusal and then carries on through the state write and a summary
+# telling the user to re-run the command that just failed.
 
 set -euo pipefail
 

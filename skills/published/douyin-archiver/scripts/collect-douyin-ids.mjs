@@ -121,9 +121,9 @@ Examples:
  * ?modal_id=<id>. Both appear depending on layout, so harvest each.
  *
  * Image posts (图文) link as /note/<id> and are returned separately: nothing
- * here can download them yet (issue #39), and they used to fall through the
- * /video/ match and vanish without trace, leaving an archive quietly short.
- * Counting them is what makes that gap visible.
+ * here can download them yet (issue #39). Returned separately rather than left
+ * to fall through the /video/ match, where they would vanish without trace and
+ * leave an archive quietly short. Counting them is what makes that gap visible.
  *
  * A post opened through ?modal_id= cannot be told apart this way — that form
  * carries no type — so an image post reached only by its modal link still

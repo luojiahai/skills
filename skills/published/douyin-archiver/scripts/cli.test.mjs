@@ -2,9 +2,9 @@
  * Tests for cli.mjs — run with:
  *   node --test scripts/cli.test.mjs
  *
- * The parser's one hard-won rule — a valueless flag must not swallow the flag
- * after it — used to live in two drifting copies, and this is what keeps the
- * surviving copy honest.
+ * The parser's one hard-won rule is that a valueless flag must not swallow the
+ * flag after it. There is one copy of the parser, and this is what keeps it
+ * honest.
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';

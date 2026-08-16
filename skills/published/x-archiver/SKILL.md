@@ -163,9 +163,8 @@ remedy — relay that rather than improvising.
 
 ## Changing the scripts
 
-`scripts/README.md` carries the constraints that make the design what it is,
-several of them verified the hard way. Read it before modifying anything in
-`scripts/`.
+`scripts/README.md` carries the constraints that make the design what it is.
+Read it before modifying anything in `scripts/`.
 
 ## State
 

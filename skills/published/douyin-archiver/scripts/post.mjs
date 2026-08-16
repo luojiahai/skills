@@ -72,7 +72,7 @@ export function mediaNames(post) {
  * even started this post.
  *
  * Everything yt-dlp leaves behind mid-flight fails this by construction, which
- * is what makes the old positional-name regex unnecessary. `1.mp4.part` is not
+ * is why no positional-name regex is needed. `1.mp4.part` is not
  * `1.mp4`; neither is `1.mp4.ytdl`; and the unmerged `1.f137.mp4` /
  * `1.f140.m4a` streams — whole files, which an exclusion list would have had to
  * know about by name — are not `1.mp4` either.

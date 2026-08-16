@@ -153,11 +153,10 @@ const n = (value) => Number(value || 0).toLocaleString('en-US');
  * sweep line, `to fetch 0` cannot be told apart from "gave up before reaching
  * anything new".
  *
- * The folder-drift note that used to sit here is gone with the layout that
- * needed it. A folder named for a handle could fall out of step with the
- * account; a folder named for the id or for an alias the user chose cannot, so
- * there is nothing left to warn about — and the path may now be a name rather
- * than a number, which is why the handle and id are on the line above it.
+ * There is no folder-drift note, because the layout cannot drift: a folder named
+ * for a handle could fall out of step with the account, and one named for the id
+ * or for an alias the user chose cannot. The path may be a name rather than a
+ * number, which is why the handle and id are on the line above it.
  *
  * `folder` is passed in rather than recomputed from the id. It has to be: the
  * folder may be named for an alias, and a block that derived the path itself

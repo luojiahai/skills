@@ -3,9 +3,9 @@
  *
  * All of the orchestration lives here rather than in archive.sh. The sibling
  * skill records what the alternative costs: a shell function called under `||`
- * runs with errexit off, and a refused plan there printed its refusal and then
- * kept going, through the state write and a summary telling the user to re-run
- * the command that had just failed. Shell holds the preflight and hands over.
+ * runs with errexit off, so a refused plan prints its refusal and then keeps
+ * going, through the state write and a summary telling the user to re-run the
+ * command that just failed. Shell holds the preflight and hands over.
  *
  *   --plan   enumerate, diff, report. Downloads nothing.
  *   --go     download exactly what the last plan listed.

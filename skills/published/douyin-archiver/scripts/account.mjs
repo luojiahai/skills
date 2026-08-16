@@ -186,10 +186,8 @@ function identity(existing, next, drop) {
  *
  * A blank cannot mean erasure, because every run passes fields it happens not to
  * know — so `--unalias` names the key it is removing instead. The shape is
- * written out rather than spread from the old file, so the fields this skill no
- * longer keeps — `root` and `updated_at`, which moved to sync.json's last_run,
- * and `name`, which became `alias` — cannot survive in an archive by being
- * copied forward.
+ * written out rather than spread from the file being merged, so a key this
+ * skill does not keep cannot survive in an archive by being copied forward.
  *
  * `platform` is stamped even though the parent directory already says it. It is
  * what makes a lone account.json self-describing when it has been copied out of
@@ -545,8 +543,8 @@ async function resolve(opts) {
     process.exit(2);
   }
 
-  // The sec_uid identifies the account, but no longer names its folder on its
-  // own — the alias map does that, and a scan repairs the map. An account that
+  // The sec_uid identifies the account; the alias map names its folder, and a
+  // scan repairs the map. An account that
   // has never been archived has no folder at all, and --require-match is how the
   // caller asks to be told that rather than given a path.
   if (secUid) {
