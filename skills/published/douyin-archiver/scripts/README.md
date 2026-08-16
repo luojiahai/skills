@@ -1,8 +1,13 @@
-# douyin-downloader scripts
+# douyin-archiver scripts
 
 Read this before changing anything here. The constraints below are why the
 design looks the way it does; each was verified against the live site, and
 several of the obvious simplifications do not work.
+
+Some of what follows is written in the past tense, about bugs that were fixed.
+Those passages keep the names things had at the time: this skill was
+`douyin-downloader` until this rename, its entry point was `download.sh`, and its
+root directory was `downloads/`.
 
 ## Constraints
 
@@ -51,16 +56,27 @@ what stops it finishing.
 
 ## Files
 
+**This skill archives; the tools it drives download.** The split is the reason
+there are two shell scripts and not one. `archive.sh` owns the account — which
+folder it lives in, what is already on disk, what is missing, and whether the
+user has said yes — and knows nothing about how bytes arrive.
+`download-douyin.sh` takes a list of URLs and fetches them, and knows nothing
+about accounts. yt-dlp is a downloader and is named as one throughout; it cannot
+resume an account, which is the whole reason this layer sits above it. The
+filenames are the only place that boundary is written down, so
+`download-douyin.sh` keeps its name deliberately — renaming it to match the
+skill would erase the distinction it exists to mark.
+
 | File | Role |
 | --- | --- |
-| `download.sh` | Entry point. Owns folder, plan and metadata policy. Everything else is called by it. |
+| `archive.sh` | Entry point. Owns folder, plan and metadata policy. Everything else is called by it. |
 | `download-douyin.sh` | General-purpose layer: a list of URLs/IDs in, one folder per post out, with throttling. Knows nothing about accounts. |
 | `collect-douyin-ids.mjs` | Drives Playwright, scrolls the profile, emits post URLs and profile metadata. |
 | `export-cookies.mjs` | Exports the Playwright session as a Netscape `cookies.txt` for yt-dlp. |
 | `plan.mjs` | The confirm step: diffs the collected list against what is on disk, owns `.plan.json`, records the account in `metadata.json` on the way past, and renders **every** block the skill prints. |
-| `archive.mjs` | What is already downloaded, answered from the post folders themselves. The layout rules, shared with x-downloader. |
+| `landed.mjs` | What is already downloaded, answered from the post folders themselves. The layout rules, shared with x-archiver. |
 | `cli.mjs` | The argument parsing, file reading and entry-point detection `plan.mjs` and `metadata.mjs` share. |
-| `metadata.mjs` | Resolves an account's folder by identity; owns the shape of `metadata.json` and how it merges; answers what the downloads root is. Called by `plan.mjs` for the account paths, and by `download.sh` for the single-post one. |
+| `metadata.mjs` | Resolves an account's folder by identity; owns the shape of `metadata.json` and how it merges; answers what the archives root is. Called by `plan.mjs` for the account paths, and by `archive.sh` for the single-post one. |
 | `paths.mjs` | Single source of truth for where state lives and how Playwright is found. |
 | `collect-douyin-ids.js` | A DevTools console snippet that harvests `/video/` ids — a no-dependency fallback if Playwright breaks. It does **not** track `collect-douyin-ids.mjs`: it has no profile-metadata read, no `--limit`, and no image-post counting, so it emits ids and nothing else. |
 
@@ -119,7 +135,7 @@ their pre-authorisation when the skill appends its own mode flag.
 
 Every block printed — the one approved, the one a finished run reports, the one
 a single post gets — is rendered by `plan.mjs`, and what is on disk is counted
-in exactly one place (`archive.mjs`'s `onDiskIds`). They were briefly three
+in exactly one place (`landed.mjs`'s `onDiskIds`). They were briefly three
 hand-aligned copies across two languages, with `wc -l` counting in one of them
 and unique ids in another; a blank line in the old `.archive.txt` was enough to
 make a run contradict the number the user had approved.
@@ -129,17 +145,17 @@ make a run contradict the number the user had approved.
 to discover it was already there — the fast resume the archive file used to
 give, restored without a second record.
 
-## The downloads root is computed once
+## The archives root is computed once
 
-`paths.mjs` owns it — `normalizeRoot` for an explicit `--downloads` (tilde
+`paths.mjs` owns it — `normalizeRoot` for an explicit `--archives` (tilde
 expanded, made absolute, symlinks resolved as far as the path exists) and
-`downloadsRoot` for the default. `download.sh` asks for it through
+`archivesRoot` for the default. `archive.sh` asks for it through
 `metadata.mjs root` rather than recomputing it in shell, because a root that
 disagrees between the two languages names a different account folder and
 silently re-downloads everything.
 
 The symlink resolution is not fussiness: on macOS the default root comes back
-as `/private/tmp/...` while a hand-typed `--downloads /tmp/...` would not, and
+as `/private/tmp/...` while a hand-typed `--archives /tmp/...` would not, and
 a plan made one way would then be refused the other.
 
 ## No early-stop
@@ -198,28 +214,29 @@ paths are never derived from its location.
 
 | What | Where | Why |
 | --- | --- | --- |
-| session, cookies, `node_modules` | `${XDG_STATE_HOME:-~/.local/state}/douyin-downloader/` | user-level: sign in once, not once per project; survives skill reinstalls |
-| downloads | `--downloads DIR`, else `<git root of cwd, else cwd>/downloads/` | project-level: an archive belongs beside the work it is part of, unless the user says otherwise |
+| session, cookies, `node_modules` | `${XDG_STATE_HOME:-~/.local/state}/douyin-archiver/` | user-level: sign in once, not once per project; survives skill reinstalls |
+| archives | `--archives DIR`, else `<git root of cwd, else cwd>/archives/` | project-level: an archive belongs beside the work it is part of, unless the user says otherwise |
 | Chromium binaries | `~/Library/Caches/ms-playwright` | shared across every project, so the ~150MB is paid once |
 
-**A cwd inside the skill is not a project.** Asked to run `scripts/download.sh`,
+**A cwd inside the skill is not a project.** Asked to run `scripts/archive.sh`,
 an agent tends to cd here first — and in a project that is not a git repository,
-`cwd/downloads` was then the skill's own folder. Whole archives landed in
-`<project>/.claude/skills/douyin-downloader/downloads/`, where the next update
-deletes them. So a cwd under the skill directory is discarded: the project is
-recovered from the install path (`<project>/.claude/skills/<skill>` or
-`.agents/`), and where that names none, the run stops and asks for
-`--downloads`. Guessing is the one thing it must not do — a wrong root names a
-different account folder and silently re-downloads everything.
+the root resolved to the skill's own folder. Whole archives landed in
+`<project>/.claude/skills/douyin-downloader/downloads/` — the names both had at
+the time — where the next update deletes them. So a cwd under the skill
+directory is discarded: the project is recovered from the install path
+(`<project>/.claude/skills/<skill>` or `.agents/`), and where that names none,
+the run stops and asks for `--archives`. Guessing is the one thing it must not
+do — a wrong root names a different account folder and silently re-downloads
+everything.
 
-The **downloads** root is written down once, in `paths.mjs`, and `download.sh`
+The **archives** root is written down once, in `paths.mjs`, and `archive.sh`
 asks for it through `metadata.mjs root` rather than reimplementing the rule — it
 is the root that varies per run, and two answers to it would split an account's
 archive in half. The `posts/` subdirectory is likewise named in both languages
-(`archive.mjs`'s `POSTS_DIR` and `download.sh`'s `POSTS_SUBDIR`); change one and
+(`landed.mjs`'s `POSTS_DIR` and `archive.sh`'s `POSTS_SUBDIR`); change one and
 change the other. The **state** directory is still spelled out in both languages
-(`paths.mjs` and the top of `download.sh`): it is one unchanging expression,
-`${XDG_STATE_HOME:-~/.local/state}/douyin-downloader`, and the shell needs it
+(`paths.mjs` and the top of `archive.sh`): it is one unchanging expression,
+`${XDG_STATE_HOME:-~/.local/state}/douyin-archiver`, and the shell needs it
 before it can afford to start Node. Change it in one place and change it in the
 other. `../setup.sh` installs into that directory and is safe to re-run — the
 skill's `package.json` is the version manifest, copied in at install time.
@@ -232,7 +249,7 @@ lands its exports on `.default` — `loadPlaywright()` normalises that.
 
 The pure logic — the diff, the plan validation rules, the status rendering,
 path normalisation, the shared argument parsing, the metadata merge and folder
-resolution, and the layout rules in `archive.mjs` — has unit tests, and no
+resolution, and the layout rules in `landed.mjs` — has unit tests, and no
 dependencies beyond Node:
 
 ```bash
@@ -251,7 +268,7 @@ The scripts work standalone if you want them without the skill:
 node collect-douyin-ids.mjs --login "https://www.douyin.com/user/MS4w..."
 
 # an account, without the two-step confirm
-./download.sh "https://www.douyin.com/user/MS4w..." --downloads ~/Videos/douyin --yes
+./archive.sh "https://www.douyin.com/user/MS4w..." --archives ~/Videos/douyin --yes
 
 # collect only
 node collect-douyin-ids.mjs --headless "https://www.douyin.com/user/MS4w..." -o urls.txt
@@ -264,17 +281,17 @@ node collect-douyin-ids.mjs --headless "https://www.douyin.com/user/MS4w..." -o 
 and bare numeric IDs interchangeably, and de-duplicates them. Use `-n` to see
 the yt-dlp command without running it.
 
-## Shared with x-downloader, on purpose
+## Shared with x-archiver, on purpose
 
-`archive.mjs` and `metadata.mjs` here, and `archive.mjs` / `naming.mjs` /
-`metadata.mjs` in **x-downloader**, hold the same rules, written twice:
+`landed.mjs` and `metadata.mjs` here, and `landed.mjs` / `naming.mjs` /
+`metadata.mjs` in **x-archiver**, hold the same rules, written twice:
 
 - `posts/<YYYY-MM-DD|undated>_<id>/`, one folder per post
 - media numbered by position — `1.mp4`, `2.jpg`
 - `text.txt`: permalink, timestamp, blank line, then the untruncated caption
 - a post counts as downloaded when its folder holds at least one media file
 - the account folder is prefixed — `douyin_<抖音号>` here, `x_<handle>` there —
-  because both skills default to the same `<git root>/downloads` root, and an
+  because both skills default to the same `<git root>/archives` root, and an
   X handle that matches a 抖音号 would otherwise interleave two accounts in one
   folder. `--name` renames the account part and keeps the prefix, so no name
   can be chosen that collides.
@@ -291,18 +308,18 @@ the duplication is only worth its cost while they agree.
 
 Two deliberate differences:
 
-- x-downloader's enumerator reports how many files a post should hold, so it can
+- x-archiver's enumerator reports how many files a post should hold, so it can
   tell a half-fetched post from a complete one. Douyin's collector yields ids
   and nothing else, so `isPostComplete` here takes no expected count and one
   media file is the most that can be checked.
 - `countMedia` here matches the positional `<n>.<ext>` shape rather than
   excluding known junk, because yt-dlp can leave `1.f137.mp4` / `1.f140.m4a`
   behind when a stream merge fails — whole files that would make an unplayable
-  post read as finished. gallery-dl does not do that, so x-downloader's
+  post read as finished. gallery-dl does not do that, so x-archiver's
   exclusion list is sufficient there.
-- x-downloader *builds* its folder names in JS (`naming.mjs`). Here nothing
+- x-archiver *builds* its folder names in JS (`naming.mjs`). Here nothing
   does — yt-dlp's `POST_DIR` output template in `download-douyin.sh` builds
-  them, and `archive.mjs` only reads them back. That is two spellings of one
+  them, and `landed.mjs` only reads them back. That is two spellings of one
   rule in two languages, so `archive.test.mjs` reads the template out of the
   shell script and checks the regex still accepts what it produces. Change the
   template and that test tells you.

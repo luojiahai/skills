@@ -5,10 +5,10 @@
  *
  * `metadata.json` is authoritative for *identity* — which folder is this
  * account's — and never for *progress*. What has been downloaded is answered by
- * the post folders under posts/ (archive.mjs) and by nothing else: a stored
+ * the post folders under posts/ (landed.mjs) and by nothing else: a stored
  * count or newest-post id would be a second record of the same thing, free to
  * disagree with the files after a run that died between two writes. So this
- * file holds identity, the profile URL it was archived from, the downloads root
+ * file holds identity, the profile URL it was archived from, the archives root
  * it last ran against, and nothing more.
  *
  * It is written the moment a folder is resolved, before anything is
@@ -16,7 +16,7 @@
  * no browser, find the folder an account already has.
  *
  * Subcommands:
- *   resolve --douyin-id ID [--sec-uid UID] [--name NAME] [--downloads DIR]
+ *   resolve --douyin-id ID [--sec-uid UID] [--name NAME] [--archives DIR]
  *           [--require-match]
  *       Prints the folder path for an account, creating nothing. Resolution
  *       order: existing folder whose metadata.json matches sec_uid or
@@ -24,26 +24,26 @@
  *       than naming a folder that does not exist yet.
  *
  *   write --folder DIR [--meta FILE] [--sec-uid UID] [--douyin-id ID]
- *         [--url URL] [--downloads DIR]
+ *         [--url URL] [--archives DIR]
  *       Merges what this run knows into <folder>/metadata.json. Fields it was
  *       not given are left as the previous run recorded them.
  *
- *   root [--downloads DIR]
- *       Prints the downloads root: the flag if given, else the default for the
+ *   root [--archives DIR]
+ *       Prints the archives root: the flag if given, else the default for the
  *       current working directory. The single place that answer is computed.
  */
 import { writeFile, readdir, mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import { isMainModule, optString, parseArgs, readJson } from './cli.mjs';
-import { downloadsRoot, normalizeRoot } from './paths.mjs';
+import { archivesRoot, normalizeRoot } from './paths.mjs';
 
 export const METADATA_FILE = 'metadata.json';
 export const METADATA_VERSION = 1;
 
 /**
- * Namespaces this skill's folders inside a downloads root it shares with
- * x-downloader, whose folders are `x_`. Both default to the same root —
- * <git root>/downloads — so without a prefix a 抖音号 and an X handle that
+ * Namespaces this skill's folders inside an archives root it shares with
+ * x-archiver, whose folders are `x_`. Both default to the same root —
+ * <git root>/archives — so without a prefix a 抖音号 and an X handle that
  * happen to match would archive into one folder and interleave two accounts.
  */
 export const FOLDER_PREFIX = 'douyin_';
@@ -128,19 +128,19 @@ export async function writeMetadata(folder, next) {
  * rather than guessed at: it reads as no archive at all, which is the same
  * answer as a folder nobody has archived into, and the run makes a new one.
  */
-export async function findAccountFolder(downloads, { secUid, douyinId } = {}) {
+export async function findAccountFolder(archives, { secUid, douyinId } = {}) {
   if (!secUid && !douyinId) return null;
 
   let entries;
   try {
-    entries = await readdir(downloads, { withFileTypes: true });
+    entries = await readdir(archives, { withFileTypes: true });
   } catch {
     return null;
   }
 
   for (const entry of entries) {
     if (!entry.isDirectory()) continue;
-    const metadata = await readMetadata(path.join(downloads, entry.name));
+    const metadata = await readMetadata(path.join(archives, entry.name));
     if (metadata?.version !== METADATA_VERSION) continue;
     const identity = metadata.account;
     if (!identity) continue;
@@ -156,8 +156,8 @@ export async function findAccountFolder(downloads, { secUid, douyinId } = {}) {
 /** The flag if given, else the default for the current working directory. */
 function rootFor(opts) {
   try {
-    const given = optString(opts, 'downloads');
-    return given ? normalizeRoot(given) : downloadsRoot();
+    const given = optString(opts, 'archives');
+    return given ? normalizeRoot(given) : archivesRoot();
   } catch (err) {
     console.error(`error: ${err.message}`);
     process.exit(2);
@@ -165,7 +165,7 @@ function rootFor(opts) {
 }
 
 async function resolve(opts) {
-  const downloads = rootFor(opts);
+  const archives = rootFor(opts);
   const douyinId = optString(opts, 'douyin_id');
   const secUid = optString(opts, 'sec_uid');
   const name = optString(opts, 'name');
@@ -175,9 +175,9 @@ async function resolve(opts) {
     process.exit(2);
   }
 
-  const existing = await findAccountFolder(downloads, { secUid, douyinId });
+  const existing = await findAccountFolder(archives, { secUid, douyinId });
   if (existing) {
-    console.log(path.join(downloads, existing));
+    console.log(path.join(archives, existing));
     return;
   }
 
@@ -188,7 +188,7 @@ async function resolve(opts) {
     process.exit(3);
   }
 
-  console.log(path.join(downloads, folderNameFor({ douyinId, name })));
+  console.log(path.join(archives, folderNameFor({ douyinId, name })));
 }
 
 async function write(opts) {
@@ -209,7 +209,7 @@ async function write(opts) {
       nickname: meta.nickname,
     },
     url: optString(opts, 'url'),
-    root: optString(opts, 'downloads'),
+    root: optString(opts, 'archives'),
     updated_at: new Date().toISOString(),
   });
 }

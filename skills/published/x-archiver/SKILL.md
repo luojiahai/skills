@@ -1,7 +1,7 @@
 ---
-name: x-downloader
-description: "Download media from X (formerly Twitter) — every image and video an account has posted, or a single post — into a downloads folder of your choosing. It reports what it would fetch and waits for your yes, and a re-run fetches only what is new."
-argument-hint: "<X profile or post URL> [--downloads DIR] [--name NAME]"
+name: x-archiver
+description: "Archive media from X (formerly Twitter) — every image and video an account has posted — or download a single post, into an archives folder of your choosing. It reports what it would fetch and waits for your yes, and a re-run fetches only what is new."
+argument-hint: "<X profile or post URL> [--archives DIR] [--name NAME]"
 disable-model-invocation: true
 ---
 
@@ -9,12 +9,12 @@ This archives **X, formerly Twitter** (`x.com`, and `twitter.com` links too).
 Say so on the first run before fetching anything — the skill's name does not
 tell the user which site this is about.
 
-An account is never downloaded without asking first. Enumerate the list, report
+An account is never archived without asking first. Enumerate the list, report
 it, wait for the user's answer, and only then fetch:
 
 ```bash
-<skill-dir>/scripts/download.sh <url> [the user's flags] --plan   # enumerate and report
-<skill-dir>/scripts/download.sh <url> [the user's flags] --go     # download what was approved
+<skill-dir>/scripts/archive.sh <url> [the user's flags] --plan   # enumerate and report
+<skill-dir>/scripts/archive.sh <url> [the user's flags] --go     # fetch what was approved
 ```
 
 Whatever the user typed after the URL is passed through exactly as given —
@@ -27,7 +27,7 @@ do not add `--plan` or `--go`, and do not ask. It is not a flag for you to
 reach for on your own.
 
 Run it **from the user's working directory** — call it by its full path, do not
-`cd` into the skill first. Downloads land relative to where you run it, and a
+`cd` into the skill first. Archives land relative to where you run it, and a
 skill directory is replaced by the next update.
 
 It auto-detects a profile URL (`x.com/<handle>` — every media post from the
@@ -44,7 +44,7 @@ wait**. Do not run `--go` until the user has answered.
 
 `--go` downloads exactly the posts that block described, and does not enumerate
 again. It refuses a plan that is missing, more than 24 hours old, or made for a
-different account or downloads folder; each refusal prints the `--plan` command
+different account or archives folder; each refusal prints the `--plan` command
 that fixes it.
 
 A `--go` that stops partway leaves the plan in place, so re-running `--go`
@@ -77,13 +77,13 @@ cannot be scripted, so the first run reads the session out of a browser you are
 already signed in to:
 
 ```bash
-<skill-dir>/scripts/download.sh <url> --browser chrome --plan
+<skill-dir>/scripts/archive.sh <url> --browser chrome --plan
 ```
 
 `--browser` accepts `chrome`, `firefox`, `safari`, `edge`, `brave`, `chromium`,
 `opera`, `vivaldi`. macOS will ask for Keychain access, and Chrome-family
 browsers generally need to be closed. That happens **once**: the session is
-cached to `${XDG_STATE_HOME:-~/.local/state}/x-downloader/cookies.txt` and every
+cached to `${XDG_STATE_HOME:-~/.local/state}/x-archiver/cookies.txt` and every
 later run uses it, until X rejects it.
 
 ## Whose account is being spent
@@ -100,17 +100,17 @@ not to you.
 
 ## Where the media goes
 
-`--downloads DIR` sets the root, and the account folder is `DIR/x_<handle>` — or
+`--archives DIR` sets the root, and the account folder is `DIR/x_<handle>` — or
 `DIR/x_<NAME>` with `--name`, which is only needed the first time. Without the
-flag the root is `<git root of the current directory, else cwd>/downloads`,
-the same root `douyin-downloader` uses.
+flag the root is `<git root of the current directory, else cwd>/archives`,
+the same root `douyin-archiver` uses.
 
-The `x_` prefix is what lets both skills share that root: `douyin-downloader`
+The `x_` prefix is what lets both skills share that root: `douyin-archiver`
 names its folders `douyin_<抖音号>`, so an X handle and a 抖音号 that happen to
 match still get a folder each. `--name` renames the account part and keeps the
 prefix — there is no way to name a folder that collides.
 
-Resuming means passing the same `--downloads` again: under that root the folder
+Resuming means passing the same `--archives` again: under that root the folder
 is found by matching the account's numeric id, whatever the folder is called. A
 different root is a different archive and starts from nothing, so if the user
 has downloaded this account before, use the root they used before.
@@ -119,7 +119,7 @@ X handles are mutable and the numeric id is not. A renamed account keeps filling
 the folder it already has, and the block says so rather than renaming anything.
 
 A working directory inside the skill itself is not a project: the run stops and
-asks for `--downloads DIR` rather than archiving into a folder the next update
+asks for `--archives DIR` rather than archiving into a folder the next update
 deletes.
 
 ## What it fetches
@@ -152,7 +152,7 @@ several of them verified the hard way. Read it before modifying anything in
 
 ## State
 
-One folder per account, under the downloads root:
+One folder per account, under the archives root:
 
 - `posts/<date>_<id>/` — one folder per post, holding its media as `1.jpg`,
   `2.mp4`… and a `text.txt` with the post's text and a short header. The name
@@ -162,7 +162,7 @@ One folder per account, under the downloads root:
   been downloaded**, and a post counts as done when it holds all of its files.
   Deleting one re-downloads it.
 - `metadata.json` — the account's identity, the URL it was archived from and
-  the downloads root the last run used. Written as soon as the folder is
+  the archives root the last run used. Written as soon as the folder is
   resolved, before anything is downloaded. It is **authoritative for identity**
   — which folder is this account's — and **never for progress**: what has been
   downloaded is answered by `posts/` alone. Deleting it costs the archive its

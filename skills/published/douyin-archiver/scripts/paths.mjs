@@ -5,11 +5,11 @@
  * plugin directory that updates replace, or anywhere on disk. So nothing
  * mutable is stored relative to it.
  *
- *   session, cookies, node_modules → ${XDG_STATE_HOME:-~/.local/state}/douyin-downloader/
- *   downloads                      → <git root of cwd, else cwd>/downloads/
+ *   session, cookies, node_modules → ${XDG_STATE_HOME:-~/.local/state}/douyin-archiver/
+ *   archives                       → <git root of cwd, else cwd>/archives/
  *
  * Session state is user-level so you log in once rather than once per project;
- * downloads are project-level so an archive lives beside the work it belongs to.
+ * archives are project-level so an archive lives beside the work it belongs to.
  */
 import { execFileSync } from 'node:child_process';
 import { existsSync, realpathSync } from 'node:fs';
@@ -19,7 +19,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 export const STATE_DIR = path.join(
   process.env.XDG_STATE_HOME || path.join(os.homedir(), '.local', 'state'),
-  'douyin-downloader',
+  'douyin-archiver',
 );
 
 export const PROFILE_DIR = path.join(STATE_DIR, 'profile');
@@ -41,23 +41,23 @@ function projectFromInstall() {
 }
 
 /**
- * Downloads belong to the project you are working in, not to the skill — and a
+ * Archives belong to the project you are working in, not to the skill — and a
  * cwd inside the skill is how they end up in the skill. Told to run
- * `scripts/download.sh`, an agent tends to cd there first, and then the cwd
+ * `scripts/archive.sh`, an agent tends to cd there first, and then the cwd
  * names the skill rather than the project, so a whole archive lands in a folder
  * the next update replaces. Such a cwd counts for nothing here: the project is
  * recovered from the install path, and if that names none either this throws
  * rather than guessing.
  */
-export function downloadsRoot(cwd = process.cwd()) {
+export function archivesRoot(cwd = process.cwd()) {
   const here = realpathSync(cwd);
   if (here === SKILL_DIR || here.startsWith(SKILL_DIR + path.sep)) {
     const project = projectFromInstall();
-    if (project) return path.join(project, 'downloads');
+    if (project) return path.join(project, 'archives');
     throw new Error(
-      `cannot tell which project these downloads belong to — the working ` +
+      `cannot tell which project this archive belongs to — the working ` +
         `directory is inside the skill (${cwd}), which the next update replaces.\n` +
-        `  run from the project directory, or pass --downloads DIR`,
+        `  run from the project directory, or pass --archives DIR`,
     );
   }
 
@@ -67,20 +67,20 @@ export function downloadsRoot(cwd = process.cwd()) {
       encoding: 'utf8',
       stdio: ['ignore', 'pipe', 'ignore'],
     }).trim();
-    if (root) return path.join(root, 'downloads');
+    if (root) return path.join(root, 'archives');
   } catch {
     // Not a git repository — fall through to cwd.
   }
-  return path.join(cwd, 'downloads');
+  return path.join(cwd, 'archives');
 }
 
 /**
- * A downloads root given on the command line, made absolute and tilde-free.
+ * An archives root given on the command line, made absolute and tilde-free.
  *
  * The agent passes the user's flag through as typed, and a quoted `~/data`
  * never reaches the shell's expansion — so the expansion happens here instead,
  * once, where every caller agrees on the answer. Storing anything relative
- * would be worse than useless: `./downloads` resolved from a different working
+ * would be worse than useless: `./archives` resolved from a different working
  * directory is a different archive.
  */
 export function normalizeRoot(dir, cwd = process.cwd()) {
@@ -92,9 +92,9 @@ export function normalizeRoot(dir, cwd = process.cwd()) {
 
 /**
  * The path with symlinks resolved as far as it exists, keeping the rest as
- * given. A downloads root often does not exist yet, so plain realpath is not
+ * given. An archives root often does not exist yet, so plain realpath is not
  * available — but the *default* root is read off the real filesystem, so
- * `--downloads /tmp/dy` has to normalise the same way `/tmp` itself does or a
+ * `--archives /tmp/dy` has to normalise the same way `/tmp` itself does or a
  * plan made one way is refused the other.
  */
 function realpathPrefix(target) {

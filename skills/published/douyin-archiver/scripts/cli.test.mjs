@@ -8,11 +8,39 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { execFile } from 'node:child_process';
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { promisify } from 'node:util';
 
 import { optString, parseArgs, readJson, readText } from './cli.mjs';
+
+const run = promisify(execFile);
+const ARCHIVE_SH = path.join(path.dirname(fileURLToPath(import.meta.url)), 'archive.sh');
+
+test('--downloads is refused by name rather than as a generic unknown flag', async () => {
+  // The old flag would otherwise fall through to the `-*` catch-all and be
+  // reported as an unknown option — true, but it sends the user to --help to
+  // work out what happened. The whole risk of this rename is a stale command
+  // still in someone's shell history, so the refusal names its replacement.
+  //
+  // Argument parsing runs before every preflight, so this needs neither yt-dlp
+  // nor a session to be installed.
+  const failed = await run(ARCHIVE_SH, [
+    'https://www.douyin.com/user/MS4wLjABAAAA',
+    '--downloads',
+    '/data',
+  ]).then(
+    () => null,
+    (error) => error,
+  );
+
+  assert.ok(failed, 'expected a non-zero exit');
+  assert.equal(failed.code, 2);
+  assert.match(failed.stderr, /--downloads was renamed to --archives/);
+});
 
 test('parseArgs pairs flags with their values', () => {
   assert.deepEqual(parseArgs(['--folder', '/data/abc', '--name', '小明']), {
@@ -30,11 +58,11 @@ test('parseArgs turns dashes into underscores', () => {
 
 test('a valueless flag does not swallow the flag after it', () => {
   // The regression the shared copy exists to prevent: with --require-match
-  // eating --downloads, the root silently becomes the default and the run
+  // eating --archives, the root silently becomes the default and the run
   // works on the wrong archive.
-  assert.deepEqual(parseArgs(['--require-match', '--downloads', '/data']), {
+  assert.deepEqual(parseArgs(['--require-match', '--archives', '/data']), {
     require_match: true,
-    downloads: '/data',
+    archives: '/data',
   });
 });
 
@@ -46,7 +74,7 @@ test('a trailing flag with no value is true, not undefined', () => {
 });
 
 test('parseArgs keeps an empty-string value as a value', () => {
-  // download.sh passes optional flags through unconditionally — `--name ""`
+  // archive.sh passes optional flags through unconditionally — `--name ""`
   // rather than omitting them — so empty must parse as present-but-empty.
   assert.deepEqual(parseArgs(['--name', '', '--folder', '/data']), {
     name: '',

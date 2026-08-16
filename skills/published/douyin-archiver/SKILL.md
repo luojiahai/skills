@@ -1,16 +1,16 @@
 ---
-name: douyin-downloader
-description: "Download every video from a Douyin account, or a single Douyin video, into a downloads folder of your choosing — it reports what it would fetch and waits for your yes, and a re-run fetches only what is new. Image posts (图文) are counted and reported, but not yet downloaded."
-argument-hint: "<Douyin profile or video URL> [--downloads DIR] [--name NAME]"
+name: douyin-archiver
+description: "Archive every video from a Douyin account, or download a single Douyin video, into an archives folder of your choosing — it reports what it would fetch and waits for your yes, and a re-run fetches only what is new. Image posts (图文) are counted and reported, but not yet downloaded."
+argument-hint: "<Douyin profile or video URL> [--archives DIR] [--name NAME]"
 disable-model-invocation: true
 ---
 
-An account is never downloaded without asking first. Collect the list, report
+An account is never archived without asking first. Collect the list, report
 it, wait for the user's answer, and only then fetch:
 
 ```bash
-<skill-dir>/scripts/download.sh <url> [the user's flags] --plan   # collect and report
-<skill-dir>/scripts/download.sh <url> [the user's flags] --go     # download what was approved
+<skill-dir>/scripts/archive.sh <url> [the user's flags] --plan   # collect and report
+<skill-dir>/scripts/archive.sh <url> [the user's flags] --go     # fetch what was approved
 ```
 
 Whatever the user typed after the URL is passed through exactly as given —
@@ -23,7 +23,7 @@ do not add `--plan` or `--go`, and do not ask. It is not a flag for you to
 reach for on your own.
 
 Run it **from the user's working directory** — call it by its full path, do not
-`cd` into the skill first. Downloads land relative to where you run it, and a
+`cd` into the skill first. Archives land relative to where you run it, and a
 skill directory is replaced by the next update.
 
 It auto-detects a `/user/` profile URL (every post from the account) from a
@@ -41,7 +41,7 @@ wait**. Do not run `--go` until the user has answered.
 
 `--go` downloads exactly the posts that block described, and does not collect
 again. It refuses a plan that is missing, more than 24 hours old, or made for a
-different account or a different downloads folder; each refusal prints the
+different account or a different archives folder; each refusal prints the
 `--plan` command that fixes it.
 
 Two cases need no question:
@@ -55,23 +55,23 @@ The summary block `--go` prints is the run's whole result. Report that and stop.
 
 ## Where the posts go
 
-`--downloads DIR` sets the root, and the account folder is `DIR/douyin_<抖音号>`
+`--archives DIR` sets the root, and the account folder is `DIR/douyin_<抖音号>`
 — or `DIR/douyin_<NAME>` with `--name`, which is only needed the first time.
 Without the flag the root is `<git root of the current directory, else
-cwd>/downloads`, the same root `x-downloader` uses.
+cwd>/archives`, the same root `x-archiver` uses.
 
-The `douyin_` prefix is what lets both skills share that root: `x-downloader`
+The `douyin_` prefix is what lets both skills share that root: `x-archiver`
 names its folders `x_<handle>`, so a 抖音号 and an X handle that happen to match
 still get a folder each. `--name` renames the account part and keeps the prefix
 — there is no way to name a folder that collides.
 
-Resuming means passing the same `--downloads` again: under that root the folder
+Resuming means passing the same `--archives` again: under that root the folder
 is found by matching the account's identity, whatever it is called. A different
 root is a different archive and starts from nothing, so if the user has
 downloaded this account before, use the root they used before.
 
 A working directory inside the skill itself is not a project: the run stops and
-asks for `--downloads DIR` rather than archiving into a folder the next update
+asks for `--archives DIR` rather than archiving into a folder the next update
 deletes.
 
 ## Before the first run
@@ -93,7 +93,7 @@ they sign in, wait for the post grid, then press Enter — and give the turn bac
 so they can run it. The session persists, and every later run works headless.
 
 Session, cookies and dependencies live under
-`${XDG_STATE_HOME:-~/.local/state}/douyin-downloader/`, not in this skill
+`${XDG_STATE_HOME:-~/.local/state}/douyin-archiver/`, not in this skill
 directory, so that sign-in is once per user rather than once per project.
 
 ## When it fails
@@ -128,7 +128,7 @@ several of them verified the hard way. Read it before modifying anything in
 
 ## State
 
-One folder per account, under the downloads root:
+One folder per account, under the archives root:
 
 - `posts/<date>_<id>/` — one folder per post, holding its media as `1.mp4`,
   `2.jpg`… and a `text.txt` with the post's permalink, timestamp and full
@@ -138,7 +138,7 @@ One folder per account, under the downloads root:
   what has been downloaded**, and a post counts as done when it holds media.
   Deleting one re-downloads it.
 - `metadata.json` — the account's identity, the profile URL it was archived
-  from and the downloads root the last run used. Written as soon as the folder
+  from and the archives root the last run used. Written as soon as the folder
   is resolved, before anything is downloaded. It is **authoritative for
   identity** — which folder is this account's — and **never for progress**: what
   has been downloaded is answered by `posts/` alone. Deleting it costs the

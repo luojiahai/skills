@@ -10,9 +10,9 @@ test('a URL is positional and flags are flags', () => {
 });
 
 test('a boolean flag does not swallow the argument after it', () => {
-  const { opts } = parseCommandLine(['--full', '--downloads', '/data']);
+  const { opts } = parseCommandLine(['--full', '--archives', '/data']);
   assert.equal(opts.full, true);
-  assert.equal(opts.downloads, '/data');
+  assert.equal(opts.archives, '/data');
 });
 
 test('a value flag followed by another flag neither eats nor loses it', () => {
@@ -24,8 +24,8 @@ test('a value flag followed by another flag neither eats nor loses it', () => {
 });
 
 test('dashes in a flag name become underscores', () => {
-  const { opts } = parseCommandLine(['--downloads', '~/data']);
-  assert.equal(opts.downloads, '~/data');
+  const { opts } = parseCommandLine(['--archives', '~/data']);
+  assert.equal(opts.archives, '~/data');
 });
 
 test('short forms are accepted', () => {
@@ -41,7 +41,7 @@ test('an unknown flag is reported rather than guessed at', () => {
 test('the accepted flags are exactly the documented ones', () => {
   // Anything admitted here but absent from USAGE is a surface nobody can find
   // and nobody maintains.
-  for (const flag of ['--downloads', '--name', '--browser', '--cookies', '--full', '--plan', '--go', '--yes']) {
+  for (const flag of ['--archives', '--name', '--browser', '--cookies', '--full', '--plan', '--go', '--yes']) {
     assert.deepEqual(parseCommandLine([flag, 'v']).unknown, [], flag);
   }
   for (const flag of ['--bin', '--abort', '--url']) {
@@ -55,8 +55,8 @@ test('everything after -- is positional, even if it looks like a flag', () => {
 });
 
 test('a URL is never mistaken for a flag value', () => {
-  const { opts, positional } = parseCommandLine(['--downloads', '/data', 'https://x.com/someone', '--go']);
-  assert.equal(opts.downloads, '/data');
+  const { opts, positional } = parseCommandLine(['--archives', '/data', 'https://x.com/someone', '--go']);
+  assert.equal(opts.archives, '/data');
   assert.equal(opts.go, true);
   assert.deepEqual(positional, ['https://x.com/someone']);
 });

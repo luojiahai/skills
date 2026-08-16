@@ -36,7 +36,7 @@ Accepted input lines (mixed freely; blank lines and #-comments ignored):
   7118726305914326302
 
 This is the general-purpose layer: a list goes in, files come out. Folder,
-plan and metadata policy lives in download.sh, which calls this.
+plan and metadata policy lives in archive.sh, which calls this.
 
 Each post becomes <outdir>/<YYYY-MM-DD|undated>_<id>/ holding its media as
 1.mp4, 2.jpg… and a text.txt with the permalink, timestamp and caption. There
@@ -82,7 +82,7 @@ fi
 
 if [[ ! -f "$INPUT" ]]; then
   echo "error: input file '$INPUT' not found." >&2
-  echo "Generate one with collect-douyin-ids.mjs, or use download.sh." >&2
+  echo "Generate one with collect-douyin-ids.mjs, or use archive.sh." >&2
   exit 1
 fi
 
@@ -154,7 +154,7 @@ MEDIA_TEMPLATE="${POST_DIR}/%(playlist_index|1)s.%(ext)s"
 # caption-less post still gets its permalink and timestamp.
 #
 # `timestamp` rather than the `upload_date` the folder uses: both come from the
-# same instant, but only `timestamp` carries the time of day, and x-downloader's
+# same instant, but only `timestamp` carries the time of day, and x-archiver's
 # text.txt records the second. The folder wants a sortable day, the text wants
 # the moment — same fact, two precisions, deliberately.
 TEXT_TEMPLATE="https://www.douyin.com/video/%(id)s

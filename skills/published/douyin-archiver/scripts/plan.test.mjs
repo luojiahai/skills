@@ -108,7 +108,7 @@ function samplePlan(overrides = {}) {
     collected: ['https://www.douyin.com/video/7111', 'https://www.douyin.com/video/7222'],
     pending: ['https://www.douyin.com/video/7222'],
     folder: '/data/abc123',
-    downloadsRoot: '/data',
+    archivesRoot: '/data',
     now: new Date('2026-08-14T10:00:00Z'),
     ...overrides,
   });
@@ -119,7 +119,7 @@ test('buildPlan records identity, root and both lists', () => {
   assert.equal(plan.sec_uid, 'MS4wSEC');
   assert.equal(plan.douyin_id, 'abc123');
   assert.equal(plan.nickname, '小明');
-  assert.equal(plan.downloads_root, '/data');
+  assert.equal(plan.archives_root, '/data');
   assert.equal(plan.folder, '/data/abc123');
   assert.equal(plan.reported_works_count, 284);
   assert.equal(plan.collected.length, 2);
@@ -131,7 +131,7 @@ const CHECK = {
   secUid: 'MS4wSEC',
   douyinId: 'abc123',
   folder: '/data/abc123',
-  downloadsRoot: '/data',
+  archivesRoot: '/data',
   now: new Date('2026-08-14T10:05:00Z'),
   ttlHours: 24,
 };
@@ -177,10 +177,10 @@ test('validatePlan matches on douyin_id when no sec_uid is known', () => {
 test('validatePlan rejects a plan written for another root', () => {
   const err = validatePlan(samplePlan(), {
     ...CHECK,
-    downloadsRoot: '/elsewhere',
+    archivesRoot: '/elsewhere',
     folder: '/elsewhere/abc123',
   });
-  assert.match(err.message, /different downloads root/);
+  assert.match(err.message, /different archives root/);
 });
 
 test('validatePlan rejects a plan written for another folder under the same root', () => {
@@ -234,18 +234,18 @@ test('statusBlock says up to date when nothing is pending', () => {
   assert.match(block, /to fetch\s+0 — already up to date/);
 });
 
-test('statusBlock notes a downloads root that has moved', () => {
+test('statusBlock notes an archives root that has moved', () => {
   const block = statusBlock({
     account: { nickname: '小明', douyin_id: 'abc123' },
     folder: '/data/abc123',
-    previousRoot: '/proj/downloads',
-    downloadsRoot: '/data',
+    previousRoot: '/proj/archives',
+    archivesRoot: '/data',
     collected: 282,
     reported: 284,
     onDisk: 245,
     pending: 37,
   });
-  assert.match(block, /note\s+last run used \/proj\/downloads/);
+  assert.match(block, /note\s+last run used \/proj\/archives/);
 });
 
 test('statusBlock stays quiet when the root has not moved', () => {
@@ -253,7 +253,7 @@ test('statusBlock stays quiet when the root has not moved', () => {
     account: { nickname: '小明', douyin_id: 'abc123' },
     folder: '/data/abc123',
     previousRoot: '/data',
-    downloadsRoot: '/data',
+    archivesRoot: '/data',
     collected: 282,
     reported: 284,
     onDisk: 245,
@@ -526,7 +526,7 @@ test('summaryBlock repeats the skipped-image note the approved block showed', ()
 
 const CLI = new URL('./plan.mjs', import.meta.url).pathname;
 
-async function buildIn(folder, { downloads, url, meta = {}, collected = [] }) {
+async function buildIn(folder, { archives, url, meta = {}, collected = [] }) {
   const scratch = await mkdtemp(path.join(os.tmpdir(), 'douyin-build-'));
   const metaFile = path.join(scratch, 'meta.json');
   const urlsFile = path.join(scratch, 'urls.txt');
@@ -538,18 +538,18 @@ async function buildIn(folder, { downloads, url, meta = {}, collected = [] }) {
     '--meta', metaFile,
     '--urls', urlsFile,
     '--folder', folder,
-    '--downloads', downloads,
+    '--archives', archives,
     '--url', url,
   ]);
   return stdout;
 }
 
 test('build records the account before anything is downloaded', async () => {
-  const downloads = await mkdtemp(path.join(os.tmpdir(), 'douyin-downloads-'));
-  const folder = path.join(downloads, 'douyin_abc123');
+  const archives = await mkdtemp(path.join(os.tmpdir(), 'douyin-archives-'));
+  const folder = path.join(archives, 'douyin_abc123');
 
   await buildIn(folder, {
-    downloads,
+    archives,
     url: 'https://www.douyin.com/user/MS4wABC',
     meta: { sec_uid: 'MS4wABC', douyin_id: 'abc123', nickname: '某人' },
     collected: ['https://www.douyin.com/video/7111'],
@@ -558,38 +558,38 @@ test('build records the account before anything is downloaded', async () => {
   const metadata = JSON.parse(await readFile(path.join(folder, 'metadata.json'), 'utf8'));
   assert.deepEqual(metadata.account, { sec_uid: 'MS4wABC', douyin_id: 'abc123', nickname: '某人' });
   assert.equal(metadata.url, 'https://www.douyin.com/user/MS4wABC');
-  assert.equal(metadata.root, downloads);
+  assert.equal(metadata.root, archives);
 });
 
 test('build reports the previous root before overwriting it', async () => {
-  const downloads = await mkdtemp(path.join(os.tmpdir(), 'douyin-downloads-'));
-  const folder = path.join(downloads, 'douyin_abc123');
+  const archives = await mkdtemp(path.join(os.tmpdir(), 'douyin-archives-'));
+  const folder = path.join(archives, 'douyin_abc123');
   await mkdir(folder, { recursive: true });
   await writeFile(
     path.join(folder, 'metadata.json'),
-    JSON.stringify({ account: { douyin_id: 'abc123' }, root: '/elsewhere/downloads' }),
+    JSON.stringify({ account: { douyin_id: 'abc123' }, root: '/elsewhere/archives' }),
   );
 
   const out = await buildIn(folder, {
-    downloads,
+    archives,
     url: 'https://www.douyin.com/user/MS4wABC',
     meta: { sec_uid: 'MS4wABC', douyin_id: 'abc123' },
     collected: ['https://www.douyin.com/video/7111'],
   });
 
-  assert.match(out, /last run used \/elsewhere\/downloads/);
+  assert.match(out, /last run used \/elsewhere\/archives/);
   const metadata = JSON.parse(await readFile(path.join(folder, 'metadata.json'), 'utf8'));
-  assert.equal(metadata.root, downloads);
+  assert.equal(metadata.root, archives);
 });
 
 test('build records the account even when there is nothing left to fetch', async () => {
   // No plan is written in this case, so metadata.json is the only thing that
   // will tell the next run whose folder this is.
-  const downloads = await mkdtemp(path.join(os.tmpdir(), 'douyin-downloads-'));
-  const folder = path.join(downloads, 'douyin_abc123');
+  const archives = await mkdtemp(path.join(os.tmpdir(), 'douyin-archives-'));
+  const folder = path.join(archives, 'douyin_abc123');
 
   const out = await buildIn(folder, {
-    downloads,
+    archives,
     url: 'https://www.douyin.com/user/MS4wABC',
     meta: { sec_uid: 'MS4wABC', douyin_id: 'abc123' },
     collected: [],

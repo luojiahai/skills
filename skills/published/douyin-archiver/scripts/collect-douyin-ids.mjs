@@ -23,9 +23,9 @@
  *                       so you can visit douyin.com / clear a check
  *       --limit N       Stop after collecting N posts
  *       --profile DIR   Browser profile directory
- *                       (default: ${XDG_STATE_HOME:-~/.local/state}/douyin-downloader/profile)
+ *                       (default: ${XDG_STATE_HOME:-~/.local/state}/douyin-archiver/profile)
  *       --meta FILE     Also write profile metadata (sec_uid, 抖音号, nickname,
- *                       counts) as JSON — how download.sh identifies the account
+ *                       counts) as JSON — how archive.sh identifies the account
  *   -h, --help
  */
 import { writeFile } from 'node:fs/promises';
@@ -103,9 +103,9 @@ Options:
                       or clear a verification check, then press Enter
       --limit N       Stop after collecting N posts
       --profile DIR   Browser profile directory
-                      (default: \${XDG_STATE_HOME:-~/.local/state}/douyin-downloader/profile)
+                      (default: \${XDG_STATE_HOME:-~/.local/state}/douyin-archiver/profile)
       --meta FILE     Also write profile metadata (sec_uid, 抖音号, nickname,
-                      counts) as JSON — how download.sh identifies the account
+                      counts) as JSON — how archive.sh identifies the account
   -h, --help          Show this help
 
 Examples:
@@ -250,7 +250,7 @@ async function main() {
     // Give the feed a chance to render before deciding it is empty.
     await page.waitForTimeout(3000);
 
-    // The header renders on its own schedule, and download.sh discards the
+    // The header renders on its own schedule, and archive.sh discards the
     // whole collection when the 抖音号 is missing from the metadata — so poll
     // rather than trusting one read after a fixed pause. The grid's own
     // rendering time is covered by the stability rule in the scroll loop.

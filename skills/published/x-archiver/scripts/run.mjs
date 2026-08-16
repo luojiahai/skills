@@ -1,7 +1,7 @@
 /**
  * run.mjs — the whole run: what the user asked for, in, and a block out.
  *
- * All of the orchestration lives here rather than in download.sh. The sibling
+ * All of the orchestration lives here rather than in archive.sh. The sibling
  * skill records what the alternative costs: a shell function called under `||`
  * runs with errexit off, and a refused plan there printed its refusal and then
  * kept going, through the state write and a summary telling the user to re-run
@@ -15,7 +15,7 @@ import { access, constants, chmod, mkdir, rm } from 'node:fs/promises';
 import { spawn } from 'node:child_process';
 import path from 'node:path';
 
-import { readArchive } from './archive.mjs';
+import { readArchive } from './landed.mjs';
 import { isMainModule, optString, parseCommandLine } from './cli.mjs';
 import { DEFAULT_ABORT, collect, makeStopper } from './collect.mjs';
 import {
@@ -27,7 +27,7 @@ import {
 } from './metadata.mjs';
 import { REMEDIES, cookieExportArgs } from './gallerydl.mjs';
 import { fetchPosts, outstanding } from './fetch.mjs';
-import { COOKIE_FILE, STATE_DIR, downloadsRoot, normalizeRoot } from './paths.mjs';
+import { COOKIE_FILE, STATE_DIR, archivesRoot, normalizeRoot } from './paths.mjs';
 import {
   PLAN_VERSION,
   deletePlan,
@@ -43,7 +43,7 @@ import { parseTarget } from './target.mjs';
 
 const EXIT = { OK: 0, USAGE: 2, REFUSED: 3, FAILED: 4, UNAUTHORIZED: 5, EMPTY: 6 };
 
-const USAGE = `Usage: download.sh <url> [--downloads DIR] [--name NAME] [--plan|--go|--yes]
+const USAGE = `Usage: archive.sh <url> [--archives DIR] [--name NAME] [--plan|--go|--yes]
 
   <url>                 https://x.com/<handle>              an account's media
                         https://x.com/<handle>/status/<id>  one post
@@ -54,11 +54,11 @@ const USAGE = `Usage: download.sh <url> [--downloads DIR] [--name NAME] [--plan|
                         plan for this account, root and folder, under a day old.
       --yes, -y         Plan and download in one run, without stopping.
 
-      --downloads DIR   Root download directory. The account folder is
-                        DIR/x_<handle or --name>.
+      --archives DIR    Root directory the archives live in. The account
+                        folder is DIR/x_<handle or --name>.
       --name NAME       Account name for the folder (default: its handle). The
-                        x_ prefix is always kept, so a shared downloads root
-                        cannot collide with douyin-downloader's folders.
+                        x_ prefix is always kept, so a shared archives root
+                        cannot collide with douyin-archiver's folders.
       --full            Enumerate the whole timeline even when a re-run could
                         stop early.
       --browser NAME    Browser to read the X session from the first time
@@ -259,6 +259,19 @@ export async function main(argv) {
     return EXIT.OK;
   }
 
+  // Named rather than left to the unknown-flag path below. The old flag is the
+  // one thing likely to still be sitting in a shell history, and "unknown
+  // option" would be true while sending the user to --help to work out why.
+  if (unknown.includes('--downloads')) {
+    console.error(
+      'error: --downloads was renamed to --archives (and the default root is now archives/)',
+    );
+    console.error(
+      '  the old root is not read: rename downloads/ to archives/, or pass --archives DIR',
+    );
+    return EXIT.USAGE;
+  }
+
   // Whatever the user typed is passed through as given, so an unknown flag is
   // their typo to see rather than something for the agent to guess at.
   if (unknown.length) {
@@ -282,8 +295,8 @@ export async function main(argv) {
 
   let root;
   try {
-    const given = optString(opts, 'downloads');
-    root = given ? normalizeRoot(given) : downloadsRoot();
+    const given = optString(opts, 'archives');
+    root = given ? normalizeRoot(given) : archivesRoot();
   } catch (error) {
     return fail(error.message, EXIT.USAGE);
   }
@@ -300,8 +313,8 @@ export async function main(argv) {
   const mode = target.kind === 'post' ? 'yes' : pickMode(opts);
 
   const name = optString(opts, 'name');
-  const planHint = `${process.env.XDL_SELF || 'download.sh'} '${url}'${
-    optString(opts, 'downloads') ? ` --downloads '${optString(opts, 'downloads')}'` : ''
+  const planHint = `${process.env.ARCHIVE_SELF || 'archive.sh'} '${url}'${
+    optString(opts, 'archives') ? ` --archives '${optString(opts, 'archives')}'` : ''
   } --plan`;
 
   // A post URL names a post; only an account URL says whose archive this is.

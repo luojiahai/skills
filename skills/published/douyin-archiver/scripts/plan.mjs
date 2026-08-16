@@ -16,7 +16,7 @@
  * identity disagrees with the account being downloaded is refused.
  *
  * It is a cache, not state: the post folders under posts/ are the sole record
- * of what has landed (archive.mjs), and a plan that is missing, stale or
+ * of what has landed (landed.mjs), and a plan that is missing, stale or
  * written for another account or root is refused rather than repaired. `load`
  * re-checks the plan's list against disk before handing it on, so a --go that
  * died halfway resumes at the first post still missing.
@@ -27,13 +27,13 @@
  * code. An earlier version hand-aligned two further copies of it in shell.
  *
  * Subcommands:
- *   build --meta FILE --urls FILE --folder DIR --downloads ROOT [--url URL]
+ *   build --meta FILE --urls FILE --folder DIR --archives ROOT [--url URL]
  *       Diffs the collected list against what is on disk, records the account's
  *       identity in metadata.json, prints the status block, and writes
  *       .plan.json — unless there is nothing to fetch, in which case no plan is
  *       written and the block says so.
  *
- *   load --folder DIR --downloads ROOT [--sec-uid UID] [--douyin-id ID]
+ *   load --folder DIR --archives ROOT [--sec-uid UID] [--douyin-id ID]
  *        --out FILE [--ttl-hours N] [--remedy TEXT]
  *       Validates the plan and writes the URLs still missing from disk to FILE.
  *
@@ -47,12 +47,12 @@
  *       Prints where a single post would land, and whether it is already here.
  *
  *   clear --folder DIR
- *       Removes the plan, once its downloads have all landed.
+ *       Removes the plan, once its posts have all landed.
  */
 import { mkdir, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { isMainModule, optString, parseArgs, readJson, readText, requireOpts } from './cli.mjs';
-import { onDiskIds, unlistedIds } from './archive.mjs';
+import { onDiskIds, unlistedIds } from './landed.mjs';
 import { readMetadata, writeMetadata } from './metadata.mjs';
 
 const PLAN_FILE = '.plan.json';
@@ -112,13 +112,13 @@ export function unlistedCountFromPlan(plan, ids) {
   return unlistedIds(listedIds(plan.collected), ids).length;
 }
 
-export function buildPlan({ meta, collected, pending, folder, downloadsRoot, now }) {
+export function buildPlan({ meta, collected, pending, folder, archivesRoot, now }) {
   return {
     created_at: now.toISOString(),
     sec_uid: meta.sec_uid ?? null,
     douyin_id: meta.douyin_id ?? null,
     nickname: meta.nickname ?? null,
-    downloads_root: downloadsRoot,
+    archives_root: archivesRoot,
     folder,
     collected_count: collected.length,
     reported_works_count: meta.reported_works_count ?? null,
@@ -142,7 +142,7 @@ function ageLabel(ms) {
  * rejection is deliberate: the alternative to refusing a stale or foreign plan
  * is downloading a list the user never saw.
  */
-export function validatePlan(plan, { secUid, douyinId, folder, downloadsRoot, now, ttlHours }) {
+export function validatePlan(plan, { secUid, douyinId, folder, archivesRoot, now, ttlHours }) {
   if (!plan) return { message: `no plan for this account at ${folder}` };
 
   // Every identifier the caller *has* must agree, and at least one must be
@@ -160,11 +160,23 @@ export function validatePlan(plan, { secUid, douyinId, folder, downloadsRoot, no
     };
   }
 
-  if (plan.downloads_root !== downloadsRoot) {
+  // A plan written before --downloads became --archives. The comparison below
+  // would refuse it anyway, but as "made for undefined", which reads as a
+  // corrupt file rather than the rename it is. Plans are cheap and expire in a
+  // day, so there is nothing here worth migrating — only worth explaining.
+  if (plan.archives_root === undefined && plan.downloads_root !== undefined) {
     return {
       message:
-        `the plan at ${folder} is for a different downloads root — it was made ` +
-        `for ${plan.downloads_root}, not ${downloadsRoot}`,
+        `the plan at ${folder} was made before --downloads became --archives — ` +
+        `make a new one`,
+    };
+  }
+
+  if (plan.archives_root !== archivesRoot) {
+    return {
+      message:
+        `the plan at ${folder} is for a different archives root — it was made ` +
+        `for ${plan.archives_root}, not ${archivesRoot}`,
     };
   }
 
@@ -258,7 +270,7 @@ export function statusBlock({
   account,
   folder,
   previousRoot,
-  downloadsRoot,
+  archivesRoot,
   collected,
   reported,
   onDisk,
@@ -267,7 +279,7 @@ export function statusBlock({
   pending,
 }) {
   const lines = [headline(account), row('folder', folder)];
-  if (previousRoot && downloadsRoot && previousRoot !== downloadsRoot) {
+  if (previousRoot && archivesRoot && previousRoot !== archivesRoot) {
     lines.push(row('note', `last run used ${previousRoot}`));
   }
   lines.push(
@@ -323,7 +335,7 @@ export function postBlock({ account, folder, postId, onDisk }) {
 const planPath = (folder) => path.join(folder, PLAN_FILE);
 
 async function build(opts) {
-  requireOpts(opts, 'meta', 'urls', 'folder', 'downloads');
+  requireOpts(opts, 'meta', 'urls', 'folder', 'archives');
   const meta = (await readJson(opts.meta)) ?? {};
   const collected = (await readText(opts.urls)).split('\n').filter((line) => line.trim());
   const onDisk = await onDiskIds(opts.folder);
@@ -339,7 +351,7 @@ async function build(opts) {
   await writeMetadata(opts.folder, {
     account: { sec_uid: meta.sec_uid, douyin_id: meta.douyin_id, nickname: meta.nickname },
     url: optString(opts, 'url'),
-    root: opts.downloads,
+    root: opts.archives,
     updated_at: new Date().toISOString(),
   });
 
@@ -351,7 +363,7 @@ async function build(opts) {
       collected,
       pending,
       folder: opts.folder,
-      downloadsRoot: opts.downloads,
+      archivesRoot: opts.archives,
       now: new Date(),
     });
     await mkdir(opts.folder, { recursive: true });
@@ -367,7 +379,7 @@ async function build(opts) {
       account: meta,
       folder: opts.folder,
       previousRoot,
-      downloadsRoot: opts.downloads,
+      archivesRoot: opts.archives,
       collected: collected.length,
       reported: meta.reported_works_count ?? null,
       onDisk: onDisk.size,
@@ -379,13 +391,13 @@ async function build(opts) {
 }
 
 async function load(opts) {
-  requireOpts(opts, 'folder', 'downloads', 'out');
+  requireOpts(opts, 'folder', 'archives', 'out');
   const plan = await readJson(planPath(opts.folder));
   const error = validatePlan(plan, {
     secUid: optString(opts, 'sec_uid') || null,
     douyinId: optString(opts, 'douyin_id') || null,
     folder: opts.folder,
-    downloadsRoot: opts.downloads,
+    archivesRoot: opts.archives,
     now: new Date(),
     ttlHours: Number(optString(opts, 'ttl_hours') || DEFAULT_TTL_HOURS),
   });

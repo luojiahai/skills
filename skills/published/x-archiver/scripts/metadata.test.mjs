@@ -29,8 +29,8 @@ test('folderNameFor drops a leading @ so the folder is not @someone', () => {
 });
 
 test('folderNameFor prefixes --name too, so no name can collide with another site', () => {
-  // The prefix is what keeps this skill's folders apart from douyin-downloader's
-  // in a shared downloads root. A --name that could opt out would re-open the
+  // The prefix is what keeps this skill's folders apart from douyin-archiver's
+  // in a shared archives root. A --name that could opt out would re-open the
   // clash in the one case the user is least likely to be thinking about it.
   assert.equal(folderNameFor({ handle: 'someone', name: 'douyin_someone' }), 'x_douyin_someone');
 });

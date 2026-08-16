@@ -2,7 +2,7 @@
  * cli.mjs — the argument parsing, file reading and entry-point detection
  * shared by metadata.mjs and plan.mjs.
  *
- * Both are small `<verb> --flag value` CLIs called from download.sh, and they
+ * Both are small `<verb> --flag value` CLIs called from archive.sh, and they
  * had a copy each of this. The copies then drifted: one learned that a flag
  * with no value of its own must not swallow the flag after it, and the other
  * did not. One copy is how that stops happening again.
@@ -45,7 +45,7 @@ export function parseArgs(argv) {
 
 /**
  * A flag's value as a string, treating "present but valueless" as absent.
- * download.sh passes optional flags through unconditionally — `--name ""`
+ * archive.sh passes optional flags through unconditionally — `--name ""`
  * rather than omitting them — because a `${NAME:+--name "$NAME"}` that is
  * meant to vanish splits on spaces when it does not.
  */

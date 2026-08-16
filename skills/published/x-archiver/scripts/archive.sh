@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 #
-# download.sh — entry point for the x-downloader skill.
+# archive.sh — entry point for the x-archiver skill.
 #
-#   download.sh <url> --plan     enumerate, report what would be fetched
-#   download.sh <url> --go       download what that plan listed
-#   download.sh <url> --yes      both, without stopping to confirm
+#   archive.sh <url> --plan     enumerate, report what would be fetched
+#   archive.sh <url> --go       download what that plan listed
+#   archive.sh <url> --yes      both, without stopping to confirm
 #
 # An account is never downloaded without an explicit --go or --yes: the list is
 # collected, reported, and left in .plan.json until somebody approves it. With
@@ -35,6 +35,18 @@ if [[ $# -eq 0 ]]; then
   exit 2
 fi
 
+# The one piece of argument handling this shell holds, and it is here because of
+# where it sits. run.mjs refuses the old flag too, but it is only reached past
+# the preflight below — so on a machine without gallery-dl a stale --downloads
+# would report the missing tool instead of the rename that actually broke it.
+for arg in "$@"; do
+  if [[ "$arg" == "--downloads" ]]; then
+    echo "error: --downloads was renamed to --archives (and the default root is now archives/)" >&2
+    echo "  the old root is not read: rename downloads/ to archives/, or pass --archives DIR" >&2
+    exit 2
+  fi
+done
+
 # ---- preflight -------------------------------------------------------------
 # Neither of these is installable from here in any portable way, so they are
 # checked and the remedy is printed. Nothing is installed onto anyone's machine.
@@ -57,6 +69,6 @@ if ! command -v gallery-dl >/dev/null 2>&1; then
 fi
 
 # Named so the refusal messages can print a command the user can actually run.
-export XDL_SELF="${SCRIPT_DIR}/download.sh"
+export ARCHIVE_SELF="${SCRIPT_DIR}/archive.sh"
 
 exec node "${SCRIPT_DIR}/run.mjs" "$@"

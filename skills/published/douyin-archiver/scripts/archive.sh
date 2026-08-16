@@ -1,17 +1,18 @@
 #!/usr/bin/env bash
 #
-# download.sh — entry point for the douyin-downloader skill.
+# archive.sh — entry point for the douyin-archiver skill.
 #
 # Owns folder, plan and metadata policy; delegates the actual fetching to
 # download-douyin.sh, the ID collection to collect-douyin-ids.mjs, and the
-# diff-and-confirm step to plan.mjs.
+# diff-and-confirm step to plan.mjs. This script archives; download-douyin.sh
+# downloads — the filenames say which layer you are in.
 #
-#   download.sh <profile-url> --plan     collect, report what would be fetched
-#   download.sh <profile-url> --go       download what that plan listed
-#   download.sh <profile-url> --yes      both, without stopping to confirm
-#   download.sh <post-url>               one post, straight away
+#   archive.sh <profile-url> --plan     collect, report what would be fetched
+#   archive.sh <profile-url> --go       fetch what that plan listed
+#   archive.sh <profile-url> --yes      both, without stopping to confirm
+#   archive.sh <post-url>               one post, straight away
 #
-# An account is never downloaded without an explicit --go or --yes: the list is
+# An account is never archived without an explicit --go or --yes: the list is
 # collected first and reported, so the account, the folder and the number of
 # posts are all known before anything is fetched. A bare profile URL therefore
 # behaves as --plan.
@@ -27,15 +28,15 @@ SKILL_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
 # The skill directory is pure source and may live anywhere — a plugin dir, a
 # read-only checkout — so nothing mutable hangs off it. Session state is
-# user-level (log in once, not once per project); downloads are project-level
+# user-level (log in once, not once per project); archives are project-level
 # (an archive belongs beside the work it is part of).
-STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/douyin-downloader"
+STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/douyin-archiver"
 PROFILE_DIR="${STATE_DIR}/profile"
 COOKIE_FILE="${STATE_DIR}/cookies.txt"
 
 NAME=""
 URL=""
-DOWNLOADS_ARG=""
+ARCHIVES_ARG=""
 MODE=""
 
 # --yes is the user's own say-so, and the skill appends --plan or --go after
@@ -48,40 +49,40 @@ set_mode() {
 
 usage() {
   cat <<'EOF'
-download.sh — download a Douyin account's posts, or a single post.
+archive.sh — archive a Douyin account's posts, or download a single post.
 
-Usage: download.sh <url> [--downloads DIR] [--name NAME] [--plan|--go|--yes]
+Usage: archive.sh <url> [--archives DIR] [--name NAME] [--plan|--go|--yes]
 
   <url>   https://www.douyin.com/user/MS4w...   every post from the account
           https://www.douyin.com/video/711...   one post
 
 Modes (profile URLs):
       --plan            Collect the post list, report what would be fetched,
-                        and stop. The default: nothing is downloaded until a
+                        and stop. The default: nothing is fetched until a
                         plan has been made and approved.
-      --go              Download the posts the last --plan listed. Needs a
+      --go              Fetch the posts the last --plan listed. Needs a
                         plan made within the last 24h for this account and
-                        this downloads root.
-      --yes, -y         Plan and download in one run, without stopping.
+                        this archives root.
+      --yes, -y         Plan and fetch in one run, without stopping.
 
 Options:
-      --downloads DIR   Root download directory. The account folder is
-                        DIR/douyin_<抖音号 or --name>.
-                        (default: <git root, else cwd>/downloads — required
+      --archives DIR    Root directory the archives live in. The account
+                        folder is DIR/douyin_<抖音号 or --name>.
+                        (default: <git root, else cwd>/archives — required
                         when run from inside the skill directory)
       --name NAME       Account name for the folder (default: its 抖音号). The
-                        douyin_ prefix is always kept, so a shared downloads
-                        root cannot collide with x-downloader's folders.
+                        douyin_ prefix is always kept, so a shared archives
+                        root cannot collide with x-archiver's folders.
                         Only needed once; later runs find the folder by
                         matching the account identity in metadata.json.
       --profile DIR     Playwright session profile
-                        (default: ${XDG_STATE_HOME:-~/.local/state}/douyin-downloader/profile)
+                        (default: ${XDG_STATE_HOME:-~/.local/state}/douyin-archiver/profile)
   -h, --help            Show this help
 
-Each post lands in <downloads>/<folder>/posts/<date>_<id>/, holding its media
+Each post lands in <archives>/<folder>/posts/<date>_<id>/, holding its media
 as 1.mp4, 2.jpg… and a text.txt with the permalink, timestamp and caption.
-Those folders are the record of what has been downloaded — delete one and it
-is fetched again. Beside them sit metadata.json (whose account this folder
+Those folders are the record of what has landed — delete one and it is
+fetched again. Beside them sit metadata.json (whose account this folder
 is) and, between --plan and --go, .plan.json (the list awaiting approval).
 
 Image posts (图文) are counted and reported, but not yet downloaded:
@@ -92,12 +93,19 @@ EOF
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --name)      NAME="$2"; shift 2 ;;
-    --downloads) DOWNLOADS_ARG="$2"; shift 2 ;;
+    --archives)  ARCHIVES_ARG="$2"; shift 2 ;;
     --profile)   PROFILE_DIR="$2"; shift 2 ;;
     --plan)      set_mode plan; shift ;;
     --go)        set_mode go; shift ;;
     -y | --yes)  MODE="yes"; shift ;;
     -h | --help) usage; exit 0 ;;
+    # Named rather than left to the catch-all below. The old flag is the one
+    # thing likely to still be sitting in a shell history, and "unknown option"
+    # would be true while sending the user to --help to find out why.
+    --downloads)
+      echo "error: --downloads was renamed to --archives (and the default root is now archives/)" >&2
+      echo "  the old root is not read: rename downloads/ to archives/, or pass --archives DIR" >&2
+      exit 2 ;;
     -*) echo "error: unknown option '$1' (try --help)" >&2; exit 2 ;;
     *)  URL="$1"; shift ;;
   esac
@@ -110,16 +118,16 @@ if [[ -z "$URL" ]]; then
   exit 2
 fi
 
-# Where downloads live is decided in one place, paths.mjs, rather than being
+# Where archives live is decided in one place, paths.mjs, rather than being
 # recomputed here: a root that disagrees with the one the Node scripts use
 # would name a different account folder and silently re-download everything. It
 # also expands ~ and makes the path absolute, since the agent passes the user's
 # flag through as typed and a quoted ~/data never reaches the shell's expansion.
-DOWNLOADS="$(node "${SCRIPT_DIR}/metadata.mjs" root --downloads "$DOWNLOADS_ARG")" || exit 2
+ARCHIVES="$(node "${SCRIPT_DIR}/metadata.mjs" root --archives "$ARCHIVES_ARG")" || exit 2
 
 # The command that makes a plan, quoted back to the user in every message that
 # needs one to exist.
-PLAN_HINT="${SCRIPT_DIR}/download.sh '${URL}'${DOWNLOADS_ARG:+ --downloads '${DOWNLOADS_ARG}'}${NAME:+ --name '${NAME}'} --plan"
+PLAN_HINT="${SCRIPT_DIR}/archive.sh '${URL}'${ARCHIVES_ARG:+ --archives '${ARCHIVES_ARG}'}${NAME:+ --name '${NAME}'} --plan"
 
 # ---- preflight -------------------------------------------------------------
 # Three cheap checks with a one-line remedy each. Session expiry is the fourth
@@ -147,7 +155,7 @@ if [[ ! -d "$PROFILE_DIR" ]]; then
 fi
 
 # The subdirectory holding one folder per post. Spelled here as well as in
-# archive.mjs' POSTS_DIR — change it in one place and change it in the other.
+# landed.mjs's POSTS_DIR — change it in one place and change it in the other.
 POSTS_SUBDIR="posts"
 
 TMP_COLLECTED=""
@@ -213,7 +221,7 @@ download_list() {
 }
 
 resolve_folder() {
-  node "${SCRIPT_DIR}/metadata.mjs" resolve --downloads "$DOWNLOADS" "$@"
+  node "${SCRIPT_DIR}/metadata.mjs" resolve --archives "$ARCHIVES" "$@"
 }
 
 # ---- single post -----------------------------------------------------------
@@ -258,7 +266,7 @@ if [[ "$URL" =~ /video/([0-9]+) ]]; then
   # instead of starting a second one for the same account. No --url: the URL
   # here names a post, and the recorded one is the profile's.
   node "${SCRIPT_DIR}/metadata.mjs" write --folder "$FOLDER" \
-    --douyin-id "$DOUYIN_ID" --downloads "$DOWNLOADS"
+    --douyin-id "$DOUYIN_ID" --archives "$ARCHIVES"
 
   # A single post is already as specific as an instruction gets, so it is not
   # planned or confirmed — but --plan still answers where it would land.
@@ -304,7 +312,7 @@ if [[ "$URL" =~ /user/([^/?#]+) ]]; then
   SEC_UID="${BASH_REMATCH[1]}"
 fi
 
-# Downloads the plan sitting in $1, which --plan wrote and the user approved.
+# Fetches the plan sitting in $1, which --plan wrote and the user approved.
 #
 # Call it plainly, never as `run_plan … || status=$?`: bash switches errexit
 # off for the whole body of a function invoked in a || list, and with it off a
@@ -317,7 +325,7 @@ run_plan() {
   TMP_PENDING="$(mktemp -t douyin-pending)"
   # The one refusal errexit must never be trusted with: nothing below this
   # line may run on a plan that was not approved as-is.
-  plan_mjs load --folder "$folder" --downloads "$DOWNLOADS" \
+  plan_mjs load --folder "$folder" --archives "$ARCHIVES" \
     --sec-uid "$SEC_UID" --out "$TMP_PENDING" --remedy "$PLAN_HINT" || return $?
 
   pending="$(wc -l <"$TMP_PENDING" | tr -d ' ')"
@@ -335,7 +343,7 @@ run_plan() {
   fi
 
   node "${SCRIPT_DIR}/metadata.mjs" write --folder "$folder" --meta "${folder}/.plan.json" \
-    --url "$URL" --downloads "$DOWNLOADS"
+    --url "$URL" --archives "$ARCHIVES"
 
   after="$(plan_mjs count --folder "$folder")"
 
@@ -353,7 +361,7 @@ run_plan() {
   return "$status"
 }
 
-# ---- --go: download an approved plan, no browser involved -------------------
+# ---- --go: fetch an approved plan, no browser involved -------------------
 if [[ "$MODE" == "go" ]]; then
   RESOLVE_STATUS=0
   FOLDER="$(resolve_folder --sec-uid "$SEC_UID" --require-match)" || RESOLVE_STATUS=$?
@@ -362,7 +370,7 @@ if [[ "$MODE" == "go" ]]; then
   # is a real failure that has already said what it was, and swallowing it as
   # "no plan" would send the user off to fix the wrong thing.
   if [[ "$RESOLVE_STATUS" == 3 ]]; then
-    echo "error: no folder for this account under ${DOWNLOADS}, so there is no plan to run." >&2
+    echo "error: no folder for this account under ${ARCHIVES}, so there is no plan to run." >&2
     echo "  run: ${PLAN_HINT}" >&2
     exit 2
   elif [[ "$RESOLVE_STATUS" != 0 ]]; then
@@ -394,7 +402,7 @@ FOLDER="$(resolve_folder --douyin-id "$DOUYIN_ID" --sec-uid "$SEC_UID" --name "$
 
 echo
 node "${SCRIPT_DIR}/plan.mjs" build --meta "$TMP_META" --urls "$TMP_COLLECTED" \
-  --folder "$FOLDER" --downloads "$DOWNLOADS" --url "$URL"
+  --folder "$FOLDER" --archives "$ARCHIVES" --url "$URL"
 
 # No plan file means nothing to fetch, so the scan was the whole run and there
 # is nothing to confirm. build has already recorded the account's identity.

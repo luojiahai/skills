@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 #
-# setup.sh — install what the douyin-downloader skill needs.
+# setup.sh — install what the douyin-archiver skill needs.
 #
-# Everything mutable goes to ${XDG_STATE_HOME:-~/.local/state}/douyin-downloader:
+# Everything mutable goes to ${XDG_STATE_HOME:-~/.local/state}/douyin-archiver:
 # the npm dependency, the browser session, the exported cookies. The skill
 # directory itself stays pure source, so it can be installed read-only, live
 # inside a plugin directory that updates replace, or be moved anywhere.
@@ -15,12 +15,12 @@
 set -euo pipefail
 
 SKILL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/douyin-downloader"
+STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/douyin-archiver"
 
 ok()   { printf '  \033[32m✓\033[0m %s\n' "$1"; }
 warn() { printf '  \033[33m!\033[0m %s\n' "$1"; }
 
-echo "Setting up douyin-downloader…"
+echo "Setting up douyin-archiver…"
 echo "  state: ${STATE_DIR}"
 echo
 
@@ -88,7 +88,7 @@ PROFILE_DIR="${STATE_DIR}/profile"
 if [[ -d "$PROFILE_DIR" ]]; then
   ok "Douyin session present"
   echo
-  echo "Ready. Try:  ${SKILL_DIR}/scripts/download.sh <douyin-url>"
+  echo "Ready. Try:  ${SKILL_DIR}/scripts/archive.sh <douyin-url>"
 else
   echo "One step left — establish a Douyin session (you have to sign in yourself):"
   echo

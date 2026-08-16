@@ -17,7 +17,7 @@ import { spawn } from 'node:child_process';
 import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
-import { POSTS_DIR, TEXT_FILE, isMissing } from './archive.mjs';
+import { POSTS_DIR, TEXT_FILE, isMissing } from './landed.mjs';
 import { classifyFailure, fetchArgs } from './gallerydl.mjs';
 import { permalink, postFolderName, postText } from './naming.mjs';
 

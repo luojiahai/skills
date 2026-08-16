@@ -1,5 +1,5 @@
 /**
- * archive.mjs — what is already downloaded, answered by the files themselves.
+ * landed.mjs — what is already downloaded, answered by the files themselves.
  *
  * There is no archive file. A post is downloaded when its folder exists and
  * holds media; deleting the folder re-downloads it, and that is the whole rule.
@@ -9,8 +9,8 @@
  * silence instead of a re-fetch. Two records of the same thing are free to
  * disagree, and the one that cannot is the media on disk.
  *
- * The layout is shared with x-downloader, which holds the same rules in its own
- * archive.mjs and naming.mjs. They are duplicated on purpose — a skill is a
+ * The layout is shared with x-archiver, which holds the same rules in its own
+ * landed.mjs and naming.mjs. They are duplicated on purpose — a skill is a
  * self-contained folder under skills/, so there is nowhere a shared module
  * could live that is still a skill. Change a rule here and change it there:
  *
@@ -28,7 +28,7 @@ export const TEXT_FILE = 'text.txt';
  * `undated` is a literal, not a wildcard: it has to be recognised on the way
  * back out, or a post fetched without a date would be re-downloaded forever.
  *
- * Unlike x-downloader, nothing here *builds* a folder name — yt-dlp's output
+ * Unlike x-archiver, nothing here *builds* a folder name — yt-dlp's output
  * template in download-douyin.sh does, and this regex has to keep agreeing with
  * it. archive.test.mjs reads that template and checks the two still match.
  */
@@ -62,7 +62,7 @@ export function countMedia(names) {
 
 /**
  * How many files a post should hold is unknowable here — the collector yields
- * ids and nothing else, so unlike x-downloader there is no expected count to
+ * ids and nothing else, so unlike x-archiver there is no expected count to
  * check against. One media file is the most that can be verified, and it is
  * enough to tell a fetched post from the text-only folder left behind when a
  * download failed.

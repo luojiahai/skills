@@ -124,10 +124,10 @@ test('validatePlan refuses a plan made for another account', () => {
   assert.match(result.reason, /not this account/);
 });
 
-test('validatePlan refuses a plan made for another downloads root', () => {
+test('validatePlan refuses a plan made for another archives root', () => {
   const result = validatePlan(goodPlan, { root: '/elsewhere', now });
   assert.equal(result.ok, false);
-  assert.match(result.reason, /downloads root/);
+  assert.match(result.reason, /archives root/);
 });
 
 test('validatePlan refuses a plan made for another folder', () => {
@@ -156,7 +156,7 @@ test('describeAge reads as English at each scale', () => {
 
 const blockPlan = {
   account: { id: '1234567890', handle: 'handle', nickname: 'Display Name' },
-  root: './downloads',
+  root: './archives',
   folder: 'handle',
   createdAt: new Date(now - 4 * 60_000).toISOString(),
   mode: 'incremental',
@@ -209,16 +209,16 @@ test('a folder that matches the handle gets no drift note', () => {
   assert.doesNotMatch(renderPlanBlock(blockPlan, { now }), /folder was created as/);
 });
 
-test('an archive whose downloads root moved since the last run says so', () => {
+test('an archive whose archives root moved since the last run says so', () => {
   // The folder is found by the identity inside it, so a run against a different
   // root silently starts a second archive. Unsaid, "on disk 0" reads as an
   // account that lost its files rather than a root that moved.
-  const out = renderPlanBlock(blockPlan, { now, previousRoot: '/elsewhere/downloads' });
-  assert.match(out, /last run used \/elsewhere\/downloads/);
+  const out = renderPlanBlock(blockPlan, { now, previousRoot: '/elsewhere/archives' });
+  assert.match(out, /last run used \/elsewhere\/archives/);
 });
 
 test('a root that has not moved gets no note', () => {
-  assert.doesNotMatch(renderPlanBlock(blockPlan, { now, previousRoot: './downloads' }), /last run used/);
+  assert.doesNotMatch(renderPlanBlock(blockPlan, { now, previousRoot: './archives' }), /last run used/);
   assert.doesNotMatch(renderPlanBlock(blockPlan, { now }), /last run used/);
 });
 
@@ -233,7 +233,7 @@ test('the media mix is omitted when there is nothing to fetch', () => {
 test('the summary block reports what landed and what is left', () => {
   const out = renderSummaryBlock({
     account: { handle: 'handle' },
-    root: './downloads',
+    root: './archives',
     folder: 'handle',
     fetched: { posts: 4, files: 11 },
     failed: 0,
@@ -246,7 +246,7 @@ test('the summary block reports what landed and what is left', () => {
 test('a run stopped partway tells the user to run --go again', () => {
   const out = renderSummaryBlock({
     account: { handle: 'handle' },
-    root: './downloads',
+    root: './archives',
     folder: 'handle',
     fetched: { posts: 2, files: 5 },
     failed: 1,

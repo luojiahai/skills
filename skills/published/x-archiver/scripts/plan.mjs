@@ -15,7 +15,7 @@
 import { writeFile, rm } from 'node:fs/promises';
 import path from 'node:path';
 
-import { isMissing } from './archive.mjs';
+import { isMissing } from './landed.mjs';
 import { readJson } from './cli.mjs';
 
 const PLAN_FILE = '.plan.json';
@@ -121,7 +121,7 @@ export function validatePlan(plan, { account, url, root, folder, now = Date.now(
     return { ok: false, reason: `the plan is for @${plan.account?.handle} (${plan.url}), not this account` };
   }
   if (root && plan.root !== root) {
-    return { ok: false, reason: `the plan was made for a different downloads root (${plan.root})` };
+    return { ok: false, reason: `the plan was made for a different archives root (${plan.root})` };
   }
   if (folder && plan.folder !== folder) {
     return { ok: false, reason: `the plan was made for a different folder (${plan.folder})` };
@@ -145,7 +145,7 @@ const n = (value) => Number(value || 0).toLocaleString('en-US');
  *
  * Every line here is a question they would otherwise have to ask, and three of
  * them exist because the obvious-looking block would mislead: a folder whose
- * name no longer matches the handle, a downloads root that has moved since the
+ * name no longer matches the handle, an archives root that has moved since the
  * last run, and a sweep that stopped early. Without the sweep line, `to fetch
  * 0` cannot be told apart from "gave up before reaching anything new".
  *

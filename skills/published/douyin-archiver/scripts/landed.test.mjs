@@ -1,5 +1,5 @@
 /**
- * Tests for archive.mjs — the rules that decide what is already downloaded.
+ * Tests for landed.mjs — the rules that decide what is already downloaded.
  *
  * These walk the real filesystem rather than a mock, because the whole point of
  * the module is that the files *are* the record: a fake that answered from
@@ -22,7 +22,7 @@ import {
   postIdFromFolder,
   readArchive,
   unlistedIds,
-} from './archive.mjs';
+} from './landed.mjs';
 
 const root = () => mkdtemp(path.join(os.tmpdir(), 'douyin-archive-'));
 

@@ -10,7 +10,7 @@
  *
  * `metadata.json` is authoritative for *identity* — which folder is this
  * account's — and never for *progress*. What has been downloaded is answered by
- * the post folders themselves (archive.mjs) and by nothing else: a stored count
+ * the post folders themselves (landed.mjs) and by nothing else: a stored count
  * or newest-post id would be a second account of the same thing, free to
  * disagree after a run that died between two writes. Which is why this file
  * holds identity, the URL it was archived from, the root it last ran against,
@@ -26,9 +26,9 @@ export const METADATA_FILE = 'metadata.json';
 export const METADATA_VERSION = 1;
 
 /**
- * Namespaces this skill's folders inside a downloads root it shares with
- * douyin-downloader, whose folders are `douyin_`. Both default to the same root
- * — <git root>/downloads — so without a prefix an X handle and a 抖音号 that
+ * Namespaces this skill's folders inside an archives root it shares with
+ * douyin-archiver, whose folders are `douyin_`. Both default to the same root
+ * — <git root>/archives — so without a prefix an X handle and a 抖音号 that
  * happen to match would archive into one folder and interleave two accounts.
  */
 export const FOLDER_PREFIX = 'x_';
@@ -104,7 +104,7 @@ export async function readMetadata(accountDir) {
 }
 
 /**
- * Every archive in the downloads root this version can read, as it is found.
+ * Every archive in the archives root this version can read, as it is found.
  *
  * Lazy, so a match in the first folder does not cost a read of every other one.
  * A file written by a version that numbered its fields differently is skipped

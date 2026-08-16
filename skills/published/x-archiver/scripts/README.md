@@ -1,4 +1,4 @@
-# x-downloader scripts
+# x-archiver scripts
 
 Read this before changing anything here. The constraints below are why the
 design looks the way it does; several of the obvious simplifications do not
@@ -113,23 +113,28 @@ filename format.
 
 ## Files
 
+**This skill archives; gallery-dl downloads.** `archive.sh` and `run.mjs` own
+the account — folder, plan, what is already on disk — and `gallerydl.mjs` owns
+the fetch. `download` surviving in the lower layer is deliberate: it names what
+the tool actually does, and it is the only marker of which layer you are in.
+
 | File | Role |
 | --- | --- |
-| `download.sh` | Entry point. Preflights node and gallery-dl, then hands the run to `run.mjs`. Deliberately holds no logic. |
+| `archive.sh` | Entry point. Preflights node and gallery-dl, then hands the run to `run.mjs`. Deliberately holds no logic. |
 | `run.mjs` | The whole run: flags, target, session, root, folder, plan, go, and which block gets printed. |
 | `collect.mjs` | Drives the listing pass, reads rows as they arrive, and decides when enough of the timeline has been seen. |
 | `fetch.mjs` | Downloads a list of posts, one gallery-dl invocation each, and writes `text.txt`. |
 | `gallerydl.mjs` | Everything said to gallery-dl and read back from it: policy, throttling, the print format, the row parser, failure classification. |
 | `plan.mjs` | The diff, the plan's validation rules, and **every** block the skill prints. |
-| `archive.mjs` | What is already on disk, read from the post folders. |
+| `landed.mjs` | What is already on disk, read from the post folders. |
 | `naming.mjs` | A post's `<date>_<id>` folder name, the id back out of one, and the `text.txt` body. |
 | `metadata.mjs` | Resolves an account's folder by numeric identity or URL; writes `metadata.json`. |
-| `paths.mjs` | Single source of truth for the state directory and the downloads root. |
+| `paths.mjs` | Single source of truth for the state directory and the archives root. |
 | `target.mjs` | Which of the two entry points a URL is, and refusal by name for everything else. |
 
 ## Why bash holds no logic
 
-`download.sh` preflights and `exec`s. The sibling skill records what the
+`archive.sh` preflights and `exec`s. The sibling skill records what the
 alternative costs: a shell function called under `||` runs with errexit switched
 off for its whole body, and a refused plan there printed its refusal and then
 kept going — through the state write and a summary telling the user to re-run
@@ -163,7 +168,7 @@ their pre-authorisation when the skill appends its own mode flag.
 
 ## The sweep stops early, unlike the sibling's
 
-`douyin-downloader` always scrolls a whole feed and refuses to stop early. That
+`douyin-archiver` always scrolls a whole feed and refuses to stop early. That
 rule is evidence, not principle: a 284-video account measures ~34 seconds. The
 evidence does not transfer. An X timeline is paginated API calls against a rate
 limiter and a decade-old account is tens of thousands of posts, so re-enumerating
@@ -228,17 +233,17 @@ It wants a run against a live account: the print format's field names, the
 policy keys, the throttling numbers, and every string `classifyFailure` matches
 on.
 
-## Shared with douyin-downloader, on purpose
+## Shared with douyin-archiver, on purpose
 
-`archive.mjs`, `naming.mjs` and `metadata.mjs` here, and `archive.mjs` /
-`metadata.mjs` in **douyin-downloader**, hold the same rules, written twice:
+`landed.mjs`, `naming.mjs` and `metadata.mjs` here, and `landed.mjs` /
+`metadata.mjs` in **douyin-archiver**, hold the same rules, written twice:
 
 - `posts/<YYYY-MM-DD|undated>_<id>/`, one folder per post
 - media numbered by position — `1.jpg`, `2.mp4`
 - `text.txt`: permalink, timestamp, blank line, then the untruncated text
 - a post counts as downloaded when its folder holds its media
 - the account folder is prefixed — `x_<handle>` here, `douyin_<抖音号>` there —
-  because both skills default to the same `<git root>/downloads` root, and a
+  because both skills default to the same `<git root>/archives` root, and a
   handle that matches a 抖音号 would otherwise interleave two accounts in one
   folder. `--name` renames the account part and keeps the prefix, so no name
   can be chosen that collides.

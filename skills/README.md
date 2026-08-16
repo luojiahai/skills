@@ -12,15 +12,15 @@ The [root README](../README.md) covers the Claude Code plugin install too.
 
 Skills live in one of two tiers. `published/` is what installs; `deprecated/` is what used to, and is listed at the bottom of this page for the record.
 
-## douyin-downloader
+## douyin-archiver
 
-**[`/douyin-downloader`](./published/douyin-downloader/SKILL.md)** downloads every video from a Douyin account, or a single video. Re-runs fetch only what is new, so an account can be re-archived later without pulling down what you already have. Image posts (图文) are counted and reported, but not yet downloaded — no tool can fetch them ([#39](https://github.com/luojiahai/skills/issues/39)).
+**[`/douyin-archiver`](./published/douyin-archiver/SKILL.md)** archives every video from a Douyin account, or downloads a single video. It was named `douyin-downloader` until the rename. Re-runs fetch only what is new, so an account can be re-archived later without pulling down what you already have. Image posts (图文) are counted and reported, but not yet downloaded — no tool can fetch them ([#39](https://github.com/luojiahai/skills/issues/39)).
 
 **It asks before it downloads.** It reads the account's post list first and tells you whose it is, where the posts would go, how many there are and how many you don't already have — then waits for your yes. Nothing is fetched until you give it.
 
-**One folder per post.** `douyin_<抖音号>/posts/2024-03-11_7412…/` holds that post's media as `1.mp4` alongside a `text.txt` with the permalink, timestamp and full caption — the same shape `x-downloader` writes, so one downloads folder reads as one archive.
+**One folder per post.** `douyin_<抖音号>/posts/2024-03-11_7412…/` holds that post's media as `1.mp4` alongside a `text.txt` with the permalink, timestamp and full caption — the same shape `x-archiver` writes, so a shared archives root reads as one archive.
 
-**Where they land.** `./downloads/` beside your project by default, or wherever you say: `/douyin-downloader <url> --downloads ~/data`. Give the same folder again next time and it picks up where it left off; give a different one and it starts a fresh archive there.
+**Where they land.** `./archives/` beside your project by default, or wherever you say: `/douyin-archiver <url> --archives ~/data`. Give the same folder again next time and it picks up where it left off; give a different one and it starts a fresh archive there.
 
 **You'll need** [yt-dlp](https://github.com/yt-dlp/yt-dlp) and Node installed, and a one-off Douyin sign-in — a browser opens, you sign in, and the session is reused from then on. The skill's `setup.sh` checks the rest and tells you what's missing.
 
@@ -28,9 +28,9 @@ Skills live in one of two tiers. `published/` is what installs; `deprecated/` is
 
 **It fetches; it doesn't publish.** Posts land in a folder on your own disk and nothing is uploaded anywhere. What you may keep, and what you may do with it, is between you, Douyin's terms and the uploader's copyright — that call is yours, not the agent's. The pauses between requests are deliberate: a run with them removed gets cut off partway.
 
-## x-downloader
+## x-archiver
 
-**[`/x-downloader`](./published/x-downloader/SKILL.md)** downloads the media an account has posted on **X, formerly Twitter** — or a single post. Images, videos and GIFs; re-runs fetch only what's new.
+**[`/x-archiver`](./published/x-archiver/SKILL.md)** archives the media an account has posted on **X, formerly Twitter** — or downloads a single post. It was named `x-downloader` until the rename. Images, videos and GIFs; re-runs fetch only what's new.
 
 **It asks before it downloads.** Same shape as its Douyin sibling: it reads the account's posts first and tells you whose they are, where they'd go, how many there are and how many you don't already have — then waits for your yes.
 

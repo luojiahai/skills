@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
-import { countMedia, isPostComplete, readArchive } from './archive.mjs';
+import { countMedia, isPostComplete, readArchive } from './landed.mjs';
 
 test('countMedia counts media and nothing else', () => {
   assert.equal(countMedia(['1.jpg', '2.jpg', 'text.txt']), 2);

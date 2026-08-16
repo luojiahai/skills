@@ -23,8 +23,8 @@ test('normalizeRoot leaves a tilde that is not a home reference alone', () => {
 });
 
 test('normalizeRoot resolves a relative path against the given directory', () => {
-  assert.equal(normalizeRoot('./downloads', '/proj'), '/proj/downloads');
-  assert.equal(normalizeRoot('../downloads', '/proj/src'), '/proj/downloads');
+  assert.equal(normalizeRoot('./archives', '/proj'), '/proj/archives');
+  assert.equal(normalizeRoot('../archives', '/proj/src'), '/proj/archives');
 });
 
 test('normalizeRoot keeps an absolute path absolute', () => {
@@ -32,7 +32,7 @@ test('normalizeRoot keeps an absolute path absolute', () => {
 });
 
 test('normalizeRoot resolves symlinks in the part that exists', () => {
-  // The default root is read off the real filesystem, so an explicit --downloads
+  // The default root is read off the real filesystem, so an explicit --archives
   // naming the same place through a symlink (/tmp on macOS) has to normalise to
   // the same string — otherwise a plan made one way is refused the other way.
   const tmp = mkdtempSync(path.join(os.tmpdir(), 'douyin-paths-'));
@@ -44,8 +44,8 @@ test('normalizeRoot resolves symlinks in the part that exists', () => {
   assert.equal(normalizeRoot(link, '/proj'), realpathSync(real));
   // …including when the root itself has not been created yet.
   assert.equal(
-    normalizeRoot(path.join(link, 'downloads'), '/proj'),
-    path.join(realpathSync(real), 'downloads'),
+    normalizeRoot(path.join(link, 'archives'), '/proj'),
+    path.join(realpathSync(real), 'archives'),
   );
 });
 

@@ -41,7 +41,7 @@ test('mergeMetadata keeps what an earlier run knew', () => {
     {
       account: { sec_uid: 'MS4wOLD', nickname: '旧名' },
       url: 'https://www.douyin.com/user/MS4wOLD',
-      root: '/proj/downloads',
+      root: '/proj/archives',
     },
     { account: { douyin_id: 'abc123' }, updated_at: NOW },
   );
@@ -49,7 +49,7 @@ test('mergeMetadata keeps what an earlier run knew', () => {
   assert.equal(metadata.account.nickname, '旧名');
   assert.equal(metadata.account.douyin_id, 'abc123');
   assert.equal(metadata.url, 'https://www.douyin.com/user/MS4wOLD');
-  assert.equal(metadata.root, '/proj/downloads');
+  assert.equal(metadata.root, '/proj/archives');
   assert.equal(metadata.updated_at, NOW);
 });
 
@@ -178,8 +178,8 @@ test('folderNameFor prefers an explicit --name', () => {
 });
 
 test('folderNameFor prefixes --name too, so no name can collide with another site', () => {
-  // The prefix is what keeps this skill's folders apart from x-downloader's in
-  // a shared downloads root — both default to <git root>/downloads. A --name
+  // The prefix is what keeps this skill's folders apart from x-archiver's in
+  // a shared archives root — both default to <git root>/archives. A --name
   // free to drop it would re-open the clash where nobody is looking for it.
   assert.equal(folderNameFor({ douyinId: 'abc123', name: 'x_someone' }), 'douyin_x_someone');
 });
