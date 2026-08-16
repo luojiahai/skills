@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { datePart, postFolderName, postText, permalink, tweetIdFromFolder } from './naming.mjs';
+import { datePart, postFolderName, permalink, tweetIdFromFolder } from './naming.mjs';
 
 test('datePart takes the day out of a gallery-dl timestamp', () => {
   assert.equal(datePart('2024-03-11 07:22:19'), '2024-03-11');
@@ -50,54 +50,6 @@ test('tweetIdFromFolder ignores a folder that merely ends in _digits', () => {
   assert.equal(tweetIdFromFolder('2024-03-11 - a trip_1767'), null);
   assert.equal(tweetIdFromFolder('2024-03-11_1767 copy'), null);
   assert.equal(tweetIdFromFolder(' 2024-03-11_1767 '), null);
-});
-
-test('postText writes a header and body', () => {
-  const out = postText({
-    permalink: 'https://x.com/a/status/1',
-    date: '2024-03-11 07:22:19',
-    content: 'hello',
-  });
-  assert.equal(out, 'https://x.com/a/status/1\n2024-03-11 07:22:19\n\nhello\n');
-});
-
-test('postText notes what a reply replies to', () => {
-  const out = postText({
-    permalink: 'https://x.com/a/status/1',
-    date: '2024-03-11 07:22:19',
-    content: 'yes',
-    replyUrl: 'https://x.com/i/web/status/99',
-  });
-  assert.ok(out.includes('in reply to https://x.com/i/web/status/99'));
-});
-
-test('postText omits the reply line for a post that is not a reply', () => {
-  const out = postText({
-    permalink: 'https://x.com/a/status/1',
-    date: '2024-03-11 07:22:19',
-    content: 'hi',
-  });
-  assert.ok(!out.includes('in reply to'));
-});
-
-test('postText is still written for a post with no text at all', () => {
-  const out = postText({
-    permalink: 'https://x.com/a/status/1',
-    date: '2024-03-11 07:22:19',
-    content: '',
-  });
-  assert.ok(out.startsWith('https://x.com/a/status/1'));
-  assert.ok(out.endsWith('\n'));
-});
-
-test('postText keeps the full body the folder name no longer carries', () => {
-  const body = 'a'.repeat(500);
-  const out = postText({
-    permalink: 'https://x.com/a/status/1',
-    date: '2024-03-11 07:22:19',
-    content: body,
-  });
-  assert.ok(out.includes(body));
 });
 
 test('permalink is the canonical form --go re-fetches by', () => {

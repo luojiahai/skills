@@ -3,7 +3,6 @@ import test from 'node:test';
 
 import {
   MAX_PLAN_AGE_MS,
-  PLAN_VERSION,
   classify,
   describeAge,
   diff,
@@ -12,12 +11,25 @@ import {
   renderSummaryBlock,
   validatePlan,
 } from './plan.mjs';
+import { buildPost } from './post.mjs';
 
 const rows = [
   { tweetId: '1', num: 1, count: 2, ext: 'jpg', date: '2024-03-11 07:22:19', content: 'a' },
   { tweetId: '1', num: 2, count: 2, ext: 'jpg', date: '2024-03-11 07:22:19', content: 'a' },
   { tweetId: '2', num: 1, count: 1, ext: 'mp4', date: '2024-03-10 07:22:19', content: 'b' },
 ];
+
+/**
+ * One archived post: it says it carries `listed` and the folder holds `present`.
+ * The same shape landed.mjs's readArchive returns.
+ */
+function onDisk(id, listed, present = listed) {
+  const media = listed.map((name) => {
+    const [num, ext] = name.split('.');
+    return { num, ext };
+  });
+  return [id, { folder: `2024-01-01_${id}`, names: [...present, 'post.json'], post: buildPost({ id, media }) }];
+}
 
 test('groupFiles folds file rows into posts', () => {
   const posts = groupFiles(rows);
@@ -31,13 +43,24 @@ test('groupFiles preserves enumeration order, newest first', () => {
   assert.deepEqual(groupFiles(rows).map((p) => p.tweetId), ['1', '2']);
 });
 
-test('groupFiles carries what text.txt needs off the first row', () => {
+test('groupFiles carries what post.json needs off the first row', () => {
   const [post] = groupFiles([
     { tweetId: '9', num: 1, count: 1, ext: 'jpg', date: '2024-01-01 00:00:00', content: 'hi', replyId: '42', user: { name: 'someone' } },
   ]);
   assert.equal(post.replyId, '42');
   assert.equal(post.handle, 'someone');
   assert.equal(post.content, 'hi');
+});
+
+test('a file record is already in the shape post.json wants', () => {
+  // fetch.mjs hands these straight to buildPost. A mapping step between the two
+  // would be a second place the media list could be got wrong.
+  const [post] = groupFiles([
+    { tweetId: '9', num: 1, ext: 'jpg', url: 'https://pbs.twimg.com/media/ABC.jpg', type: 'photo', mediaId: 'ABC' },
+  ]);
+  assert.deepEqual(post.files, [
+    { num: 1, ext: 'jpg', url: 'https://pbs.twimg.com/media/ABC.jpg', type: 'photo', id: 'ABC' },
+  ]);
 });
 
 test('groupFiles trusts the extractor count over a truncated tally', () => {
@@ -59,8 +82,7 @@ test('classify splits images from videos', () => {
 });
 
 test('diff of an empty archive is everything', () => {
-  const posts = groupFiles(rows);
-  const result = diff(posts, new Map());
+  const result = diff(groupFiles(rows), new Map());
   assert.equal(result.toFetch.length, 2);
   assert.equal(result.counts.fetchPosts, 2);
   assert.equal(result.counts.fetchFiles, 3);
@@ -68,44 +90,35 @@ test('diff of an empty archive is everything', () => {
 });
 
 test('diff omits posts already complete on disk', () => {
-  const posts = groupFiles(rows);
-  const archive = new Map([['1', { folder: '2024-01-01_1', mediaCount: 2 }]]);
-  const result = diff(posts, archive);
+  const archive = new Map([onDisk('1', ['1.jpg', '2.jpg'])]);
+  const result = diff(groupFiles(rows), archive);
   assert.deepEqual(result.toFetch.map((p) => p.tweetId), ['2']);
   assert.equal(result.counts.onDiskPosts, 1);
 });
 
 test('diff re-fetches a post whose files are only half there', () => {
-  const posts = groupFiles(rows);
-  const archive = new Map([['1', { folder: '2024-01-01_1', mediaCount: 1 }]]);
-  const result = diff(posts, archive);
+  const archive = new Map([onDisk('1', ['1.jpg', '2.jpg'], ['1.jpg'])]);
+  const result = diff(groupFiles(rows), archive);
   assert.deepEqual(result.toFetch.map((p) => p.tweetId), ['1', '2']);
 });
 
 test('diff counts found files across every post, fetched or not', () => {
-  const archive = new Map([['1', { folder: '2024-01-01_1', mediaCount: 2 }]]);
+  const archive = new Map([onDisk('1', ['1.jpg', '2.jpg'])]);
   const result = diff(groupFiles(rows), archive);
   assert.equal(result.counts.foundPosts, 2);
   assert.equal(result.counts.foundFiles, 3);
 });
 
 const goodPlan = {
-  version: PLAN_VERSION,
   createdAt: new Date(1_700_000_000_000).toISOString(),
   account: { id: '55', handle: 'someone' },
   root: '/data',
-  folder: 'someone',
+  url: 'https://x.com/someone',
 };
 const now = 1_700_000_000_000 + 60_000;
 
-test('validatePlan accepts a fresh plan for the same account, root and folder', () => {
-  const result = validatePlan(goodPlan, {
-    account: { id: '55' },
-    root: '/data',
-    folder: 'someone',
-    now,
-  });
-  assert.equal(result.ok, true);
+test('validatePlan accepts a fresh plan for the same account and root', () => {
+  assert.equal(validatePlan(goodPlan, { account: { id: '55' }, root: '/data', now }).ok, true);
 });
 
 test('validatePlan refuses a missing plan', () => {
@@ -124,26 +137,20 @@ test('validatePlan refuses a plan made for another account', () => {
   assert.match(result.reason, /not this account/);
 });
 
+test('validatePlan refuses a plan made for another URL', () => {
+  const result = validatePlan(goodPlan, { url: 'https://x.com/other', now });
+  assert.equal(result.ok, false);
+  assert.match(result.reason, /not this account/);
+});
+
 test('validatePlan refuses a plan made for another archives root', () => {
   const result = validatePlan(goodPlan, { root: '/elsewhere', now });
   assert.equal(result.ok, false);
   assert.match(result.reason, /archives root/);
 });
 
-test('validatePlan refuses a plan made for another folder', () => {
-  const result = validatePlan(goodPlan, { folder: 'other', now });
-  assert.equal(result.ok, false);
-  assert.match(result.reason, /different folder/);
-});
-
-test('validatePlan refuses a plan written by another version', () => {
-  const result = validatePlan({ ...goodPlan, version: 999 }, { now });
-  assert.equal(result.ok, false);
-});
-
 test('validatePlan refuses a plan with an unusable timestamp', () => {
-  const result = validatePlan({ ...goodPlan, createdAt: 'whenever' }, { now });
-  assert.equal(result.ok, false);
+  assert.equal(validatePlan({ ...goodPlan, createdAt: 'whenever' }, { now }).ok, false);
 });
 
 test('describeAge reads as English at each scale', () => {
@@ -157,7 +164,6 @@ test('describeAge reads as English at each scale', () => {
 const blockPlan = {
   account: { id: '1234567890', handle: 'handle', nickname: 'Display Name' },
   root: './archives',
-  folder: 'handle',
   createdAt: new Date(now - 4 * 60_000).toISOString(),
   mode: 'incremental',
   stoppedEarly: true,
@@ -181,38 +187,36 @@ test('the plan block reports every number the user is approving', () => {
   assert.match(out, /to fetch\s+4 posts · 11 files\s+\(9 images, 2 videos\)/);
 });
 
+test('the block prints the folder the archive is actually in', () => {
+  assert.match(renderPlanBlock(blockPlan, { now }), /→ archives\/x\/1234567890/);
+});
+
 test('the plan block says when a sweep stopped early', () => {
-  const out = renderPlanBlock(blockPlan, { now });
-  assert.match(out, /incremental sweep · stopped after 100 consecutive known posts/);
+  assert.match(renderPlanBlock(blockPlan, { now }), /incremental sweep · stopped after 100 consecutive known posts/);
 });
 
 test('a sweep that reached the end says so, so "0 new" is unambiguous', () => {
-  const out = renderPlanBlock({ ...blockPlan, stoppedEarly: false }, { now });
-  assert.match(out, /reached the end of the timeline/);
+  assert.match(renderPlanBlock({ ...blockPlan, stoppedEarly: false }, { now }), /reached the end of the timeline/);
 });
 
 test('a full sweep is named as one', () => {
-  const out = renderPlanBlock({ ...blockPlan, mode: 'full' }, { now });
-  assert.match(out, /full sweep/);
+  assert.match(renderPlanBlock({ ...blockPlan, mode: 'full' }, { now }), /full sweep/);
 });
 
 test('the plan block states its own age', () => {
   assert.match(renderPlanBlock(blockPlan, { now }), /plan collected 4 minutes ago/);
 });
 
-test('a folder whose name no longer matches the handle is called out', () => {
-  const out = renderPlanBlock({ ...blockPlan, folder: 'oldhandle' }, { now });
-  assert.match(out, /folder was created as @oldhandle/);
-});
-
-test('a folder that matches the handle gets no drift note', () => {
+test('there is no folder-drift note left to print', () => {
+  // A folder named for the id cannot fall out of step with the account, so the
+  // warning that used to be here has nothing left to warn about.
   assert.doesNotMatch(renderPlanBlock(blockPlan, { now }), /folder was created as/);
 });
 
 test('an archive whose archives root moved since the last run says so', () => {
-  // The folder is found by the identity inside it, so a run against a different
-  // root silently starts a second archive. Unsaid, "on disk 0" reads as an
-  // account that lost its files rather than a root that moved.
+  // The folder is found under the root it was made in, so a run against a
+  // different root silently starts a second archive. Unsaid, "on disk 0" reads
+  // as an account that lost its files rather than a root that moved.
   const out = renderPlanBlock(blockPlan, { now, previousRoot: '/elsewhere/archives' });
   assert.match(out, /last run used \/elsewhere\/archives/);
 });
@@ -225,29 +229,28 @@ test('a root that has not moved gets no note', () => {
 test('the media mix is omitted when there is nothing to fetch', () => {
   const out = renderPlanBlock(
     { ...blockPlan, counts: { ...blockPlan.counts, fetchPosts: 0, fetchFiles: 0, images: 0, videos: 0 } },
-    now,
+    { now },
   );
   assert.match(out, /to fetch\s+0 posts · 0 files$/m);
 });
 
 test('the summary block reports what landed and what is left', () => {
   const out = renderSummaryBlock({
-    account: { handle: 'handle' },
+    account: { id: '1234567890', handle: 'handle' },
     root: './archives',
-    folder: 'handle',
     fetched: { posts: 4, files: 11 },
     failed: 0,
     remaining: 0,
   });
+  assert.match(out, /@handle · archives\/x\/1234567890/);
   assert.match(out, /downloaded 4 posts · 11 files/);
   assert.match(out, /the plan is complete/);
 });
 
 test('a run stopped partway tells the user to run --go again', () => {
   const out = renderSummaryBlock({
-    account: { handle: 'handle' },
+    account: { id: '1234567890', handle: 'handle' },
     root: './archives',
-    folder: 'handle',
     fetched: { posts: 2, files: 5 },
     failed: 1,
     remaining: 900,

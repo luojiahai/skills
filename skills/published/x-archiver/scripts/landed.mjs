@@ -2,59 +2,51 @@
  * landed.mjs — what has already landed.
  *
  * There is no archive *file*. The folder is the record: a post is on disk when
- * `posts/<date>_<id>/` exists, and it is complete when that folder holds as
- * many media files as the post has. Nothing else is consulted, and nothing else
- * is written down.
+ * `posts/<date>_<id>/` exists, holds a readable `post.json`, and holds every
+ * file that `post.json` lists. Nothing else is consulted, and nothing else is
+ * written down.
  *
  * That is a deliberate choice and the reason is worth keeping. gallery-dl's own
  * `--download-archive` is an SQLite database, so using it would mean either a
  * SQLite dependency in every counting path, or a second bookkeeping file we
- * maintain ourselves beside it. A second record is the failure mode to avoid:
- * a run that dies between writing one and the other leaves them disagreeing,
- * and the disagreement is silent and permanent. A record derived from the files
+ * maintain ourselves beside it. A second record is the failure mode to avoid: a
+ * run that dies between writing one and the other leaves them disagreeing, and
+ * the disagreement is silent and permanent. A record derived from the files
  * themselves cannot disagree with the files.
  *
- * `text.txt` is ours, not media, and never counts toward completeness — a post
- * whose images failed but whose text was written must still read as incomplete.
+ * `post.json` does not weaken that. It is written *before* the media rather than
+ * after, so it is a description of the post rather than a claim about it — the
+ * question "did this land" is still answered by looking for the files. What it
+ * adds is the list to look for, which is why a post whose fourth image failed
+ * now reads as incomplete instead of as done.
+ *
+ * The layout is shared with douyin-archiver, which holds the same rules in its
+ * own landed.mjs and post.mjs. They are duplicated on purpose — a skill is a
+ * self-contained folder under skills/, so there is nowhere a shared module could
+ * live that is still a skill. Change a rule here and change it there.
  */
 import { readdir } from 'node:fs/promises';
 import path from 'node:path';
 
 import { tweetIdFromFolder } from './naming.mjs';
+import { isComplete, readPost } from './post.mjs';
 
 export const POSTS_DIR = 'posts';
-export const TEXT_FILE = 'text.txt';
 
-/** Media files among a folder's entries: everything that is not ours and not noise. */
-export function countMedia(names) {
-  return names.filter(
-    (n) => n !== TEXT_FILE && !n.startsWith('.') && !n.endsWith('.part'),
-  ).length;
-}
-
-/**
- * Complete when every file the post carries is present.
- *
- * An unknown expected count (a plan written before we knew, or a post fetched
- * by URL alone) falls back to "at least one file" — the most that can honestly
- * be claimed without the count, and it errs toward re-fetching, which is cheap
- * because gallery-dl skips files that already exist.
- */
-export function isPostComplete(mediaCount, expectedCount) {
-  if (!Number.isInteger(expectedCount) || expectedCount <= 0) return mediaCount > 0;
-  return mediaCount >= expectedCount;
+/** Whether one archived post holds everything it says it does. */
+export function isLanded(entry) {
+  return isComplete(entry?.post, entry?.names);
 }
 
 /**
  * Whether a post still needs fetching, given what is on disk.
  *
- * The one definition of "missing", shared by the plan's diff and the fetch
- * loop's outstanding list. Two copies of this rule is how a block comes to
- * promise a number the download then disagrees with.
+ * The one definition of "missing", shared by the plan's diff, the listing pass's
+ * stopping rule and the fetch loop's outstanding list. Three copies of this rule
+ * is how a block comes to promise a number the download then disagrees with.
  */
 export function isMissing(post, archive) {
-  const have = archive.get(post.tweetId);
-  return !have || !isPostComplete(have.mediaCount, post.count);
+  return !isLanded(archive.get(post.tweetId));
 }
 
 /**
@@ -79,13 +71,14 @@ export async function readArchive(accountDir) {
     const id = tweetIdFromFolder(entry.name);
     if (!id) continue;
 
+    const dir = path.join(root, entry.name);
     let names = [];
     try {
-      names = await readdir(path.join(root, entry.name));
+      names = await readdir(dir);
     } catch {
       // Unreadable is indistinguishable from empty here, and both mean refetch.
     }
-    posts.set(id, { folder: entry.name, mediaCount: countMedia(names) });
+    posts.set(id, { folder: entry.name, names, post: await readPost(dir) });
   }
   return posts;
 }

@@ -4,7 +4,7 @@
  *
  * Mostly the pure functions: the diff, the validation rules and the rendering.
  * The `build` subcommand is covered too, because it is where reading and
- * writing metadata.json have to happen in that order. Everything that talks to
+ * writing account.json have to happen in that order. Everything that talks to
  * the live site is exercised by hand, which no test can stand in for.
  */
 import { test } from 'node:test';
@@ -107,7 +107,6 @@ function samplePlan(overrides = {}) {
     },
     collected: ['https://www.douyin.com/video/7111', 'https://www.douyin.com/video/7222'],
     pending: ['https://www.douyin.com/video/7222'],
-    folder: '/data/abc123',
     archivesRoot: '/data',
     now: new Date('2026-08-14T10:00:00Z'),
     ...overrides,
@@ -120,7 +119,6 @@ test('buildPlan records identity, root and both lists', () => {
   assert.equal(plan.douyin_id, 'abc123');
   assert.equal(plan.nickname, '小明');
   assert.equal(plan.archives_root, '/data');
-  assert.equal(plan.folder, '/data/abc123');
   assert.equal(plan.reported_works_count, 284);
   assert.equal(plan.collected.length, 2);
   assert.deepEqual(plan.pending, ['https://www.douyin.com/video/7222']);
@@ -183,11 +181,11 @@ test('validatePlan rejects a plan written for another root', () => {
   assert.match(err.message, /different archives root/);
 });
 
-test('validatePlan rejects a plan written for another folder under the same root', () => {
-  // Same root, different folder — a --name change between plan and go. The
-  // root check must not shadow this one.
-  const err = validatePlan(samplePlan(), { ...CHECK, folder: '/data/renamed' });
-  assert.match(err.message, /different folder \(\/data\/abc123\)/);
+test('a plan cannot be for another folder, so nothing checks for it', () => {
+  // The plan lives inside the account folder it was written into, so "a plan
+  // made for a different folder" is not a state that can be reached — and the
+  // folder is now the account's sec_uid, which a --name change cannot move.
+  assert.equal(validatePlan(samplePlan(), { ...CHECK, folder: '/data/renamed' }), null);
 });
 
 test('validatePlan reports a stale plan age in hours and minutes, not just days', () => {
@@ -520,13 +518,13 @@ test('summaryBlock repeats the skipped-image note the approved block showed', ()
 
 // ---- the build CLI ---------------------------------------------------------
 // One thing here is worth the cost of spawning node: build both *writes*
-// metadata.json and *reports* the root the previous run used, and it reads
+// account.json and *reports* the root the previous run used, and it reads
 // before it writes. Reorder those two and the note goes quiet forever, which no
 // unit test of statusBlock can catch.
 
 const CLI = new URL('./plan.mjs', import.meta.url).pathname;
 
-async function buildIn(folder, { archives, url, meta = {}, collected = [] }) {
+async function buildIn(folder, { archives, url, name, meta = {}, collected = [] }) {
   const scratch = await mkdtemp(path.join(os.tmpdir(), 'douyin-build-'));
   const metaFile = path.join(scratch, 'meta.json');
   const urlsFile = path.join(scratch, 'urls.txt');
@@ -540,34 +538,51 @@ async function buildIn(folder, { archives, url, meta = {}, collected = [] }) {
     '--folder', folder,
     '--archives', archives,
     '--url', url,
+    ...(name ? ['--name', name] : []),
   ]);
   return stdout;
 }
 
+const accountJson = async (folder) => JSON.parse(await readFile(path.join(folder, 'account.json'), 'utf8'));
+const syncJson = async (folder) => JSON.parse(await readFile(path.join(folder, 'sync.json'), 'utf8'));
+
 test('build records the account before anything is downloaded', async () => {
   const archives = await mkdtemp(path.join(os.tmpdir(), 'douyin-archives-'));
-  const folder = path.join(archives, 'douyin_abc123');
+  const folder = path.join(archives, 'douyin', 'MS4wABC');
 
   await buildIn(folder, {
     archives,
     url: 'https://www.douyin.com/user/MS4wABC',
+    name: 'work',
     meta: { sec_uid: 'MS4wABC', douyin_id: 'abc123', nickname: '某人' },
     collected: ['https://www.douyin.com/video/7111'],
   });
 
-  const metadata = JSON.parse(await readFile(path.join(folder, 'metadata.json'), 'utf8'));
-  assert.deepEqual(metadata.account, { sec_uid: 'MS4wABC', douyin_id: 'abc123', nickname: '某人' });
-  assert.equal(metadata.url, 'https://www.douyin.com/user/MS4wABC');
-  assert.equal(metadata.root, archives);
+  const account = await accountJson(folder);
+  assert.deepEqual(account.account, { id: 'MS4wABC', douyin_id: 'abc123', nickname: '某人', name: 'work' });
+  assert.equal(account.url, 'https://www.douyin.com/user/MS4wABC');
+  assert.equal(account.platform, 'douyin');
+});
+
+test('account.json holds no progress, and no root it would go stale about', async () => {
+  const archives = await mkdtemp(path.join(os.tmpdir(), 'douyin-archives-'));
+  const folder = path.join(archives, 'douyin', 'MS4wABC');
+  await buildIn(folder, {
+    archives,
+    url: 'https://www.douyin.com/user/MS4wABC',
+    meta: { sec_uid: 'MS4wABC', douyin_id: 'abc123' },
+    collected: ['https://www.douyin.com/video/7111'],
+  });
+  assert.deepEqual(Object.keys(await accountJson(folder)).sort(), ['account', 'platform', 'url', 'version']);
 });
 
 test('build reports the previous root before overwriting it', async () => {
   const archives = await mkdtemp(path.join(os.tmpdir(), 'douyin-archives-'));
-  const folder = path.join(archives, 'douyin_abc123');
+  const folder = path.join(archives, 'douyin', 'MS4wABC');
   await mkdir(folder, { recursive: true });
   await writeFile(
-    path.join(folder, 'metadata.json'),
-    JSON.stringify({ account: { douyin_id: 'abc123' }, root: '/elsewhere/archives' }),
+    path.join(folder, 'sync.json'),
+    JSON.stringify({ version: 1, plan: null, last_run: { at: 'yesterday', root: '/elsewhere/archives' } }),
   );
 
   const out = await buildIn(folder, {
@@ -578,15 +593,34 @@ test('build reports the previous root before overwriting it', async () => {
   });
 
   assert.match(out, /last run used \/elsewhere\/archives/);
-  const metadata = JSON.parse(await readFile(path.join(folder, 'metadata.json'), 'utf8'));
-  assert.equal(metadata.root, archives);
+});
+
+test('parking a plan leaves the previous run’s history beside it', async () => {
+  const archives = await mkdtemp(path.join(os.tmpdir(), 'douyin-archives-'));
+  const folder = path.join(archives, 'douyin', 'MS4wABC');
+  await mkdir(folder, { recursive: true });
+  await writeFile(
+    path.join(folder, 'sync.json'),
+    JSON.stringify({ version: 1, plan: null, last_run: { at: 'yesterday', root: archives, landed: 7 } }),
+  );
+
+  await buildIn(folder, {
+    archives,
+    url: 'https://www.douyin.com/user/MS4wABC',
+    meta: { sec_uid: 'MS4wABC', douyin_id: 'abc123' },
+    collected: ['https://www.douyin.com/video/7111'],
+  });
+
+  const sync = await syncJson(folder);
+  assert.equal(sync.plan.pending.length, 1);
+  assert.equal(sync.last_run.landed, 7);
 });
 
 test('build records the account even when there is nothing left to fetch', async () => {
-  // No plan is written in this case, so metadata.json is the only thing that
-  // will tell the next run whose folder this is.
+  // No plan is parked in this case, so account.json is the only thing that will
+  // tell the next run whose folder this is.
   const archives = await mkdtemp(path.join(os.tmpdir(), 'douyin-archives-'));
-  const folder = path.join(archives, 'douyin_abc123');
+  const folder = path.join(archives, 'douyin', 'MS4wABC');
 
   const out = await buildIn(folder, {
     archives,
@@ -596,7 +630,24 @@ test('build records the account even when there is nothing left to fetch', async
   });
 
   assert.match(out, /already up to date/);
-  assert.equal(existsSync(path.join(folder, '.plan.json')), false);
-  const metadata = JSON.parse(await readFile(path.join(folder, 'metadata.json'), 'utf8'));
-  assert.equal(metadata.account.douyin_id, 'abc123');
+  assert.equal((await syncJson(folder)).plan, null);
+  assert.equal((await accountJson(folder)).account.douyin_id, 'abc123');
+});
+
+test('the shell asks for the pending count rather than testing for a file', async () => {
+  const archives = await mkdtemp(path.join(os.tmpdir(), 'douyin-archives-'));
+  const folder = path.join(archives, 'douyin', 'MS4wABC');
+
+  const empty = await execFile(process.execPath, [CLI, 'pending', '--folder', folder]);
+  assert.equal(empty.stdout.trim(), '0', 'an account with no plan has nothing pending');
+
+  await buildIn(folder, {
+    archives,
+    url: 'https://www.douyin.com/user/MS4wABC',
+    meta: { sec_uid: 'MS4wABC', douyin_id: 'abc123' },
+    collected: ['https://www.douyin.com/video/7111', 'https://www.douyin.com/video/7222'],
+  });
+
+  const parked = await execFile(process.execPath, [CLI, 'pending', '--folder', folder]);
+  assert.equal(parked.stdout.trim(), '2');
 });

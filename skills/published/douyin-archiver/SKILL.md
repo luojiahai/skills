@@ -55,20 +55,26 @@ The summary block `--go` prints is the run's whole result. Report that and stop.
 
 ## Where the posts go
 
-`--archives DIR` sets the root, and the account folder is `DIR/douyin_<抖音号>`
-— or `DIR/douyin_<NAME>` with `--name`, which is only needed the first time.
-Without the flag the root is `<git root of the current directory, else
-cwd>/archives`, the same root `x-archiver` uses.
+`--archives DIR` sets the root, and the account folder is
+`DIR/douyin/<sec_uid>` — the `MS4w…` part of a profile URL. Without the flag the
+root is `<git root of the current directory, else cwd>/archives`, the same root
+`x-archiver` uses.
 
-The `douyin_` prefix is what lets both skills share that root: `x-archiver`
-names its folders `x_<handle>`, so a 抖音号 and an X handle that happen to match
-still get a folder each. `--name` renames the account part and keeps the prefix
-— there is no way to name a folder that collides.
+The `douyin/` folder is what lets both skills share that root: `x-archiver`
+files its accounts under `x/<numeric user id>`, so there is no id the two could
+collide on.
 
-Resuming means passing the same `--archives` again: under that root the folder
-is found by matching the account's identity, whatever it is called. A different
-root is a different archive and starts from nothing, so if the user has
-downloaded this account before, use the root they used before.
+A 抖音号 is mutable and a sec_uid is not, which is why the sec_uid is the folder.
+Changing a 抖音号 cannot orphan an archive, and the 抖音号 is still kept inside
+`account.json` because it is the identifier a human can read and type.
+
+`--name NAME` is a label, not a location: it is recorded inside `account.json`,
+and a later run can find the account by it. It cannot move or collide with a
+folder.
+
+Resuming means passing the same `--archives` again. A different root is a
+different archive and starts from nothing, so if the user has downloaded this
+account before, use the root they used before.
 
 A working directory inside the skill itself is not a project: the run stops and
 asks for `--archives DIR` rather than archiving into a folder the next update
@@ -128,20 +134,38 @@ several of them verified the hard way. Read it before modifying anything in
 
 ## State
 
-One folder per account, under the archives root:
+```
+<archives root>/
+  archiver.json                    {"schema": 2}
+  douyin/<sec_uid>/
+    account.json
+    sync.json
+    posts/<YYYY-MM-DD|undated>_<id>/
+      post.json
+      1.mp4
+```
 
-- `posts/<date>_<id>/` — one folder per post, holding its media as `1.mp4`,
-  `2.jpg`… and a `text.txt` with the post's permalink, timestamp and full
-  caption. The name carries no caption: the date sorts the listing as a
-  timeline, the id identifies the post, and the words live in `text.txt` in full
-  rather than truncated into a directory name. **These folders are the record of
-  what has been downloaded**, and a post counts as done when it holds media.
-  Deleting one re-downloads it.
-- `metadata.json` — the account's identity, the profile URL it was archived
-  from and the archives root the last run used. Written as soon as the folder
-  is resolved, before anything is downloaded. It is **authoritative for
-  identity** — which folder is this account's — and **never for progress**: what
-  has been downloaded is answered by `posts/` alone. Deleting it costs the
-  archive its folder, and the next run starts a new one.
-- `.plan.json` — between `--plan` and `--go`, the list awaiting approval.
-  Deleted once every post in it has landed.
+- `posts/<date>_<id>/` — one folder per post, holding a `post.json` and the
+  media it lists as `1.mp4`. The folder name carries no caption: the date sorts
+  the listing as a timeline, the id identifies the post, and the words live in
+  `post.json` in full rather than truncated into a directory name. **These
+  folders are the record of what has been downloaded.** `post.json` is written
+  *before* the media, so it describes the post rather than claiming it landed —
+  a post counts as done when every file it lists is present, and deleting any of
+  them re-downloads it. This is also what finally gives a Douyin post an expected
+  file count: yt-dlp reports none, so before this a post whose download failed
+  after its text was written could read as complete.
+- `account.json` — the account's identity (sec_uid, 抖音号, nickname), its
+  `--name` if it has one, and the profile URL it was archived from. Written as
+  soon as the folder is resolved, before anything is downloaded. It is
+  **authoritative for identity** and **never for progress**: what has been
+  downloaded is answered by `posts/` alone.
+- `sync.json` — the list awaiting approval between `--plan` and `--go`, plus
+  what the last run did. **Deleting it loses no archive content**; the plan
+  expires after 24 hours anyway.
+- `archiver.json` at the root records which schema the archive uses. A version
+  this build does not know stops the run before anything is read or written.
+
+There is no `assets/` here. `x-archiver` keeps the account's avatar and banner,
+which it gets free with its listing pass; nothing reads Douyin's out of the
+profile page yet, so the directory is simply absent.

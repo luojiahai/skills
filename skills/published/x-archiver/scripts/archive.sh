@@ -7,7 +7,7 @@
 #   archive.sh <url> --yes      both, without stopping to confirm
 #
 # An account is never downloaded without an explicit --go or --yes: the list is
-# collected, reported, and left in .plan.json until somebody approves it. With
+# collected, reported, and parked in sync.json until somebody approves it. With
 # no mode flag this behaves as --plan.
 #
 # This script deliberately does almost nothing. It checks that the tools are

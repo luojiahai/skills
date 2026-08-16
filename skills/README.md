@@ -18,9 +18,9 @@ Skills live in one of two tiers. `published/` is what installs; `deprecated/` is
 
 **It asks before it downloads.** It reads the account's post list first and tells you whose it is, where the posts would go, how many there are and how many you don't already have — then waits for your yes. Nothing is fetched until you give it.
 
-**One folder per post.** `douyin_<抖音号>/posts/2024-03-11_7412…/` holds that post's media as `1.mp4` alongside a `text.txt` with the permalink, timestamp and full caption — the same shape `x-archiver` writes, so a shared archives root reads as one archive.
+**One folder per post.** `douyin/<sec_uid>/posts/2024-03-11_7412…/` holds that post's media as `1.mp4` alongside a `post.json` with the permalink, timestamp, full caption and the media the post carries — the same shape `x-archiver` writes, so a shared archives root reads as one archive. `post.json` is written before the download, so a post counts as landed only once every file it names is there.
 
-**Where they land.** `./archives/` beside your project by default, or wherever you say: `/douyin-archiver <url> --archives ~/data`. Give the same folder again next time and it picks up where it left off; give a different one and it starts a fresh archive there.
+**Where they land.** `./archives/` beside your project by default, or wherever you say: `/douyin-archiver <url> --archives ~/data`. Give the same folder again next time and it picks up where it left off; give a different one and it starts a fresh archive there. The folder is the account's `sec_uid`, which never changes — so changing a 抖音号 cannot orphan an archive.
 
 **You'll need** [yt-dlp](https://github.com/yt-dlp/yt-dlp) and Node installed, and a one-off Douyin sign-in — a browser opens, you sign in, and the session is reused from then on. The skill's `setup.sh` checks the rest and tells you what's missing.
 
@@ -34,7 +34,7 @@ Skills live in one of two tiers. `published/` is what installs; `deprecated/` is
 
 **It asks before it downloads.** Same shape as its Douyin sibling: it reads the account's posts first and tells you whose they are, where they'd go, how many there are and how many you don't already have — then waits for your yes.
 
-**One folder per post.** `x_<handle>/posts/2024-03-11_1767…/` holds that post's images and videos as `1.jpg`, `2.mp4`… alongside a `text.txt` with the full text. The date sorts a year's archive as a timeline and the id names the post; the words stay in `text.txt` in full rather than truncated into a directory name.
+**One folder per post.** `x/<user id>/posts/2024-03-11_1767…/` holds that post's images and videos as `1.jpg`, `2.mp4`… alongside a `post.json` with the full text and the media the post carries. The date sorts a year's archive as a timeline and the id names the post; the words stay in `post.json` in full rather than truncated into a directory name. The account folder is the numeric user id, which never changes — so a renamed account keeps the archive it already has. Its current avatar and banner sit in `assets/`.
 
 **It spends your X account.** This runs on your own signed-in session, read once out of your browser and then cached. Bulk archiving is what X's automation rules exist to catch, and the realistic failure isn't a failed download — it's your account getting rate-limited or locked. That's your call to make knowingly, not a surprise. Your session token also ends up in a file on your disk.
 

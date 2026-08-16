@@ -16,7 +16,7 @@
 import { spawn } from 'node:child_process';
 import readline from 'node:readline';
 
-import { isPostComplete } from './landed.mjs';
+import { isLanded } from './landed.mjs';
 import { classifyFailure, listArgs, parseRow } from './gallerydl.mjs';
 
 /**
@@ -111,9 +111,18 @@ export async function collect({ url, cookies, shouldStop, onAccount, bin = 'gall
       // the folder, the archive included, waits for this and is settled here.
       if (!account && row.user?.id) {
         // gallery-dl calls the display name `nick`; everything downstream of
-        // here — the plan, the block, metadata.json — calls it `nickname`, the
+        // here — the plan, the block, account.json — calls it `nickname`, the
         // same word douyin-archiver uses. This line is the one boundary.
-        account = { id: row.user.id, handle: row.user.name, nickname: row.user.nick };
+        // The avatar and banner URLs ride on the same row, so an account's
+        // assets cost no request of their own — they are already here by the
+        // time the folder is known.
+        account = {
+          id: row.user.id,
+          handle: row.user.name,
+          nickname: row.user.nick,
+          avatar: row.user.avatar || '',
+          banner: row.user.banner || '',
+        };
         if (onAccount) shouldStop = (await onAccount(account)) ?? shouldStop;
       }
 
@@ -159,13 +168,18 @@ export async function collect({ url, cookies, shouldStop, onAccount, bin = 'gall
   return { rows, account, stoppedEarly, failure, stderr, code };
 }
 
-/** The stopping rule: N consecutive posts, in enumeration order, already complete. */
+/**
+ * The stopping rule: N consecutive posts, in enumeration order, already complete.
+ *
+ * "Complete" is landed.mjs's one definition, so a post whose media is half here
+ * breaks the streak rather than counting toward it — which is what stops a sweep
+ * retiring early over posts it would then have had to fetch anyway.
+ */
 export function makeStopper({ archive, threshold, enabled }) {
   let consecutive = 0;
   return (row) => {
     if (!enabled) return false;
-    const have = archive.get(row.tweetId);
-    if (have && isPostComplete(have.mediaCount, row.count)) {
+    if (isLanded(archive.get(row.tweetId))) {
       consecutive += 1;
       return consecutive >= threshold;
     }

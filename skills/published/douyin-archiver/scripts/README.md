@@ -73,28 +73,41 @@ skill would erase the distinction it exists to mark.
 | `download-douyin.sh` | General-purpose layer: a list of URLs/IDs in, one folder per post out, with throttling. Knows nothing about accounts. |
 | `collect-douyin-ids.mjs` | Drives Playwright, scrolls the profile, emits post URLs and profile metadata. |
 | `export-cookies.mjs` | Exports the Playwright session as a Netscape `cookies.txt` for yt-dlp. |
-| `plan.mjs` | The confirm step: diffs the collected list against what is on disk, owns `.plan.json`, records the account in `metadata.json` on the way past, and renders **every** block the skill prints. |
+| `plan.mjs` | The confirm step: diffs the collected list against what is on disk, records the account in `account.json` on the way past, and renders **every** block the skill prints. |
 | `landed.mjs` | What is already downloaded, answered from the post folders themselves. The layout rules, shared with x-archiver. |
-| `cli.mjs` | The argument parsing, file reading and entry-point detection `plan.mjs` and `metadata.mjs` share. |
-| `metadata.mjs` | Resolves an account's folder by identity; owns the shape of `metadata.json` and how it merges; answers what the archives root is. Called by `plan.mjs` for the account paths, and by `archive.sh` for the single-post one. |
+| `cli.mjs` | The argument parsing, file reading, atomic JSON writing and entry-point detection the other modules share. |
+| `account.mjs` | Where an account's folder is (`douyin/<sec_uid>`); owns the shape of `account.json` and how it merges; answers what the archives root is. Called by `plan.mjs` for the account paths, and by `archive.sh` for the single-post one. |
+| `post.mjs` | The shape of `post.json` — the shape `download-douyin.sh`'s yt-dlp template has to produce — and whether a post holds every file it lists. |
+| `sync.mjs` | `sync.json`: the parked plan and the last run's history. Deletable without loss. |
+| `archiver.mjs` | The archives root's schema version, and the refusal when it is one this build cannot read. Also a `check` CLI, since the run here is driven from bash. |
 | `paths.mjs` | Single source of truth for where state lives and how Playwright is found. |
 | `collect-douyin-ids.js` | A DevTools console snippet that harvests `/video/` ids — a no-dependency fallback if Playwright breaks. It does **not** track `collect-douyin-ids.mjs`: it has no profile-metadata read, no `--limit`, and no image-post counting, so it emits ids and nothing else. |
 
 ## State files, disjoint on purpose
 
 The **post folders under `posts/`** are the sole record of what has downloaded.
-`metadata.json` is **authoritative for identity** — which folder is this
+`account.json` is **authoritative for identity** — which folder is this
 account's — and **never for progress**.
 
 They deliberately do not both track downloads. If they did, a run that failed
-between writing one and the other would leave the metadata claiming posts that
-were never fetched, and the error would be silent and permanent. That is why
-nothing here records a newest post or a collected count: both would be a second
-answer to a question `posts/` already answers correctly.
+between writing one and the other would leave the identity file claiming posts
+that were never fetched, and the error would be silent and permanent. That is
+why nothing here records a newest post or a collected count: both would be a
+second answer to a question `posts/` already answers correctly.
 
-`.plan.json` is a third file but not a third source of truth: it is a cache of
-one collection pass, and every question it answers is re-derived from disk next
-time.
+`post.json` inside a post folder is not a second record either, because it is
+written **before** the media rather than after. It describes the post; whether
+the post landed is still answered by looking for the files it names. That is
+also what finally gives this skill an expected file count — yt-dlp reports none
+for Douyin, so before it, "downloaded" could only mean "the folder holds at
+least one file", and a post whose media failed after its text was written read
+as complete.
+
+`sync.json` is a third file but not a third source of truth: it holds a cache of
+one collection pass and a note of what the last run did, and **deleting it loses
+no archive content**. Every question it answers is re-derived from disk next
+time. A resumption cursor would break that sentence and is deliberately absent —
+it is the same mistake as `.archive.txt` below, wearing a newer name.
 
 There used to be a fourth, `.archive.txt`, and removing it is why this file
 changed. yt-dlp's `--download-archive` keys on ids, not paths, so it kept
@@ -108,16 +121,14 @@ folder mean "fetch this again".
 Nothing about an account can be reported before it is collected — not the
 nickname, not the video count, and certainly not how many are new. So the run
 is split: `--plan` collects, diffs and reports; `--go` downloads what the
-report described. In between, the list waits in `<folder>/.plan.json`, which is
+report described. In between, the list waits in `<folder>/sync.json`, which is
 why confirming costs no second collection and why what is fetched is exactly
 what was shown.
 
-`--go` runs no collection pass. The `sec_uid` is in the profile URL, so the
-folder is found by scanning the root for a matching `metadata.json` — and only
-that: it is written the moment a folder is resolved, so an account planned but
-never downloaded already has one. `.plan.json` carries identity too, but only
-as a guard for `validatePlan`; nothing looks a folder up by it, because two
-files answering "whose folder is this" are two answers free to disagree. The
+`--go` runs no collection pass, and needs none: the `sec_uid` is in the profile
+URL and the `sec_uid` *is* the folder, so the account's directory is known
+outright rather than found by scanning. The parked plan carries identity too,
+but only as a guard for `validatePlan`; nothing looks a folder up by it. The
 only browser it can open
 is `export-cookies.mjs`, and only when the cached cookies are missing or yt-dlp
 has just rejected them.
@@ -150,7 +161,7 @@ give, restored without a second record.
 `paths.mjs` owns it — `normalizeRoot` for an explicit `--archives` (tilde
 expanded, made absolute, symlinks resolved as far as the path exists) and
 `archivesRoot` for the default. `archive.sh` asks for it through
-`metadata.mjs root` rather than recomputing it in shell, because a root that
+`account.mjs root` rather than recomputing it in shell, because a root that
 disagrees between the two languages names a different account folder and
 silently re-downloads everything.
 
@@ -202,7 +213,7 @@ indistinguishable without fetching each one.
 No gap is recorded anywhere. A remembered count is a second account of what has
 downloaded sitting beside the folders themselves, which is the drift "State
 files, disjoint on purpose" exists to prevent, so each is re-derived from the
-collected list and the disk every run. Hence `summary` needs `.plan.json`'s
+collected list and the disk every run. Hence `summary` needs the parked plan's
 `collected` **list** rather than its count, and a plan written before that list
 existed prints no note rather than a wrong one.
 
@@ -230,7 +241,7 @@ do — a wrong root names a different account folder and silently re-downloads
 everything.
 
 The **archives** root is written down once, in `paths.mjs`, and `archive.sh`
-asks for it through `metadata.mjs root` rather than reimplementing the rule — it
+asks for it through `account.mjs root` rather than reimplementing the rule — it
 is the root that varies per run, and two answers to it would split an account's
 archive in half. The `posts/` subdirectory is likewise named in both languages
 (`landed.mjs`'s `POSTS_DIR` and `archive.sh`'s `POSTS_SUBDIR`); change one and
@@ -283,49 +294,80 @@ the yt-dlp command without running it.
 
 ## Shared with x-archiver, on purpose
 
-`landed.mjs` and `metadata.mjs` here, and `landed.mjs` / `naming.mjs` /
-`metadata.mjs` in **x-archiver**, hold the same rules, written twice:
+`landed.mjs`, `post.mjs`, `account.mjs`, `sync.mjs` and `archiver.mjs` here have
+counterparts of the same name in **x-archiver**, holding the same rules written
+twice. The layout both produce:
 
-- `posts/<YYYY-MM-DD|undated>_<id>/`, one folder per post
-- media numbered by position — `1.mp4`, `2.jpg`
-- `text.txt`: permalink, timestamp, blank line, then the untruncated caption
-- a post counts as downloaded when its folder holds at least one media file
-- the account folder is prefixed — `douyin_<抖音号>` here, `x_<handle>` there —
-  because both skills default to the same `<git root>/archives` root, and an
-  X handle that matches a 抖音号 would otherwise interleave two accounts in one
-  folder. `--name` renames the account part and keeps the prefix, so no name
-  can be chosen that collides.
-- `metadata.json` beside `posts/`, holding `version`, `account`, `url`, `root`
-  and `updated_at` and nothing else — authoritative for identity, never for
-  progress. Both write it when the folder is resolved, both merge into what is
-  already there, and both treat a blank as silence rather than an erasure.
+```
+<archives root>/
+  archiver.json                 {"schema": 2}
+  douyin/<sec_uid>/             x/<numeric user id>/
+    account.json
+    sync.json
+    posts/<YYYY-MM-DD|undated>_<id>/
+      post.json
+      1.mp4
+```
+
+- `posts/<YYYY-MM-DD|undated>_<id>/`, one folder per post, `undated` a literal
+- media numbered by position — `1.mp4`
+- `post.json`: `version`, `id`, `permalink`, `timestamp`, `text`, `reply_to`,
+  `media`, in that order and holding nothing else. Written **before** the media.
+  `media[].url` and `media[].id` are optional and often absent.
+- a post counts as downloaded when every file its `post.json` lists is present
+- the account folder is the account's immutable id, under a platform folder —
+  `douyin/<sec_uid>` here, `x/<numeric user id>` there — because both skills
+  default to the same `<git root>/archives` root. `--name` is a label recorded
+  inside `account.json`, never a folder name, so no name can collide.
+- `account.json` beside `posts/`, holding `version`, `platform`, `account` and
+  `url` and nothing else — authoritative for identity, never for progress. Both
+  write it when the folder is resolved, both merge into what is already there,
+  and both treat a blank as silence rather than an erasure.
+- `sync.json` beside it, holding `version`, `plan` and `last_run`. Deleting it
+  loses no archive content.
+- `archiver.json` at the root, holding the schema version. Absent reads as
+  current; unknown stops the run.
 
 They are duplicated rather than shared. A skill is a self-contained folder under
 `skills/`, distributed and symlinked on its own, so there is nowhere a shared
 module could live that is still a skill. **Change a rule here and change it
 there** — the two archives are meant to be readable with one mental model, and
-the duplication is only worth its cost while they agree.
+the duplication is only worth its cost while they agree. The specification lives
+in the issue tracker; these two blocks are what ships.
 
-Two deliberate differences:
+Four deliberate differences:
 
-- x-archiver's enumerator reports how many files a post should hold, so it can
-  tell a half-fetched post from a complete one. Douyin's collector yields ids
-  and nothing else, so `isPostComplete` here takes no expected count and one
-  media file is the most that can be checked.
-- `countMedia` here matches the positional `<n>.<ext>` shape rather than
-  excluding known junk, because yt-dlp can leave `1.f137.mp4` / `1.f140.m4a`
-  behind when a stream merge fails — whole files that would make an unplayable
-  post read as finished. gallery-dl does not do that, so x-archiver's
-  exclusion list is sufficient there.
-- x-archiver *builds* its folder names in JS (`naming.mjs`). Here nothing
-  does — yt-dlp's `POST_DIR` output template in `download-douyin.sh` builds
-  them, and `landed.mjs` only reads them back. That is two spellings of one
-  rule in two languages, so `archive.test.mjs` reads the template out of the
-  shell script and checks the regex still accepts what it produces. Change the
-  template and that test tells you.
+- **`post.json` is written by yt-dlp here, and in JS there.** `--print-to-file`
+  fires after extraction and before the download, which is exactly when the file
+  has to appear; doing it from Node would cost a second metadata request per
+  post against a hard rate limiter. So `POST_TEMPLATE` in `download-douyin.sh`
+  assembles the JSON, every user-text field passed through yt-dlp's `j`
+  conversion, and `landed.test.mjs` pins the template — driving the real yt-dlp
+  through `--load-info-json`, which needs no network — against the shape
+  `post.mjs` reads back. So the two `post.mjs` modules agree on the *file* and
+  differ in their API: x-archiver's owns `toTimestamp` and `mediaEntry` and takes
+  media as `{num, ext, …}`, because it is the thing turning gallery-dl's rows
+  into filenames; this one has neither and takes `{file, …}`, because by the time
+  anything in Node sees a media entry the name has already been decided by the
+  template.
+- **The junk-file problem solved itself.** `countMedia` used to match the
+  positional `<n>.<ext>` shape rather than excluding known junk, because yt-dlp
+  can leave `1.f137.mp4` / `1.f140.m4a` behind when a stream merge fails —
+  whole files that made an unplayable post read as finished. Against a named
+  list of expected files, none of those is `1.mp4`, so no rule is needed for
+  them at all.
+- **x-archiver *builds* its folder names in JS (`naming.mjs`). Here nothing
+  does** — yt-dlp's `POST_DIR` output template builds them, and `landed.mjs`
+  only reads them back. That is two spellings of one rule in two languages, so
+  `landed.test.mjs` reads the template out of the shell script and checks the
+  regex still accepts what it produces.
+- **`assets/` is x-only.** gallery-dl puts the avatar and banner URLs on rows
+  x-archiver already reads. Nothing here reads Douyin's out of the profile page
+  yet, so the directory is simply absent — the layout allows it to be.
 
 `--print-to-file` appends and has no overwrite mode, so `download-douyin.sh`
-clears a post's `text.txt` before fetching it — matched by id, since the folder
-name depends on a date it does not yet have. That lives in the same script as
-the `--print-to-file` that needs it, so running the layer standalone twice does
-not double the file either.
+clears a post's `post.json` before fetching it — matched by id, since the folder
+name depends on a date it does not yet have. Without it a re-fetch concatenates
+a second JSON document onto the first and the file stops parsing entirely. That
+lives in the same script as the `--print-to-file` that needs it, so running the
+layer standalone twice does not break the file either.

@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { chmod, mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { chmod, mkdtemp, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
 import { fetchPosts, outstanding } from './fetch.mjs';
+import { buildPost, readPost } from './post.mjs';
 
 async function fakeBin(script) {
   const dir = await mkdtemp(path.join(os.tmpdir(), 'x-dl-bin-'));
@@ -17,44 +18,55 @@ ${script}
   return bin;
 }
 
+const file = (num) => ({ num, ext: 'jpg' });
+
 const posts = [
-  { tweetId: '1', count: 2, files: [{}, {}] },
-  { tweetId: '2', count: 1, files: [{}] },
-  { tweetId: '3', count: 4, files: [{}, {}, {}, {}] },
+  { tweetId: '1', count: 2, files: [file(1), file(2)] },
+  { tweetId: '2', count: 1, files: [file(1)] },
+  { tweetId: '3', count: 4, files: [file(1), file(2), file(3), file(4)] },
 ];
+
+/** One archived post, as landed.mjs reports it: what it lists, and what is there. */
+function onDisk(id, listed, present = listed) {
+  const media = listed.map((name) => {
+    const [num, ext] = name.split('.');
+    return { num, ext };
+  });
+  return [id, { folder: `2024-01-01_${id}`, names: [...present, 'post.json'], post: buildPost({ id, media }) }];
+}
 
 test('everything is outstanding against an empty folder', () => {
   assert.deepEqual(outstanding(posts, new Map()).map((p) => p.tweetId), ['1', '2', '3']);
 });
 
 test('a complete post is not fetched again', () => {
-  const archive = new Map([['1', { mediaCount: 2 }]]);
+  const archive = new Map([onDisk('1', ['1.jpg', '2.jpg'])]);
   assert.deepEqual(outstanding(posts, archive).map((p) => p.tweetId), ['2', '3']);
 });
 
 test('a post whose files half landed is finished rather than abandoned', () => {
-  const archive = new Map([['3', { mediaCount: 2 }]]);
+  const archive = new Map([onDisk('3', ['1.jpg', '2.jpg', '3.jpg', '4.jpg'], ['1.jpg', '2.jpg'])]);
   assert.ok(outstanding(posts, archive).some((p) => p.tweetId === '3'));
 });
 
-test('a folder holding more files than expected still counts as done', () => {
-  const archive = new Map([['2', { mediaCount: 5 }]]);
+test('a folder holding more files than the post lists still counts as done', () => {
+  const archive = new Map([onDisk('2', ['1.jpg'], ['1.jpg', 'notes.txt', '2.jpg'])]);
   assert.ok(!outstanding(posts, archive).some((p) => p.tweetId === '2'));
 });
 
 test('an approved plan fully on disk leaves nothing outstanding', () => {
   const archive = new Map([
-    ['1', { mediaCount: 2 }],
-    ['2', { mediaCount: 1 }],
-    ['3', { mediaCount: 4 }],
+    onDisk('1', ['1.jpg', '2.jpg']),
+    onDisk('2', ['1.jpg']),
+    onDisk('3', ['1.jpg', '2.jpg', '3.jpg', '4.jpg']),
   ]);
   assert.deepEqual(outstanding(posts, archive), []);
 });
 
-test('a post whose media partly failed still gets its text.txt', async () => {
-  // The failure this guards: one 404'd image in a four-image post used to
-  // return before the text was written, leaving media in a folder with nothing
-  // saying what it was.
+test('a post whose media failed entirely still says what it was', async () => {
+  // post.json is written before gallery-dl is spawned, so a folder that ends up
+  // holding nothing — or three of four images — is still legible rather than
+  // anonymous rubble.
   const dir = await mkdtemp(path.join(os.tmpdir(), 'x-dl-fetch-'));
   const bin = await fakeBin('echo "HttpError: 404 Not Found" >&2; exit 1');
 
@@ -62,15 +74,33 @@ test('a post whose media partly failed still gets its text.txt', async () => {
     accountDir: dir,
     handle: 'someone',
     bin,
-    posts: [{ tweetId: '1', count: 2, files: [{}, {}], date: '2024-03-11 07:22:19', content: 'hi' }],
+    posts: [{ tweetId: '1', count: 2, files: [file(1), file(2)], date: '2024-03-11 07:22:19', content: 'hi' }],
   });
 
   assert.equal(result.failed, 1);
   assert.equal(result.fetched.posts, 0);
   assert.equal(result.stopped, null, 'a dead-media 404 must not end the run');
 
-  const folder = path.join(dir, 'posts', '2024-03-11_1');
-  assert.match(await readFile(path.join(folder, 'text.txt'), 'utf8'), /hi/);
+  const post = await readPost(path.join(dir, 'posts', '2024-03-11_1'));
+  assert.equal(post.text, 'hi');
+  assert.equal(post.permalink, 'https://x.com/someone/status/1');
+  assert.equal(post.timestamp, '2024-03-11T07:22:19Z');
+  assert.deepEqual(post.media.map((m) => m.file), ['1.jpg', '2.jpg']);
+});
+
+test('a reply records what it replies to', async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'x-dl-fetch-'));
+  const bin = await fakeBin('exit 0');
+
+  await fetchPosts({
+    accountDir: dir,
+    handle: 'someone',
+    bin,
+    posts: [{ tweetId: '1', count: 1, files: [file(1)], date: '2024-03-11 07:22:19', content: 'yes', replyId: '99' }],
+  });
+
+  const post = await readPost(path.join(dir, 'posts', '2024-03-11_1'));
+  assert.equal(post.reply_to, 'https://x.com/i/web/status/99');
 });
 
 test('a rate limit ends the run instead of grinding through every post', async () => {
@@ -82,11 +112,13 @@ test('a rate limit ends the run instead of grinding through every post', async (
     handle: 'someone',
     bin,
     posts: [
-      { tweetId: '1', count: 1, files: [{}], date: '2024-03-11 07:22:19', content: 'a' },
-      { tweetId: '2', count: 1, files: [{}], date: '2024-03-10 07:22:19', content: 'b' },
+      { tweetId: '1', count: 1, files: [file(1)], date: '2024-03-11 07:22:19', content: 'a' },
+      { tweetId: '2', count: 1, files: [file(1)], date: '2024-03-10 07:22:19', content: 'b' },
     ],
   });
 
   assert.equal(result.stopped, 'rate-limited');
   assert.equal(result.failed, 0);
+  // The second post was never started, so nothing was written for it.
+  assert.equal(await readPost(path.join(dir, 'posts', '2024-03-10_2')), null);
 });

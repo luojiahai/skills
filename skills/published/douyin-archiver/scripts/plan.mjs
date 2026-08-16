@@ -5,15 +5,18 @@
  *
  * Collecting an account's post list takes a browser and about half a minute,
  * so the number a user is asked to approve cannot be known without doing that
- * work first. `build` does it once and parks the answer in
- * `<folder>/.plan.json`; `load` hands that same list to the download phase, so
- * confirming costs no second collection and what is fetched is exactly what was
- * shown.
+ * work first. `build` does it once and parks the answer in `<folder>/sync.json`;
+ * `load` hands that same list to the download phase, so confirming costs no
+ * second collection and what is fetched is exactly what was shown.
+ *
+ * This module owns what a plan *means*; sync.mjs owns where it lives and how
+ * long it lives for. A plan carries no version of its own — sync.json's does the
+ * job, and a file it cannot read reads as no plan at all.
  *
  * The plan carries identity (sec_uid / 抖音号) as well as the list, and that is
- * a guard rather than an index: nothing looks a folder up by it — metadata.json
- * is the only thing that answers which folder an account has — but a plan whose
- * identity disagrees with the account being downloaded is refused.
+ * a guard rather than an index: nothing looks a folder up by it — the folder is
+ * the account's sec_uid — but a plan whose identity disagrees with the account
+ * being downloaded is refused.
  *
  * It is a cache, not state: the post folders under posts/ are the sole record
  * of what has landed (landed.mjs), and a plan that is missing, stale or
@@ -28,14 +31,19 @@
  *
  * Subcommands:
  *   build --meta FILE --urls FILE --folder DIR --archives ROOT [--url URL]
+ *         [--name NAME]
  *       Diffs the collected list against what is on disk, records the account's
- *       identity in metadata.json, prints the status block, and writes
- *       .plan.json — unless there is nothing to fetch, in which case no plan is
- *       written and the block says so.
+ *       identity in account.json, prints the status block, and parks the plan in
+ *       sync.json — unless there is nothing to fetch, in which case the plan is
+ *       retired and the block says so.
  *
  *   load --folder DIR --archives ROOT [--sec-uid UID] [--douyin-id ID]
  *        --out FILE [--ttl-hours N] [--remedy TEXT]
  *       Validates the plan and writes the URLs still missing from disk to FILE.
+ *
+ *   pending --folder DIR
+ *       Prints how many posts the parked plan still has to fetch, 0 if there is
+ *       no plan. How the shell asks "is there anything to confirm".
  *
  *   count --folder DIR
  *       Prints how many posts are downloaded — the one counting rule.
@@ -47,15 +55,13 @@
  *       Prints where a single post would land, and whether it is already here.
  *
  *   clear --folder DIR
- *       Removes the plan, once its posts have all landed.
+ *       Retires the plan, once its posts have all landed.
  */
-import { mkdir, rm, writeFile } from 'node:fs/promises';
-import path from 'node:path';
-import { isMainModule, optString, parseArgs, readJson, readText, requireOpts } from './cli.mjs';
+import { isMainModule, optString, parseArgs, readJson, readText, requireOpts, writeText } from './cli.mjs';
 import { onDiskIds, unlistedIds } from './landed.mjs';
-import { readMetadata, writeMetadata } from './metadata.mjs';
+import { writeAccount } from './account.mjs';
+import { clearPlan, loadPlan, previousRoot, recordRun, savePlan } from './sync.mjs';
 
-const PLAN_FILE = '.plan.json';
 export const DEFAULT_TTL_HOURS = 24;
 
 const RULE = '──────────────────────────────────────────';
@@ -112,14 +118,13 @@ export function unlistedCountFromPlan(plan, ids) {
   return unlistedIds(listedIds(plan.collected), ids).length;
 }
 
-export function buildPlan({ meta, collected, pending, folder, archivesRoot, now }) {
+export function buildPlan({ meta, collected, pending, archivesRoot, now }) {
   return {
     created_at: now.toISOString(),
     sec_uid: meta.sec_uid ?? null,
     douyin_id: meta.douyin_id ?? null,
     nickname: meta.nickname ?? null,
     archives_root: archivesRoot,
-    folder,
     collected_count: collected.length,
     reported_works_count: meta.reported_works_count ?? null,
     // Carried so the finished run can repeat the note the approved block
@@ -160,18 +165,6 @@ export function validatePlan(plan, { secUid, douyinId, folder, archivesRoot, now
     };
   }
 
-  // A plan written before --downloads became --archives. The comparison below
-  // would refuse it anyway, but as "made for undefined", which reads as a
-  // corrupt file rather than the rename it is. Plans are cheap and expire in a
-  // day, so there is nothing here worth migrating — only worth explaining.
-  if (plan.archives_root === undefined && plan.downloads_root !== undefined) {
-    return {
-      message:
-        `the plan at ${folder} was made before --downloads became --archives — ` +
-        `make a new one`,
-    };
-  }
-
   if (plan.archives_root !== archivesRoot) {
     return {
       message:
@@ -180,9 +173,9 @@ export function validatePlan(plan, { secUid, douyinId, folder, archivesRoot, now
     };
   }
 
-  if (plan.folder !== folder) {
-    return { message: `the plan is for a different folder (${plan.folder})` };
-  }
+  // There is no folder check any more, and none is needed: a plan is read out
+  // of the account folder it was written into, so "a plan for another folder"
+  // is not a state that can be reached.
 
   const age = now.getTime() - new Date(plan.created_at).getTime();
   if (!Number.isFinite(age)) {
@@ -332,53 +325,48 @@ export function postBlock({ account, folder, postId, onDisk }) {
 
 // ---- CLI -------------------------------------------------------------------
 
-const planPath = (folder) => path.join(folder, PLAN_FILE);
-
 async function build(opts) {
   requireOpts(opts, 'meta', 'urls', 'folder', 'archives');
   const meta = (await readJson(opts.meta)) ?? {};
   const collected = (await readText(opts.urls)).split('\n').filter((line) => line.trim());
   const onDisk = await onDiskIds(opts.folder);
 
-  // Read before the write below, and both before the block is printed: the
+  // Read before anything is written, and before the block is printed: the
   // "last run used …" note compares the root this run was given against the one
-  // the file recorded, and writing first would leave nothing to compare.
-  const previousRoot = (await readMetadata(opts.folder))?.root ?? null;
+  // the previous run recorded, and the download phase will replace it.
+  const lastRoot = await previousRoot(opts.folder);
 
   // Written here, at the one point every account run passes through once its
   // folder is known, so a folder that exists always says whose it is — before
   // anything has been downloaded into it.
-  await writeMetadata(opts.folder, {
-    account: { sec_uid: meta.sec_uid, douyin_id: meta.douyin_id, nickname: meta.nickname },
+  await writeAccount(opts.folder, {
+    account: {
+      id: meta.sec_uid,
+      douyin_id: meta.douyin_id,
+      nickname: meta.nickname,
+      name: optString(opts, 'name'),
+    },
     url: optString(opts, 'url'),
-    root: opts.archives,
-    updated_at: new Date().toISOString(),
   });
 
   const pending = pendingUrls(collected, onDisk);
 
   if (pending.length) {
-    const plan = buildPlan({
-      meta,
-      collected,
-      pending,
-      folder: opts.folder,
-      archivesRoot: opts.archives,
-      now: new Date(),
-    });
-    await mkdir(opts.folder, { recursive: true });
-    await writeFile(planPath(opts.folder), JSON.stringify(plan, null, 2) + '\n');
+    await savePlan(
+      opts.folder,
+      buildPlan({ meta, collected, pending, archivesRoot: opts.archives, now: new Date() }),
+    );
   } else {
     // A plan left over from an earlier run would otherwise outlive the work it
     // described, and --go would happily download it.
-    await rm(planPath(opts.folder), { force: true });
+    await clearPlan(opts.folder);
   }
 
   console.log(
     statusBlock({
       account: meta,
       folder: opts.folder,
-      previousRoot,
+      previousRoot: lastRoot,
       archivesRoot: opts.archives,
       collected: collected.length,
       reported: meta.reported_works_count ?? null,
@@ -392,7 +380,7 @@ async function build(opts) {
 
 async function load(opts) {
   requireOpts(opts, 'folder', 'archives', 'out');
-  const plan = await readJson(planPath(opts.folder));
+  const plan = await loadPlan(opts.folder);
   const error = validatePlan(plan, {
     secUid: optString(opts, 'sec_uid') || null,
     douyinId: optString(opts, 'douyin_id') || null,
@@ -414,7 +402,20 @@ async function load(opts) {
   // this every one of those would cost a metadata request to discover it was
   // already there — the fast resume the removed .archive.txt used to give.
   const outstanding = pendingUrls(plan.pending, await onDiskIds(opts.folder));
-  await writeFile(opts.out, outstanding.length ? outstanding.join('\n') + '\n' : '');
+  await writeText(opts.out, outstanding.length ? outstanding.join('\n') + '\n' : '');
+}
+
+/**
+ * How many posts the parked plan still has to fetch, 0 when there is none.
+ *
+ * The shell's way of asking "is there anything to confirm" — it used to test
+ * for the existence of a dotfile, which stopped being a question a path can
+ * answer once the plan moved inside sync.json.
+ */
+async function pendingCount(opts) {
+  requireOpts(opts, 'folder');
+  const plan = await loadPlan(opts.folder);
+  console.log(Array.isArray(plan?.pending) ? plan.pending.length : 0);
 }
 
 async function count(opts) {
@@ -424,8 +425,22 @@ async function count(opts) {
 
 async function summary(opts) {
   requireOpts(opts, 'folder', 'before', 'after');
-  const plan = (await readJson(planPath(opts.folder))) ?? {};
+  const plan = (await loadPlan(opts.folder)) ?? {};
   const onDisk = await onDiskIds(opts.folder);
+
+  // Run history, stamped after the fact and read by nothing that decides what
+  // to fetch. sync.json may be deleted without costing the archive anything.
+  // `failed` is null rather than 1 when the run ended badly: yt-dlp reports a
+  // single non-zero exit for a batch, so how many posts failed is genuinely
+  // unknown here. A 1 would be a made-up number in a field named for a count.
+  const clean = Number(optString(opts, 'exit_status') || 0) === 0;
+  await recordRun(opts.folder, {
+    root: optString(opts, 'archives') || plan.archives_root || null,
+    found: plan.collected_count ?? null,
+    landed: Number(opts.after) - Number(opts.before),
+    failed: clean ? 0 : null,
+  });
+
   console.log(
     summaryBlock({
       account: plan,
@@ -455,15 +470,15 @@ async function post(opts) {
 
 async function clear(opts) {
   requireOpts(opts, 'folder');
-  await rm(planPath(opts.folder), { force: true });
+  await clearPlan(opts.folder);
 }
 
-// Tests import this file, and it imports metadata.mjs, so the CLI dispatches
+// Tests import this file, and it imports account.mjs, so the CLI dispatches
 // only when it is the entry point — argv alone cannot tell whose arguments
 // these are.
 if (isMainModule(import.meta.url)) {
   const [command, ...rest] = process.argv.slice(2);
-  const commands = { build, load, count, summary, post, clear };
+  const commands = { build, load, pending: pendingCount, count, summary, post, clear };
   if (commands[command]) await commands[command](parseArgs(rest));
   else {
     console.error(

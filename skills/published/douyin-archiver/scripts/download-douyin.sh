@@ -38,10 +38,11 @@ Accepted input lines (mixed freely; blank lines and #-comments ignored):
 This is the general-purpose layer: a list goes in, files come out. Folder,
 plan and metadata policy lives in archive.sh, which calls this.
 
-Each post becomes <outdir>/<YYYY-MM-DD|undated>_<id>/ holding its media as
-1.mp4, 2.jpg… and a text.txt with the permalink, timestamp and caption. There
-is no archive file: a post counts as downloaded when its folder holds media,
-so deleting a folder re-downloads it and nothing else has to be kept in step.
+Each post becomes <outdir>/<YYYY-MM-DD|undated>_<id>/ holding a post.json with
+the permalink, timestamp, caption and the media it carries, plus that media as
+1.mp4. post.json is written before the download, not after: there is no archive
+file, and a post counts as downloaded when every file post.json lists is on
+disk. Deleting any of them re-downloads the post.
 
 Usage: download-douyin.sh -i urls.txt [-o outdir] [-n]
 
@@ -141,7 +142,7 @@ fi
 # identifies the post; `|undated` is a literal default, because a missing field
 # otherwise renders as `NA` and every dateless post would share one folder.
 #
-# The caption is deliberately not in the path — it lives in text.txt in full,
+# The caption is deliberately not in the path — it lives in post.json in full,
 # rather than truncated into a name that then has to be parsed back out.
 POST_DIR="${OUTDIR}/%(upload_date>%Y-%m-%d|undated)s_%(id)s"
 
@@ -149,18 +150,31 @@ POST_DIR="${OUTDIR}/%(upload_date>%Y-%m-%d|undated)s_%(id)s"
 # 1.mp4; a post that yields several files numbers them by position instead.
 MEDIA_TEMPLATE="${POST_DIR}/%(playlist_index|1)s.%(ext)s"
 
-# Real newlines, not \n: yt-dlp writes a backslash-n in a print template
-# literally. The trailing field falls back to the title, then to empty, so a
-# caption-less post still gets its permalink and timestamp.
+# post.json, assembled by yt-dlp itself. Every field carrying user text goes
+# through `j`, which JSON-encodes it — that is what makes a caption containing
+# quotes, newlines, tabs, backslashes or emoji safe to drop into the middle of a
+# JSON document. Building this by hand with `s` would produce a file that parses
+# until the first person writes a quotation mark.
+#
+# The `|` defaults are load-bearing and are *not* passed through `j`: an absent
+# field with no default renders as the bare word `NA`, and with an empty default
+# renders as nothing at all — `"timestamp":,` — which is not JSON. So the
+# defaults are written as the literal JSON they need to be, `null` and `""`.
 #
 # `timestamp` rather than the `upload_date` the folder uses: both come from the
-# same instant, but only `timestamp` carries the time of day, and x-archiver's
-# text.txt records the second. The folder wants a sortable day, the text wants
-# the moment — same fact, two precisions, deliberately.
-TEXT_TEMPLATE="https://www.douyin.com/video/%(id)s
-%(timestamp>%Y-%m-%d %H:%M:%S|undated)s
-
-%(description,title|)s"
+# same instant, but only `timestamp` carries the time of day. The folder wants a
+# sortable day, the record wants the moment — same fact, two precisions,
+# deliberately.
+#
+# The media name is spelled with the same `%(playlist_index|1)s.%(ext)s` as
+# MEDIA_TEMPLATE, character for character, rather than the `1.%(ext)s` it
+# resolves to today. Douyin yields one file per post so the two are identical
+# now — but if 图集 support ever lands (#48) and a post yields several, a
+# hardcoded `1` here would silently stop matching what was written.
+#
+# landed.test.mjs reads this template out of this file and checks that it still
+# produces the shape post.mjs reads back.
+POST_TEMPLATE='{"version":1,"id":%(id)j,"permalink":"https://www.douyin.com/video/%(id)s","timestamp":%(timestamp>%Y-%m-%dT%H:%M:%SZ|null)j,"text":%(description,title|"")j,"reply_to":null,"media":[{"file":"%(playlist_index|1)s.%(ext)s","type":"video"}]}'
 
 # --sleep-*: Douyin rate-limits hard; an unthrottled batch starts failing
 #   partway through and can get the session challenged.
@@ -168,9 +182,10 @@ TEXT_TEMPLATE="https://www.douyin.com/video/%(id)s
 #   deleting a post's folder re-downloads it — unlike --download-archive, which
 #   kept claiming a deleted post was done and used to own this job.
 # --print-to-file: the default WHEN fires after extraction and before the
-#   download, so a post whose media fails still leaves its text on disk. The
-#   folder then holds no media, which is exactly how the next run knows to
-#   retry it.
+#   download, which is precisely what post.json needs — it is the post's
+#   description, written before its media, not a receipt written after. A post
+#   whose download then fails leaves a folder that still says what it was, and
+#   whose media list shows the next run what is still missing.
 CMD=(
   yt-dlp
   "${COOKIE_ARGS[@]}"
@@ -182,7 +197,7 @@ CMD=(
   --ignore-errors
   --no-overwrites
   --embed-metadata
-  --print-to-file "$TEXT_TEMPLATE" "${POST_DIR}/text.txt"
+  --print-to-file "$POST_TEMPLATE" "${POST_DIR}/post.json"
   -o "$MEDIA_TEMPLATE"
 )
 
@@ -198,15 +213,15 @@ mkdir -p "$OUTDIR"
 
 # yt-dlp's --print-to-file appends and has no overwrite mode, so a post fetched
 # twice — a retry after a failure, or simply this script run again — would get a
-# second copy of its permalink, timestamp and caption in the same file. The
-# folder name is not known here (the date arrives with the metadata), so match
-# on the id, which is the half of it we do know.
+# second JSON document concatenated onto the first, and the file would stop
+# parsing entirely. The folder name is not known here (the date arrives with the
+# metadata), so match on the id, which is the half of it we do know.
 #
-# Only the text is removed. A .part file beside it is yt-dlp's resume data for a
+# Only post.json is removed. A .part file beside it is yt-dlp's resume data for a
 # half-downloaded file, and clearing the folder wholesale would throw it away.
 shopt -s nullglob
 for id in ${SEEN[@]+"${SEEN[@]}"}; do
-  for stale in "${OUTDIR}"/*_"${id}"/text.txt; do
+  for stale in "${OUTDIR}"/*_"${id}"/post.json; do
     rm -f "$stale"
   done
 done
