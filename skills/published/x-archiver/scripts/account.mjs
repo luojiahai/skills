@@ -116,8 +116,7 @@ export function aliasDirFor(root, alias) {
 /**
  * The fields a caller actually knows.
  *
- * A run that fetched one post by URL knows the handle but not the nickname, and
- * an enumeration that yielded rows but never named the account falls back to
+ * An enumeration that yielded rows but never named the account falls back to
  * blanks. Spread as-is, those blanks would overwrite what an earlier run had
  * already recorded.
  */
@@ -163,6 +162,12 @@ export function mergeAccount(existing, next, { drop = [] } = {}) {
     version: ACCOUNT_VERSION,
     platform: PLATFORM,
     account: identity(existing?.account, next?.account, drop),
+    // A write with no url leaves the recorded one alone rather than blanking it.
+    // Every caller passes one now, so this looks like a branch nothing takes —
+    // it is not. Archives written before single-post runs were removed hold an
+    // account.json with no url at all, because that run only ever knew a post's
+    // URL and recording it would have broken the lookup. Those files still have
+    // to merge without the next run erasing what it does know.
     url: next?.url || existing?.url || null,
   };
 }

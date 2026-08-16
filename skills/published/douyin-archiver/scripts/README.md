@@ -76,7 +76,7 @@ skill would erase the distinction it exists to mark.
 | `plan.mjs` | The confirm step: diffs the collected list against what is on disk, records the account in `account.json` on the way past, and renders **every** block the skill prints. |
 | `landed.mjs` | What is already downloaded, answered from the post folders themselves. The layout rules, shared with x-archiver. |
 | `cli.mjs` | The argument parsing, file reading, atomic JSON writing and entry-point detection the other modules share. |
-| `account.mjs` | Where an account's folder is (`douyin/<sec_uid>`); owns the shape of `account.json` and how it merges; answers what the archives root is. Called by `plan.mjs` for the account paths, and by `archive.sh` for the single-post one. |
+| `account.mjs` | Where an account's folder is (`douyin/<sec_uid>`); owns the shape of `account.json` and how it merges; answers what the archives root is. Called by both `plan.mjs` and `archive.sh`. |
 | `post.mjs` | The shape of `post.json` — the shape `download-douyin.sh`'s yt-dlp template has to produce — and whether a post holds every file it lists. |
 | `sync.mjs` | `sync.json`: the parked plan and the last run's history. Deletable without loss. |
 | `archiver.mjs` | The archives root's schema version, and the refusal when it is one this build cannot read. Also a `check` CLI, since the run here is driven from bash. |
@@ -144,9 +144,9 @@ skill never reaches for it — an agent asks — but it outranks a `--plan` or
 `--go` that comes after it on the command line, so a user who typed it keeps
 their pre-authorisation when the skill appends its own mode flag.
 
-Every block printed — the one approved, the one a finished run reports, the one
-a single post gets — is rendered by `plan.mjs`, and what is on disk is counted
-in exactly one place (`landed.mjs`'s `onDiskIds`). They were briefly three
+Every block printed — the one approved, and the one a finished run reports — is
+rendered by `plan.mjs`, and what is on disk is counted in exactly one place
+(`landed.mjs`'s `onDiskIds`). They were briefly three
 hand-aligned copies across two languages, with `wc -l` counting in one of them
 and unique ids in another; a blank line in the old `.archive.txt` was enough to
 make a run contradict the number the user had approved.
@@ -206,9 +206,8 @@ leaving a disagreeing pair of numbers looking like an error:
   same posts are not blamed twice.
 
 That second note claims only what was observed, an id here and not in the
-listing. Deleted, hidden, region-locked, missed by a collection that stopped
-short, or fetched by `/video/` id and never on the profile at all are
-indistinguishable without fetching each one.
+listing. Deleted, hidden, region-locked, and missed by a collection that stopped
+short are indistinguishable without fetching each one.
 
 No gap is recorded anywhere. A remembered count is a second account of what has
 downloaded sitting beside the folders themselves, which is the drift "State
@@ -291,6 +290,10 @@ node collect-douyin-ids.mjs --headless "https://www.douyin.com/user/MS4w..." -o 
 `download-douyin.sh` accepts full `/video/` URLs, `/user/...?modal_id=...` URLs,
 and bare numeric IDs interchangeably, and de-duplicates them. Use `-n` to see
 the yt-dlp command without running it.
+
+That it takes a single `/video/` URL is plumbing for the account loop, whose
+list is made of them, and not a user entry point — `archive.sh` takes profile
+URLs only.
 
 ## Shared with x-archiver, on purpose
 

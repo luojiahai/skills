@@ -1,5 +1,5 @@
 interface:
   display_name: "X Archiver"
-  short_description: "Archive an X (Twitter) account's media, or download a single post"
+  short_description: "Archive an X (Twitter) account's media"
 policy:
   allow_implicit_invocation: false

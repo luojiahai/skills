@@ -137,9 +137,10 @@ test('validatePlan refuses a plan made for another account', () => {
   assert.match(result.reason, /not this account/);
 });
 
-test('a plan parked by a single-post run does not refuse the account it belongs to', () => {
-  // The bug this replaced: a failed single-post run parks a plan whose url names
-  // the post, and the URL comparison then read that as "a plan for someone
+test('a plan parked by an older single-post run does not refuse the account it belongs to', () => {
+  // Compatibility, not a feature: nothing writes a post-named plan any more, but
+  // archives made before single-post runs were removed still hold them. The bug
+  // this replaced: the URL comparison read such a plan as "a plan for someone
   // else". The folder is resolved before the plan is read, so the id in it is
   // what the plan is checked against.
   const postPlan = { ...goodPlan, url: 'https://x.com/someone/status/9' };

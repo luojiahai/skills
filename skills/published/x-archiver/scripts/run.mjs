@@ -52,7 +52,6 @@ const EXIT = { OK: 0, USAGE: 2, REFUSED: 3, FAILED: 4, UNAUTHORIZED: 5, EMPTY: 6
 const USAGE = `Usage: archive.sh <url> [--archives DIR] [--alias NAME] [--plan|--go|--yes]
 
   <url>                 https://x.com/<handle>              an account's media
-                        https://x.com/<handle>/status/<id>  one post
 
       --plan            Enumerate the account, report what would be fetched,
                         and stop. Downloads nothing, and moves nothing.
@@ -168,7 +167,7 @@ function refreshAssets(accountDir, account) {
   return saveProfileAssets(accountDir, { avatar: account?.avatar, banner: account?.banner });
 }
 
-async function doPlan({ target, root, alias, unalias, cookies, full, threshold, accountUrl, bin = 'gallery-dl' }) {
+async function doPlan({ target, root, alias, unalias, cookies, full, threshold, bin = 'gallery-dl' }) {
   // All settled the moment the first row names the account, because none of them
   // can be known before it: the id itself only arrives with the first row, and
   // the folder is looked up from it.
@@ -196,7 +195,7 @@ async function doPlan({ target, root, alias, unalias, cookies, full, threshold, 
         (alias ? aliasDirFor(root, alias) : accountDirFor(root, account.id));
       archive = await readArchive(accountDir);
       // A first run has nothing to recognise, so there is nothing to stop at.
-      incremental = archive.size > 0 && !full && target.kind === 'account';
+      incremental = archive.size > 0 && !full;
       return makeStopper({ archive, threshold, enabled: incremental });
     },
   });
@@ -250,10 +249,8 @@ async function doPlan({ target, root, alias, unalias, cookies, full, threshold, 
 
   // Written now rather than after the download, so a folder that exists always
   // says whose it is. It is also what --go finds the folder by when all it has
-  // is the URL, the alias or the handle. `accountUrl` is null for a single-post
-  // run — that URL names a post, and recording it would break the URL lookup —
-  // and the merge leaves the recorded one alone when this run has none.
-  await recordIdentity(root, accountDir, { account, url: accountUrl });
+  // is the URL, the alias or the handle.
+  await recordIdentity(root, accountDir, { account, url: target.url });
 
   return {
     plan,
@@ -264,7 +261,7 @@ async function doPlan({ target, root, alias, unalias, cookies, full, threshold, 
 }
 
 async function doGo({
-  root, dir, alias, unalias, url, handle, cookies, planHint, accountUrl, bin = 'gallery-dl',
+  root, dir, alias, unalias, url, handle, cookies, planHint, bin = 'gallery-dl',
 }) {
   // --yes has just enumerated and knows exactly which folder it wrote into, so
   // it passes it in. A bare --go enumerates nothing, never learns the numeric
@@ -313,7 +310,7 @@ async function doGo({
   const remaining = outstanding(plan.posts, await readArchive(accountDir)).length;
 
   // After the move, so the alias recorded is the folder this run finished in.
-  await recordIdentity(root, accountDir, { account: plan.account, url: accountUrl });
+  await recordIdentity(root, accountDir, { account: plan.account, url });
   await recordRun(accountDir, {
     root,
     found: plan.counts?.foundPosts ?? null,
@@ -362,9 +359,11 @@ export async function main(argv) {
     return EXIT.USAGE;
   }
 
-  const target = parseTarget(url);
-  if (target.kind === 'unsupported') {
-    return fail(`${target.why}.\n  This skill takes an account URL or a single post URL.`, EXIT.USAGE);
+  let target;
+  try {
+    target = parseTarget(url);
+  } catch (error) {
+    return fail(`${error.message}.\n  This skill takes an account URL: https://x.com/<handle>.`, EXIT.USAGE);
   }
 
   const browser = optString(opts, 'browser');
@@ -400,9 +399,6 @@ export async function main(argv) {
     return fail(error.message, EXIT.USAGE);
   }
 
-  // A post URL names a post; only an account URL says whose archive this is.
-  const accountUrl = target.kind === 'account' ? target.url : null;
-
   // Everything an alias can be refused for except "it is already yours" needs
   // only the archives root, so it is decided before the session and the first
   // API call. The id is whatever can be worked out without a fetch — an account
@@ -410,7 +406,7 @@ export async function main(argv) {
   // never been seen, which cannot collide with itself either way. doPlan asks
   // again once the real id is in hand.
   if (alias) {
-    const existing = await findAccountDir(root, { url: accountUrl, alias, handle: target.handle });
+    const existing = await findAccountDir(root, { url: target.url, alias, handle: target.handle });
     const verdict = await checkAlias(root, {
       id: existing ? ((await readAccount(existing))?.account?.id ?? null) : null,
       alias,
@@ -425,9 +421,7 @@ export async function main(argv) {
     return fail(error.message);
   }
 
-  // A single post is already as specific as an instruction gets, so it needs no
-  // approval step. An account does, always.
-  const mode = target.kind === 'post' ? 'yes' : pickMode(opts);
+  const mode = pickMode(opts);
 
   const planHint = `${process.env.ARCHIVE_SELF || 'archive.sh'} '${url}'${
     optString(opts, 'archives') ? ` --archives '${optString(opts, 'archives')}'` : ''
@@ -436,13 +430,13 @@ export async function main(argv) {
   if (mode === 'go') {
     return report(
       await doGo({
-        root, url: target.url, alias, unalias, handle: target.handle, cookies, planHint, accountUrl,
+        root, url: target.url, alias, unalias, handle: target.handle, cookies, planHint,
       }),
     );
   }
 
   const planned = await doPlan({
-    target, root, alias, unalias, cookies, full, threshold: DEFAULT_ABORT, accountUrl,
+    target, root, alias, unalias, cookies, full, threshold: DEFAULT_ABORT,
   });
 
   if (planned.failure) {
@@ -506,7 +500,7 @@ export async function main(argv) {
   return report(
     await doGo({
       root, dir: planned.accountDir, alias, unalias, url: target.url, handle: target.handle,
-      cookies, planHint, accountUrl,
+      cookies, planHint,
     }),
   );
 }

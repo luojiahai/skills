@@ -20,7 +20,6 @@ import {
   buildPlan,
   listedIds,
   pendingUrls,
-  postBlock,
   postIdFromUrl,
   statusBlock,
   summaryBlock,
@@ -433,13 +432,6 @@ test('statusBlock and summaryBlock line their columns up with each other', () =>
   const status = statusBlock({ ...common, onDisk: 282, pending: 0 });
   const summary = summaryBlock({ ...common, downloaded: 0, total: 282 });
   assert.equal(column(status, 'collected'), column(summary, 'collected'));
-});
-
-test('postBlock says whether a single post is already here', () => {
-  const args = { account: { douyin_id: 'abc123' }, folder: '/data/douyin_abc123', postId: '7111' };
-  assert.match(postBlock({ ...args, onDisk: false }), /to fetch\s+1 new/);
-  assert.match(postBlock({ ...args, onDisk: true }), /to fetch\s+0 — already downloaded/);
-  assert.match(postBlock({ ...args, onDisk: true }), /抖音号 abc123/);
 });
 
 test('statusBlock reports image posts it skipped, with the ticket that tracks them', () => {

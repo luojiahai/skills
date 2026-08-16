@@ -1,11 +1,14 @@
 /**
  * target.mjs — what the user pointed at.
  *
- * Two entry points, told apart by the URL exactly as gallery-dl's extractors
- * tell them apart: an account, and one post. Everything else on x.com — likes,
- * bookmarks, lists, search, communities — is refused by name rather than
- * quietly treated as an account, because a URL this skill was not built for
- * would otherwise archive something the user did not ask for.
+ * One entry point: an account. Everything else on x.com — a single post, likes,
+ * bookmarks, lists, search, communities — is refused by name rather than quietly
+ * treated as an account, because a URL this skill was not built for would
+ * otherwise archive something the user did not ask for.
+ *
+ * A post URL is the one that makes this worth a module. It carries the handle in
+ * the same position a profile URL does, so anything that stopped reading after
+ * the handle would answer "download this post" by archiving the whole account.
  */
 
 const HOST = /^(?:https?:\/\/)?(?:www\.|mobile\.)?(?:twitter|x)\.com\//i;
@@ -14,7 +17,11 @@ const HOST = /^(?:https?:\/\/)?(?:www\.|mobile\.)?(?:twitter|x)\.com\//i;
 const RESERVED = new Set(['i', 'home', 'explore', 'notifications', 'messages', 'search', 'settings', 'hashtag']);
 
 /**
- * `{ kind: 'post' | 'account', handle, tweetId, url }`, or `{ kind: 'unsupported', why }`.
+ * `{ handle, url }`, or a throw naming what is wrong with the URL.
+ *
+ * Refusal is a throw rather than a returned verdict because there is one kind of
+ * answer left: a caller that reads past this has an account, and nothing to
+ * branch on.
  *
  * The URL is rebuilt canonically rather than passed through: a profile URL
  * carrying `?f=live` or a tracking parameter is the same account, and letting
@@ -23,32 +30,24 @@ const RESERVED = new Set(['i', 'home', 'explore', 'notifications', 'messages', '
 export function parseTarget(input) {
   const raw = String(input ?? '').trim();
   if (!HOST.test(raw)) {
-    return { kind: 'unsupported', why: 'that is not an x.com or twitter.com URL' };
+    throw new Error('that is not an x.com or twitter.com URL');
   }
 
   const path = raw.replace(HOST, '').split(/[?#]/)[0].replace(/\/+$/, '');
   const parts = path.split('/').filter(Boolean);
   if (parts.length === 0) {
-    return { kind: 'unsupported', why: 'that URL names no account' };
+    throw new Error('that URL names no account');
   }
 
-  const [handle, section, id] = parts;
-
-  if (section === 'status' || section === 'statuses') {
-    if (!/^\d+$/.test(id || '')) return { kind: 'unsupported', why: 'that post URL carries no post id' };
-    return { kind: 'post', handle, tweetId: id, url: `https://x.com/${handle}/status/${id}` };
-  }
+  const [handle, section] = parts;
 
   if (RESERVED.has(handle.toLowerCase())) {
-    return { kind: 'unsupported', why: `x.com/${handle} is not an account this skill can archive` };
+    throw new Error(`x.com/${handle} is not an account this skill can archive`);
   }
 
   if (section && section !== 'media' && section !== 'tweets') {
-    return {
-      kind: 'unsupported',
-      why: `x.com/<handle>/${section} is out of scope — this skill archives an account's own media`,
-    };
+    throw new Error(`x.com/<handle>/${section} is out of scope — this skill archives an account's own media`);
   }
 
-  return { kind: 'account', handle, tweetId: null, url: `https://x.com/${handle}` };
+  return { handle, url: `https://x.com/${handle}` };
 }

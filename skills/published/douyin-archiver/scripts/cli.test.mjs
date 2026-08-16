@@ -9,7 +9,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readdirSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -40,6 +40,28 @@ test('--downloads is refused by name rather than as a generic unknown flag', asy
   assert.ok(failed, 'expected a non-zero exit');
   assert.equal(failed.code, 2);
   assert.match(failed.stderr, /--downloads was renamed to --archives/);
+});
+
+test('a /video/ URL is refused rather than archived as the account that posted it', async () => {
+  // The one guard left over the removed single-post path, and it is not there to
+  // stop the feature coming back: it is what keeps a request for one post from
+  // being answered with the whole account. Like the refusal above it exits
+  // before the preflight, so it needs neither yt-dlp nor a session — and --yes
+  // is passed because the pre-authorised path must refuse it too.
+  const root = mkdtempSync(path.join(os.tmpdir(), 'douyin-archive-'));
+  const failed = await run(ARCHIVE_SH, [
+    'https://www.douyin.com/video/7111111111', '--yes', '--archives', root,
+  ]).then(
+    () => null,
+    (error) => error,
+  );
+
+  assert.ok(failed, 'expected a non-zero exit');
+  assert.equal(failed.code, 2);
+  assert.match(failed.stderr, /not a Douyin profile URL/);
+  // Refused is not enough: the point is that nothing was archived. An empty
+  // root means no folder was resolved, no schema stamped and nothing fetched.
+  assert.deepEqual(readdirSync(root), []);
 });
 
 test('parseArgs pairs flags with their values', () => {

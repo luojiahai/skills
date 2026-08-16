@@ -166,7 +166,7 @@ the tool actually does, and it is the only marker of which layer you are in.
 | `archiver.mjs` | The archives root's schema version, and the refusal when it is one this build cannot read. |
 | `assets.mjs` | The account's current avatar and banner, fetched from the URLs the listing pass already carried. |
 | `paths.mjs` | Single source of truth for the state directory and the archives root. |
-| `target.mjs` | Which of the two entry points a URL is, and refusal by name for everything else. |
+| `target.mjs` | The account a URL names. Everything else on x.com — a single post included — is refused rather than read as an account. |
 
 ## Why bash holds no logic
 
@@ -251,10 +251,10 @@ node --test scripts/*.test.mjs
 ```
 
 That covers the diff, plan validation and rendering, path normalisation,
-argument parsing, account identity and merging, URL classification, failure
-classification, the archive scan, the `post.json` shape and its completeness
-rule, `sync.json`'s merge and lifetimes, the schema check, avatar sniffing, and
-post folder naming in both directions.
+argument parsing, account identity and merging, which URLs name an account and
+which are refused, failure classification, the archive scan, the `post.json`
+shape and its completeness rule, `sync.json`'s merge and lifetimes, the schema
+check, avatar sniffing, and post folder naming in both directions.
 
 `collect.mjs` is tested against a fake `gallery-dl` shell script, which is what
 covers the streaming, the early-stop kill and the two process-lifecycle races

@@ -51,9 +51,6 @@
  *   summary --folder DIR --before N --after N [--exit-status N]
  *       Prints what a finished run delivered.
  *
- *   post --folder DIR --douyin-id ID --post ID
- *       Prints where a single post would land, and whether it is already here.
- *
  *   clear --folder DIR
  *       Retires the plan, once its posts have all landed.
  */
@@ -324,16 +321,6 @@ export function summaryBlock({
   return box(lines);
 }
 
-/** Where a single named post would land, and whether it is already there. */
-export function postBlock({ account, folder, postId, onDisk }) {
-  return box([
-    headline(account),
-    row('folder', folder),
-    row('post', postId),
-    row('to fetch', onDisk ? '0 — already downloaded' : '1 new'),
-  ]);
-}
-
 // ---- CLI -------------------------------------------------------------------
 
 /**
@@ -488,18 +475,6 @@ async function summary(opts) {
   );
 }
 
-async function post(opts) {
-  requireOpts(opts, 'folder', 'douyin_id', 'post');
-  console.log(
-    postBlock({
-      account: { douyin_id: opts.douyin_id, nickname: null },
-      folder: opts.folder,
-      postId: opts.post,
-      onDisk: (await onDiskIds(opts.folder)).has(opts.post),
-    }),
-  );
-}
-
 async function clear(opts) {
   requireOpts(opts, 'folder');
   await clearPlan(opts.folder);
@@ -510,7 +485,7 @@ async function clear(opts) {
 // these are.
 if (isMainModule(import.meta.url)) {
   const [command, ...rest] = process.argv.slice(2);
-  const commands = { build, load, pending: pendingCount, count, summary, post, clear };
+  const commands = { build, load, pending: pendingCount, count, summary, clear };
   if (commands[command]) await commands[command](parseArgs(rest));
   else {
     console.error(

@@ -28,8 +28,7 @@
  * disagree between one write and the next.
  *
  * The 抖音号 is still kept inside the file, because it is the identifier a human
- * can actually read and type, and because a single-post download may learn it
- * before it learns anything else.
+ * can actually read and type.
  *
  * `account.json` is authoritative for *identity* — which account is this folder
  * — and never for *progress*. What has been downloaded is answered by the post
@@ -157,8 +156,8 @@ export function aliasDirFor(root, alias) {
  * The fields a caller actually knows.
  *
  * The collector's metadata carries every key it knows *of*, null where it found
- * nothing, and a single-post run knows only the 抖音号. Spread as-is, those
- * blanks would overwrite what a full sweep had already recorded.
+ * nothing. Spread as-is, those blanks would overwrite what an earlier sweep had
+ * already recorded.
  */
 function known(fields) {
   return Object.fromEntries(
@@ -334,14 +333,17 @@ export async function resolveAccountDir(root, { id } = {}) {
 /**
  * The folder for an account whose sec_uid we do not know, or null.
  *
- * A single-post download learns the 抖音号 before anything else, and a user may
- * only remember what they called the archive. The keys are tried in the order of
- * how much they prove, and the alias is tried as a path first because it *is*
- * the folder's name:
+ * A user may only remember what they called the archive. The keys are tried in
+ * the order of how much they prove, and the alias is tried as a path first
+ * because it *is* the folder's name:
  *
  *   alias     as a path, then through the mapping — theirs, and it names the folder
  *   url       the very URL the archive was made from — exact, survives a rename
  *   douyin_id what the account is called today — right until it is changed
+ *
+ * `douyin_id` is kept for archives made before single-post runs were removed:
+ * nothing writes a folder identified by the 抖音号 alone any more, and the ones
+ * already on disk still have to be findable.
  *
  * One pass over the directory for the last three, because the answer is wanted
  * once and the alternative is three passes that stop at different folders.
@@ -612,12 +614,12 @@ async function checkAliasCommand(opts) {
   const alias = optString(opts, 'alias');
   let id = optString(opts, 'sec_uid');
 
-  // A run that has no sec_uid yet — the single-post fallback, or a profile URL
-  // that carried none — still has to be able to name the account, or the check
-  // reads the account's *own* alias as a collision with itself and refuses the
-  // one thing that was always allowed. The 抖音号 and the alias are enough to
-  // find a folder that already exists, and an account nothing has archived
-  // cannot be holding the name anyway.
+  // A run that has no sec_uid yet — a profile URL that carried none — still has
+  // to be able to name the account, or the check reads the account's *own* alias
+  // as a collision with itself and refuses the one thing that was always
+  // allowed. The 抖音号 and the alias are enough to find a folder that already
+  // exists, and an account nothing has archived cannot be holding the name
+  // anyway.
   if (!id) {
     const existing = await findAccountDir(root, {
       url: optString(opts, 'url'),
