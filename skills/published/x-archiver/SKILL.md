@@ -100,23 +100,26 @@ not to you.
 
 ## Where the media goes
 
-`--archives DIR` sets the root, and the account folder is `DIR/x_<handle>` — or
-`DIR/x_<NAME>` with `--name`, which is only needed the first time. Without the
-flag the root is `<git root of the current directory, else cwd>/archives`,
-the same root `douyin-archiver` uses.
+`--archives DIR` sets the root, and the account folder is
+`DIR/x/<numeric user id>`. Without the flag the root is `<git root of the
+current directory, else cwd>/archives`, the same root `douyin-archiver` uses.
 
-The `x_` prefix is what lets both skills share that root: `douyin-archiver`
-names its folders `douyin_<抖音号>`, so an X handle and a 抖音号 that happen to
-match still get a folder each. `--name` renames the account part and keeps the
-prefix — there is no way to name a folder that collides.
+The `x/` folder is what lets both skills share that root: `douyin-archiver`
+files its accounts under `douyin/<sec_uid>`, so there is no id the two could
+collide on.
 
-Resuming means passing the same `--archives` again: under that root the folder
-is found by matching the account's numeric id, whatever the folder is called. A
-different root is a different archive and starts from nothing, so if the user
-has downloaded this account before, use the root they used before.
+X handles are mutable and the numeric id is not, which is why the id is the
+folder. A renamed account goes on filling the folder it already has without
+anything having to notice the rename — there is nothing to detect and nothing
+to report.
 
-X handles are mutable and the numeric id is not. A renamed account keeps filling
-the folder it already has, and the block says so rather than renaming anything.
+`--name NAME` is a label, not a location: it is recorded inside `account.json`,
+and a later run can find the account by it. It cannot move or collide with a
+folder.
+
+Resuming means passing the same `--archives` again. A different root is a
+different archive and starts from nothing, so if the user has downloaded this
+account before, use the root they used before.
 
 A working directory inside the skill itself is not a project: the run stops and
 asks for `--archives DIR` rather than archiving into a folder the next update
@@ -152,20 +155,34 @@ several of them verified the hard way. Read it before modifying anything in
 
 ## State
 
-One folder per account, under the archives root:
+```
+<archives root>/
+  archiver.json                          {"schema": 2}
+  x/<numeric user id>/
+    account.json
+    sync.json
+    assets/{avatar.<ext>, banner.<ext>}
+    posts/<YYYY-MM-DD|undated>_<id>/
+      post.json
+      1.jpg, 2.mp4, …
+```
 
-- `posts/<date>_<id>/` — one folder per post, holding its media as `1.jpg`,
-  `2.mp4`… and a `text.txt` with the post's text and a short header. The name
-  carries no post text: the date sorts the listing as a timeline, the id
-  identifies the post, and the words live in `text.txt` in full rather than
-  truncated into a directory name. **These folders are the record of what has
-  been downloaded**, and a post counts as done when it holds all of its files.
-  Deleting one re-downloads it.
-- `metadata.json` — the account's identity, the URL it was archived from and
-  the archives root the last run used. Written as soon as the folder is
-  resolved, before anything is downloaded. It is **authoritative for identity**
-  — which folder is this account's — and **never for progress**: what has been
-  downloaded is answered by `posts/` alone. Deleting it costs the archive its
-  folder, and the next run starts a new one.
-- `.plan.json` — between `--plan` and `--go`, the list awaiting approval.
-  Deleted once every post in it has landed.
+- `posts/<date>_<id>/` — one folder per post, holding a `post.json` and the
+  media it lists as `1.jpg`, `2.mp4`… The folder name carries no post text: the
+  date sorts the listing as a timeline, the id identifies the post, and the
+  words live in `post.json` in full rather than truncated into a directory name.
+  **These folders are the record of what has been downloaded.** `post.json` is
+  written *before* the media, so it describes the post rather than claiming it
+  landed — a post counts as done when every file it lists is present, and
+  deleting any of them re-downloads it.
+- `account.json` — the account's identity, its `--name` if it has one, and the
+  URL it was archived from. Written as soon as the folder is resolved, before
+  anything is downloaded. It is **authoritative for identity** and **never for
+  progress**: what has been downloaded is answered by `posts/` alone.
+- `sync.json` — the list awaiting approval between `--plan` and `--go`, plus
+  what the last run did. **Deleting it loses no archive content**; the plan
+  expires after 24 hours anyway.
+- `assets/` — the account's current avatar and banner, overwritten each run.
+  A history of them is not kept.
+- `archiver.json` at the root records which schema the archive uses. A version
+  this build does not know stops the run before anything is read or written.

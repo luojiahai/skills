@@ -91,7 +91,7 @@ test('optString treats a valueless flag as absent', () => {
 
 test('readJson returns the parsed object, and null for anything unreadable', async () => {
   const dir = mkdtempSync(path.join(os.tmpdir(), 'douyin-cli-'));
-  const file = path.join(dir, 'metadata.json');
+  const file = path.join(dir, 'account.json');
   writeFileSync(file, '{"douyin_id":"abc123"}\n');
 
   assert.deepEqual(await readJson(file), { douyin_id: 'abc123' });

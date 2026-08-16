@@ -6,7 +6,8 @@
  * line parser, and one answer to "was I the file node was asked to run".
  */
 import { realpathSync } from 'node:fs';
-import { readFile } from 'node:fs/promises';
+import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
+import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 /**
@@ -96,4 +97,28 @@ export async function readJson(file) {
   } catch {
     return null;
   }
+}
+
+/**
+ * Written to a temporary neighbour and renamed over the target, so a reader
+ * sees either the old file or the new one and never half of either.
+ *
+ * post.json is the only copy of a post's words, and account.json the only thing
+ * saying whose folder this is — a plain write interrupted partway leaves
+ * unparseable JSON where the record used to be, which reads as corrupt rather
+ * than as absent. rename(2) within a directory is atomic, and the temporary
+ * name carries the pid so two runs against one archive cannot collide on it.
+ *
+ * sync.json and archiver.json go through it too, though neither strictly needs
+ * to: a truncated sync.json reads as "no plan", which is safe, and archiver.json
+ * is one line. They use it because *every JSON file in an archive* going through
+ * one write path is a rule that can be checked by looking, where "these two are
+ * atomic and that one is not" is a distinction someone has to remember.
+ */
+export async function writeJson(file, value) {
+  const temp = `${file}.${process.pid}.tmp`;
+  await mkdir(path.dirname(file), { recursive: true });
+  await writeFile(temp, `${JSON.stringify(value, null, 2)}\n`);
+  await rename(temp, file);
+  return value;
 }

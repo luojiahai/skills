@@ -82,8 +82,16 @@ test('a run always reads its session from a file, never the live browser', () =>
   }
 });
 
-const row = (content = '"hello"') =>
-  [ROW_MARKER, '1767', '1', '2', 'jpg', '2024-03-11 07:22:19', '55', 'someone', '"Some One"', '0', content].join('\t');
+const REPLY_ID = 14;
+
+const row = (content = '"hello"', { type = 'photo' } = {}) =>
+  [
+    ROW_MARKER, '1767', '1', '2', 'jpg',
+    'F1a2B3c4D5eFgHi', type, 'https://pbs.twimg.com/media/F1a2B3c4D5eFgHi.jpg',
+    '2024-03-11 07:22:19', '55', 'someone', '"Some One"',
+    'https://pbs.twimg.com/profile_images/9/a.jpg', 'https://pbs.twimg.com/profile_banners/55/1699',
+    '0', content,
+  ].join('\t');
 
 test('parseRow reads a printed row', () => {
   const parsed = parseRow(row());
@@ -91,9 +99,34 @@ test('parseRow reads a printed row', () => {
   assert.equal(parsed.num, 1);
   assert.equal(parsed.count, 2);
   assert.equal(parsed.ext, 'jpg');
+  assert.equal(parsed.url, 'https://pbs.twimg.com/media/F1a2B3c4D5eFgHi.jpg');
   assert.equal(parsed.user.name, 'someone');
   assert.equal(parsed.user.nick, 'Some One');
   assert.equal(parsed.content, 'hello');
+});
+
+test('an image carries the pbs media token as its identity', () => {
+  assert.equal(parseRow(row()).mediaId, 'F1a2B3c4D5eFgHi');
+});
+
+test('a video carries no media identity', () => {
+  // Its basename is the variant gallery-dl picked, which a re-encode changes.
+  // Recording it would look like an id and behave like a guess.
+  assert.equal(parseRow(row('"hi"', { type: 'video' })).mediaId, '');
+});
+
+test('the profile assets ride on every row, costing no extra request', () => {
+  const parsed = parseRow(row());
+  assert.equal(parsed.user.avatar, 'https://pbs.twimg.com/profile_images/9/a.jpg');
+  assert.equal(parsed.user.banner, 'https://pbs.twimg.com/profile_banners/55/1699');
+});
+
+test('the optional fields are asked for with a fallback, never bare', () => {
+  // gallery-dl's formatter renders a key it cannot find as the literal string
+  // "None", which would land in post.json as a media URL.
+  for (const field of ['filename', 'type', 'url', 'user[profile_image]', 'user[profile_banner]']) {
+    assert.ok(PRINT_FORMAT.includes(`{${field}|''}`), `${field} needs an explicit fallback`);
+  }
 });
 
 test('parseRow restores newlines and tabs from an encoded body', () => {
@@ -107,7 +140,7 @@ test('parseRow treats reply_id 0 as "not a reply"', () => {
 
 test('parseRow keeps a real reply id', () => {
   const parts = row().split('\t');
-  parts[9] = '4242';
+  parts[REPLY_ID] = '4242';
   assert.equal(parseRow(parts.join('\t')).replyId, '4242');
 });
 

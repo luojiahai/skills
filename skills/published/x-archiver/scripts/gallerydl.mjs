@@ -56,23 +56,35 @@ export const THROTTLE = ['--sleep-request', '2.0', '--sleep', '1.0-3.0', '--retr
  * One tab-separated row per file, at the point gallery-dl has resolved
  * everything about it and is about to write it.
  *
- * Only fields `_transform_tweet` sets unconditionally are named here. The
- * optional ones — `reply_to`, `pinned` — raise a formatting error on the posts
- * that lack them, so replies are identified by `reply_id`, which is always
- * present and is 0 when the post is not a reply.
+ * Only fields `_transform_tweet` sets unconditionally are named bare. The
+ * optional ones carry an explicit `|''` fallback, because gallery-dl's formatter
+ * renders a key it cannot find as the literal string `None` — which would be
+ * indistinguishable from a real value, and would put the four characters "None"
+ * into post.json as a media URL.
  *
  * Free text goes through `!j`, which JSON-encodes it: a post body containing
  * newlines or tabs would otherwise be indistinguishable from several rows.
+ *
+ * `filename` is the basename of the media URL. For an image that is the
+ * pbs.twimg.com media token — globally unique, stable for the life of the
+ * upload — which is what makes it worth carrying into post.json. For a video it
+ * is the basename of whichever variant had the highest bitrate, so parseRow
+ * drops it rather than record something re-encoding can change.
  */
 const FIELDS = [
   '{tweet_id}',
   '{num}',
   '{count}',
   '{extension}',
+  "{filename|''}",
+  "{type|''}",
+  "{url|''}",
   '{date:%Y-%m-%d %H:%M:%S}',
   '{user[id]}',
   '{user[name]}',
   '{user[nick]!j}',
+  "{user[profile_image]|''}",
+  "{user[profile_banner]|''}",
   '{reply_id}',
   '{content!j}',
 ];
@@ -171,7 +183,10 @@ export function parseRow(line) {
   if (parts.length !== FIELDS.length + 1) return null;
   if (parts[0] !== ROW_MARKER) return null;
 
-  const [, tweetId, num, count, ext, date, userId, userName, userNick, replyId, content] = parts;
+  const [
+    , tweetId, num, count, ext, filename, type, url, date,
+    userId, userName, userNick, profileImage, profileBanner, replyId, content,
+  ] = parts;
   if (!/^\d+$/.test(tweetId)) return null;
 
   return {
@@ -179,8 +194,19 @@ export function parseRow(line) {
     num: Number(num) || 0,
     count: Number(count) || 0,
     ext,
+    // Only a photo's basename is the media token. A video's is a variant name
+    // that a re-encode can change, so it is not recorded as an identity.
+    mediaId: type === 'photo' ? filename : '',
+    type,
+    url,
     date,
-    user: { id: userId, name: userName, nick: decodeJson(userNick) },
+    user: {
+      id: userId,
+      name: userName,
+      nick: decodeJson(userNick),
+      avatar: profileImage,
+      banner: profileBanner,
+    },
     replyId: replyId && replyId !== '0' ? replyId : '',
     content: decodeJson(content),
   };

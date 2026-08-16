@@ -6,12 +6,36 @@ import test from 'node:test';
 
 import { DEFAULT_ABORT, collect, makeStopper } from './collect.mjs';
 import { ROW_MARKER } from './gallerydl.mjs';
+import { buildPost } from './post.mjs';
 
 const row = (id, num = 1, count = 1) =>
-  [ROW_MARKER, id, num, count, 'jpg', '2024-03-11 07:22:19', '55', 'someone', '"Some One"', '0', '"hi"'].join('\t');
+  [
+    ROW_MARKER, id, num, count, 'jpg',
+    'TOKEN', 'photo', 'https://pbs.twimg.com/media/TOKEN.jpg',
+    '2024-03-11 07:22:19', '55', 'someone', '"Some One"',
+    'https://pbs.twimg.com/profile_images/9/a.jpg', '',
+    '0', '"hi"',
+  ].join('\t');
 
-function archiveOf(ids, mediaCount = 1) {
-  return new Map(ids.map((id) => [String(id), { folder: `x [${id}]`, mediaCount }]));
+/**
+ * An archive whose posts each list `listed` files and hold `present` of them —
+ * the shape landed.mjs returns.
+ */
+function archiveOf(ids, { listed = ['1.jpg'], present = listed } = {}) {
+  return new Map(ids.map((id) => [
+    String(id),
+    {
+      folder: `2024-03-11_${id}`,
+      names: [...present, 'post.json'],
+      post: buildPost({
+        id: String(id),
+        media: listed.map((name) => {
+          const [num, ext] = name.split('.');
+          return { num, ext };
+        }),
+      }),
+    },
+  ]));
 }
 
 test('the stopper does nothing on a first run', () => {
@@ -38,9 +62,17 @@ test('one unseen post resets the run of known ones', () => {
 });
 
 test('a post on disk but incomplete does not count as known', () => {
-  const stop = makeStopper({ archive: archiveOf([1, 2], 1), threshold: 2, enabled: true });
+  // Otherwise a sweep retires early over posts it would then have to fetch.
+  const archive = archiveOf([1, 2], { listed: ['1.jpg', '2.jpg'], present: ['1.jpg'] });
+  const stop = makeStopper({ archive, threshold: 2, enabled: true });
   assert.equal(stop({ tweetId: '1', count: 4 }), false);
   assert.equal(stop({ tweetId: '2', count: 4 }), false);
+});
+
+test('a post whose folder has no post.json does not count as known', () => {
+  const archive = new Map([['1', { folder: '2024-03-11_1', names: ['1.jpg'], post: null }]]);
+  const stop = makeStopper({ archive, threshold: 1, enabled: true });
+  assert.equal(stop({ tweetId: '1', count: 1 }), false);
 });
 
 test('the default threshold is generous enough to survive pinned posts', () => {
@@ -64,7 +96,13 @@ test('collect reads printed rows and picks up the account identity', async () =>
   const result = await collect({ url: 'https://x.com/someone', bin });
 
   assert.equal(result.rows.length, 2);
-  assert.deepEqual(result.account, { id: '55', handle: 'someone', nickname: 'Some One' });
+  assert.deepEqual(result.account, {
+    id: '55',
+    handle: 'someone',
+    nickname: 'Some One',
+    avatar: 'https://pbs.twimg.com/profile_images/9/a.jpg',
+    banner: '',
+  });
   assert.equal(result.stoppedEarly, false);
   assert.equal(result.failure, null);
 });

@@ -21,9 +21,12 @@ as the post has. A record derived from the files cannot drift from the files, wh
 is the failure a second record invites — a run that dies between two writes
 leaves them disagreeing, silently and permanently.
 
-**`text.txt` never counts toward completeness.** It is ours, not media. A post
-whose images failed but whose text was written must still read as incomplete, or
-the retry skips it forever.
+**Completeness is a named list, not a count.** `post.json` says which files the
+post carries, and every one of them has to be present. A count would have been
+satisfied by the wrong files; the list also makes `1.jpg.part` fail by
+construction, since a half-transferred file is not the file. `post.json` itself
+is ours rather than media and is never in the list, so a post whose images failed
+but whose description was written still reads as incomplete — which it is.
 
 **gallery-dl's skip-and-abort does not run in a listing pass.** `skip:
 "abort:N"` lives in `DownloadJob.handle_url`, and `SimulationJob` overrides that
@@ -42,9 +45,15 @@ the run fails. The prefix is load-bearing, not decoration.
 `_transform_tweet` sets `reply_to` and `pinned` only on the posts that have them,
 and naming a missing key is a formatting error on every other post. Replies are
 identified by `reply_id`, which is always present and is `0` when the post is
-not a reply. This is also why `text.txt` links a reply's parent by URL rather
-than naming the account replied to, and why it carries no "quoting" line at all:
-the quoted post's id is not exposed in the extractor's metadata.
+not a reply. This is also why `post.json` links a reply's parent by URL rather
+than naming the account replied to, and why it carries nothing about a quoted
+post: the quoted post's id is not exposed in the extractor's metadata.
+
+The optional fields added for `post.json` — `filename`, `type`, `url` and the
+two profile-image URLs — carry an explicit `|''` fallback for the same reason
+turned inside out. gallery-dl's formatter does not raise on a key it cannot
+find; it renders the literal string `None`, which would be indistinguishable
+from a value and would land in `post.json` as a media URL.
 
 **Free text must be `!j`-encoded.** A post body containing a newline or a tab
 would otherwise be indistinguishable from several rows of a tab-separated
@@ -77,26 +86,49 @@ somewhere `--go` then cannot find. So `collect` takes an `onAccount` callback,
 fired on the first row that names the account, and the folder, the archive and
 the stopping rule are all settled inside it.
 
-**`--go` has no id at all, so it finds its folder by URL.** It enumerates
-nothing by design, so `findAccountFolder` is unavailable to it. `findFolderByUrl`
-matches the `url` recorded in `metadata.json`, which is the URL the archive was
-made from. The same URL is what `validatePlan` compares — the numeric-id check
-in that function can never fire on the `--go` path.
+**`--go` has no id at all, so it finds its folder by scanning.** It enumerates
+nothing by design, so it cannot go straight to `x/<id>/` the way a plan can.
+`findAccountDir` makes one pass over the account folders and matches, in order
+of how much each proves: the `url` recorded in `account.json` (the very URL the
+archive was made from), the user's own `--name`, then the handle. The URL is
+also what `validatePlan` compares — the numeric-id check in that function can
+never fire on the `--go` path.
 
-**`metadata.json` is authoritative for identity, and never for progress.** It
-is the only thing that says which folder an account has, so deleting it costs
-the archive its folder. It says nothing about what has been downloaded: that is
-answered by the post folders alone, and a count or a newest-post id kept here
-would be a second record free to disagree with them. It is written the moment
-the folder is resolved — before the download, not after — so a folder that
-exists always says whose it is, and `.plan.json` is never asked who an account
-is. The plan carries identity only as a guard, for `validatePlan` to refuse a
-plan made for someone else.
+**`account.json` is authoritative for identity, and never for progress.** It
+says nothing about what has been downloaded: that is answered by the post
+folders alone, and a count or a newest-post id kept here would be a second
+record free to disagree with them. It is written the moment the folder is
+resolved — before the download, not after — so a folder that exists always says
+whose it is, and the parked plan is never asked who an account is. The plan
+carries identity only as a guard, for `validatePlan` to refuse a plan made for
+someone else. What the last run *did* is run history and lives in `sync.json`.
 
-**`text.txt` is written whatever happened to the media.** Returning early on a
-failed fetch leaves a post that got three of its four images sitting in a folder
-with nothing saying what it was. The text is written first, then the failure is
-counted.
+**Deleting `sync.json` loses no archive content.** That sentence is the whole
+specification of the file, and every field in it has to keep the sentence true.
+It holds the plan awaiting approval and a record of the last run, and nothing
+that a run consults to decide what to fetch. A resumption cursor was considered
+and rejected: it would make a run *shorter in result*, not just cheaper, and the
+sibling skill deleted exactly that mechanism for missing posts a reordered feed
+had pushed below it.
+
+**`post.json` is written before the media, not after.** It is the post's
+description, not a receipt. A marker written last would be a second record, free
+to go on claiming a post had landed after its media was deleted by hand — the
+failure that got `--download-archive` removed from the sibling skill. Writing it
+first also means a post that got three of its four images sits in a folder that
+still says what it was, and its media list is what makes the fourth read as
+missing. A folder whose `post.json` could not be written counts the post as
+failed rather than downloading into a folder that can never satisfy the
+completeness check.
+
+**The archives root carries a schema version.** `archiver.json` holds
+`{"schema": 2}` and is checked before the session, before the first API call and
+before anything is written. Absent is an ordinary answer and reads as the
+current schema, so a subtree copied to another disk still works; a version this
+build does not know stops the run. It is not a guard against the old flat
+`x_<handle>` layout — that layout had no root file either, so it is invisible to
+this build by construction, and moving an old archive across is a one-off the
+user does by hand.
 
 **The pauses are what let a long run finish.** X rate-limits the timeline
 endpoints hard, and the failure is not a slow run but a stopped one — and, with
@@ -123,12 +155,16 @@ the tool actually does, and it is the only marker of which layer you are in.
 | `archive.sh` | Entry point. Preflights node and gallery-dl, then hands the run to `run.mjs`. Deliberately holds no logic. |
 | `run.mjs` | The whole run: flags, target, session, root, folder, plan, go, and which block gets printed. |
 | `collect.mjs` | Drives the listing pass, reads rows as they arrive, and decides when enough of the timeline has been seen. |
-| `fetch.mjs` | Downloads a list of posts, one gallery-dl invocation each, and writes `text.txt`. |
+| `fetch.mjs` | Downloads a list of posts, one gallery-dl invocation each, writing each post's `post.json` before its media. |
 | `gallerydl.mjs` | Everything said to gallery-dl and read back from it: policy, throttling, the print format, the row parser, failure classification. |
 | `plan.mjs` | The diff, the plan's validation rules, and **every** block the skill prints. |
 | `landed.mjs` | What is already on disk, read from the post folders. |
-| `naming.mjs` | A post's `<date>_<id>` folder name, the id back out of one, and the `text.txt` body. |
-| `metadata.mjs` | Resolves an account's folder by numeric identity or URL; writes `metadata.json`. |
+| `naming.mjs` | A post's `<date>_<id>` folder name, the id back out of one, and a post's permalink. |
+| `post.mjs` | The shape of `post.json`, and whether a post holds every file it lists. |
+| `account.mjs` | Where an account's folder is (`x/<id>`), and the identity written in `account.json`. |
+| `sync.mjs` | `sync.json`: the parked plan and the last run's history. Deletable without loss. |
+| `archiver.mjs` | The archives root's schema version, and the refusal when it is one this build cannot read. |
+| `assets.mjs` | The account's current avatar and banner, fetched from the URLs the listing pass already carried. |
 | `paths.mjs` | Single source of truth for the state directory and the archives root. |
 | `target.mjs` | Which of the two entry points a URL is, and refusal by name for everything else. |
 
@@ -145,7 +181,7 @@ the `--go` that had just failed.
 Nothing about an account can be reported before it is enumerated — not the
 display name, not the post count, and certainly not how many are new. So the run
 is split: `--plan` enumerates, diffs and reports; `--go` downloads what the
-report described. In between, the list waits in `<folder>/.plan.json`, which is
+report described. In between, the list waits in `<folder>/sync.json`, which is
 why confirming costs no second enumeration and why what is fetched is exactly
 what was shown.
 
@@ -201,7 +237,7 @@ place — and it previously needed a sanitiser stripping path separators, contro
 characters, bidi overrides and Windows-hostile trailing dots, truncating by
 grapheme so a name never ended mid-surrogate. Keeping the body out of the path
 retires that whole class of bug instead of defending against it, and costs
-nothing: `text.txt` holds the full untruncated text anyway.
+nothing: `post.json` holds the full untruncated text anyway.
 
 The reverse direction has a matching rule, and `naming.mjs` carries the reason:
 `tweetIdFromFolder` anchors to the *whole* folder name, never a suffix.
@@ -215,9 +251,10 @@ node --test scripts/*.test.mjs
 ```
 
 That covers the diff, plan validation and rendering, path normalisation,
-argument parsing, metadata identity and merging, URL classification, failure
-classification, the archive scan, the `text.txt` builder, and post folder
-naming in both directions.
+argument parsing, account identity and merging, URL classification, failure
+classification, the archive scan, the `post.json` shape and its completeness
+rule, `sync.json`'s merge and lifetimes, the schema check, avatar sniffing, and
+post folder naming in both directions.
 
 `collect.mjs` is tested against a fake `gallery-dl` shell script, which is what
 covers the streaming, the early-stop kill and the two process-lifecycle races
@@ -235,30 +272,65 @@ on.
 
 ## Shared with douyin-archiver, on purpose
 
-`landed.mjs`, `naming.mjs` and `metadata.mjs` here, and `landed.mjs` /
-`metadata.mjs` in **douyin-archiver**, hold the same rules, written twice:
+`landed.mjs`, `post.mjs`, `account.mjs`, `sync.mjs` and `archiver.mjs` here have
+counterparts of the same name in **douyin-archiver**, holding the same rules
+written twice. The layout both produce:
 
-- `posts/<YYYY-MM-DD|undated>_<id>/`, one folder per post
+```
+<archives root>/
+  archiver.json                 {"schema": 2}
+  x/<numeric user id>/          douyin/<sec_uid>/
+    account.json
+    sync.json
+    assets/                     (x only — see below)
+    posts/<YYYY-MM-DD|undated>_<id>/
+      post.json
+      1.jpg, 2.mp4, …
+```
+
+- `posts/<YYYY-MM-DD|undated>_<id>/`, one folder per post, `undated` a literal
 - media numbered by position — `1.jpg`, `2.mp4`
-- `text.txt`: permalink, timestamp, blank line, then the untruncated text
-- a post counts as downloaded when its folder holds its media
-- the account folder is prefixed — `x_<handle>` here, `douyin_<抖音号>` there —
-  because both skills default to the same `<git root>/archives` root, and a
-  handle that matches a 抖音号 would otherwise interleave two accounts in one
-  folder. `--name` renames the account part and keeps the prefix, so no name
-  can be chosen that collides.
-- `metadata.json` beside `posts/`, holding `version`, `account`, `url`, `root`
-  and `updated_at` and nothing else — authoritative for identity, never for
-  progress. Both write it when the folder is resolved, both merge into what is
-  already there, and both treat a blank as silence rather than an erasure.
+- `post.json`: `version`, `id`, `permalink`, `timestamp`, `text`, `reply_to`,
+  `media`, in that order and holding nothing else. Written **before** the media.
+  `media[].url` and `media[].id` are optional and often absent.
+- a post counts as downloaded when every file its `post.json` lists is present
+- the account folder is the account's immutable id, under a platform folder —
+  `x/<numeric user id>` here, `douyin/<sec_uid>` there — because both skills
+  default to the same `<git root>/archives` root. `--name` is a label recorded
+  inside `account.json`, never a folder name, so no name can collide.
+- `account.json` beside `posts/`, holding `version`, `platform`, `account` and
+  `url` and nothing else — authoritative for identity, never for progress. Both
+  write it when the folder is resolved, both merge into what is already there,
+  and both treat a blank as silence rather than an erasure.
+- `sync.json` beside it, holding `version`, `plan` and `last_run`. Deleting it
+  loses no archive content.
+- `archiver.json` at the root, holding the schema version. Absent reads as
+  current; unknown stops the run.
 
 They are duplicated rather than shared. A skill is a self-contained folder under
 `skills/`, distributed and symlinked on its own, so there is nowhere a shared
 module could live that is still a skill. **Change a rule here and change it
 there** — the two archives are meant to be readable with one mental model, and
-the duplication is only worth its cost while they agree.
+the duplication is only worth its cost while they agree. The specification lives
+in the issue tracker; these two blocks are what ships.
 
-The one deliberate difference: gallery-dl tells this skill how many files a post
-should hold, so `isPostComplete` can tell a half-fetched post from a complete
-one. Douyin's collector yields ids and nothing else, so its check is "at least
-one media file" — the fallback branch this one already has.
+Three deliberate differences:
+
+- **`assets/` is x-only.** gallery-dl puts the avatar and banner URLs on every
+  row the listing pass already reads, so they cost nothing here. Nothing reads
+  Douyin's out of the profile page yet, so the directory is simply absent there
+  — the layout allows it to be.
+- **This skill builds `post.json` in JS; Douyin's is written by yt-dlp.** There
+  the JSON is assembled by an output template in `download-douyin.sh`, because
+  `--print-to-file` fires after extraction and before the download, which is
+  exactly when the file has to appear — and doing it any other way would cost a
+  second metadata request per post against a hard rate limiter. So the two
+  `post.mjs` modules agree on the *file* and differ in their API: this one owns
+  `toTimestamp` and `mediaEntry` and takes media as `{num, ext, …}`, because it
+  is the thing turning gallery-dl's rows into filenames; Douyin's has neither and
+  takes `{file, …}`, because by the time anything in Node sees a media entry the
+  name has already been decided by the template.
+- **`media[].id` exists here and never there.** For an image it is the
+  pbs.twimg.com media token; yt-dlp exposes no per-item identifier for Douyin at
+  all. It is also absent for X videos, whose only candidate is a variant name a
+  re-encode can change.

@@ -1,5 +1,5 @@
 /**
- * naming.mjs — a post's identity as a directory name, and its text as a file.
+ * naming.mjs — a post's identity as a directory name.
  *
  * A post folder is `<date>_<id>` and nothing else. Both halves are machine
  * fields: a date gallery-dl formatted and a numeric status id. No part of a
@@ -7,8 +7,13 @@
  * arbitrary user text into a *directory* name, a sharper edge than a filename
  * because a stray separator does not produce a badly named file, it produces a
  * tree in the wrong place. Keeping the body out of the path retires that entire
- * class of bug rather than defending against it, and costs nothing: `text.txt`
- * inside the folder already holds the full, untruncated text.
+ * class of bug rather than defending against it, and costs nothing: `post.json`
+ * inside the folder holds the full, untruncated text.
+ *
+ * The date is in the name even though `post.json` also carries the timestamp.
+ * That is the one duplication in this archive that pays for itself: it makes a
+ * directory listing a timeline, it is derived rather than recorded, and nothing
+ * reads it back except the regex below that recognises a folder as ours.
  *
  * Everything here is pure and total. It never throws, and it never returns
  * something that means a different path than it looks like.
@@ -47,23 +52,6 @@ export function postFolderName({ date, tweetId }) {
 export function tweetIdFromFolder(name) {
   const m = POST_FOLDER.exec(String(name ?? ''));
   return m ? m[1] : null;
-}
-
-/**
- * `text.txt` — the post's body, with enough header to mean something.
- *
- * Written for every post, including one with no text at all. A missing file
- * would be ambiguous between "this post had no words" and "the run died before
- * writing it", and the second of those is the one you need to be able to see.
- *
- * This is also the only place a post's words are kept, now that the folder name
- * carries none of them, so the body goes in whole — never truncated.
- */
-export function postText({ permalink: url, date, content, replyUrl }) {
-  const header = [`${url}`, `${date}`];
-  if (replyUrl) header.push(`in reply to ${replyUrl}`);
-  const body = typeof content === 'string' ? content : '';
-  return `${header.join('\n')}\n\n${body}\n`;
 }
 
 /** The canonical permalink for a post, which is also how `--go` re-fetches it. */

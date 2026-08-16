@@ -1,20 +1,21 @@
 /**
- * cli.mjs — the argument parsing, file reading and entry-point detection
- * shared by metadata.mjs and plan.mjs.
+ * cli.mjs — the argument parsing, file reading, JSON writing and entry-point
+ * detection the other modules share.
  *
- * Both are small `<verb> --flag value` CLIs called from archive.sh, and they
- * had a copy each of this. The copies then drifted: one learned that a flag
- * with no value of its own must not swallow the flag after it, and the other
- * did not. One copy is how that stops happening again.
+ * `account.mjs` and `plan.mjs` are small `<verb> --flag value` CLIs called from
+ * archive.sh, and they had a copy each of this. The copies then drifted: one
+ * learned that a flag with no value of its own must not swallow the flag after
+ * it, and the other did not. One copy is how that stops happening again.
  */
 import { realpathSync } from 'node:fs';
-import { readFile } from 'node:fs/promises';
+import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
+import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 /**
  * True when `importMetaUrl` names the file node was asked to run. Each CLI
- * here dispatches only behind this: plan.mjs imports from metadata.mjs, and a
- * dispatch keyed on argv alone would run metadata's CLI on plan's arguments.
+ * here dispatches only behind this: plan.mjs imports from account.mjs, and a
+ * dispatch keyed on argv alone would run account's CLI on plan's arguments.
  * argv[1] is realpath'd because the skill is installed by symlink while node
  * resolves the entry module to its real location.
  */
@@ -72,6 +73,30 @@ export async function readJson(file) {
   }
 }
 
+/**
+ * Written to a temporary neighbour and renamed over the target, so a reader
+ * sees either the old file or the new one and never half of either.
+ *
+ * post.json is the only copy of a post's caption, and account.json the only
+ * thing saying whose folder this is — a plain write interrupted partway leaves
+ * unparseable JSON where the record used to be, which reads as corrupt rather
+ * than as absent. rename(2) within a directory is atomic, and the temporary
+ * name carries the pid so two runs against one archive cannot collide on it.
+ *
+ * sync.json and archiver.json go through it too, though neither strictly needs
+ * to: a truncated sync.json reads as "no plan", which is safe, and archiver.json
+ * is one line. They use it because *every JSON file in an archive* going through
+ * one write path is a rule that can be checked by looking, where "these two are
+ * atomic and that one is not" is a distinction someone has to remember.
+ */
+export async function writeJson(file, value) {
+  const temp = `${file}.${process.pid}.tmp`;
+  await mkdir(path.dirname(file), { recursive: true });
+  await writeFile(temp, `${JSON.stringify(value, null, 2)}\n`);
+  await rename(temp, file);
+  return value;
+}
+
 /** Empty rather than a throw: no archive means nothing has been downloaded. */
 export async function readText(file) {
   try {
@@ -79,4 +104,15 @@ export async function readText(file) {
   } catch {
     return '';
   }
+}
+
+/**
+ * A plain write, for the scratch files the shell reads back.
+ *
+ * Not atomic, and does not need to be: these live in the system temp directory
+ * for the length of one run and are cleaned up by an EXIT trap. Only the
+ * archive's own files go through writeJson.
+ */
+export async function writeText(file, contents) {
+  await writeFile(file, contents);
 }

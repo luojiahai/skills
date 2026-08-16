@@ -14,12 +14,13 @@
  * progress has to be remembered between runs.
  */
 import { spawn } from 'node:child_process';
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
 
-import { POSTS_DIR, TEXT_FILE, isMissing } from './landed.mjs';
+import { POSTS_DIR, isMissing } from './landed.mjs';
 import { classifyFailure, fetchArgs } from './gallerydl.mjs';
-import { permalink, postFolderName, postText } from './naming.mjs';
+import { permalink, postFolderName } from './naming.mjs';
+import { buildPost, toTimestamp, writePost } from './post.mjs';
 
 /** Failures that end the run rather than the post. */
 export const FATAL = new Set(['rate-limited', 'unauthorized', 'suspended', 'protected', 'unavailable']);
@@ -84,6 +85,34 @@ export async function fetchPosts({
     const dir = postDir(accountDir, post);
 
     await mkdir(dir, { recursive: true });
+
+    // Written before the first byte of media, and written for every post
+    // including one with no words. It is the post's description, not a receipt:
+    // a post whose fourth image 404s still got three, and a folder holding that
+    // media with nothing saying what it was would be anonymous rubble. Its media
+    // list is also what lets the next run see that the fourth is still missing.
+    //
+    // A folder whose post.json could not be written reads as not-landed and is
+    // retried, so the post is counted failed here rather than downloaded into a
+    // folder that will never satisfy the completeness check.
+    try {
+      await writePost(
+        dir,
+        buildPost({
+          id: post.tweetId,
+          permalink: url,
+          timestamp: toTimestamp(post.date),
+          text: post.content,
+          replyTo: post.replyId ? permalink('i/web', post.replyId) : '',
+          media: post.files,
+        }),
+      );
+    } catch {
+      failed += 1;
+      onPost?.({ post, ok: false });
+      continue;
+    }
+
     const result = await run(bin, fetchArgs({ url, directory: dir, cookies }));
 
     const kind = result.code === 0 ? null : (classifyFailure(result.output) ?? (result.code === -1 ? 'unavailable' : null));
@@ -91,21 +120,6 @@ export async function fetchPosts({
       stopped = kind;
       break;
     }
-
-    // Written whatever happened to the media, and written for every post
-    // including one with no words. Two ambiguities to avoid: a missing file
-    // cannot be told apart from a run that died here, and a post whose fourth
-    // image 404s still got three — skipping its text would leave that media
-    // sitting in a folder with nothing saying what it was.
-    await writeFile(
-      path.join(dir, TEXT_FILE),
-      postText({
-        permalink: url,
-        date: post.date,
-        content: post.content,
-        replyUrl: post.replyId ? permalink('i/web', post.replyId) : '',
-      }),
-    );
 
     if (result.code !== 0) {
       failed += 1;

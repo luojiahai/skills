@@ -67,23 +67,23 @@ Modes (profile URLs):
 
 Options:
       --archives DIR    Root directory the archives live in. The account
-                        folder is DIR/douyin_<抖音号 or --name>.
+                        folder is DIR/douyin/<sec_uid>.
                         (default: <git root, else cwd>/archives — required
                         when run from inside the skill directory)
-      --name NAME       Account name for the folder (default: its 抖音号). The
-                        douyin_ prefix is always kept, so a shared archives
-                        root cannot collide with x-archiver's folders.
-                        Only needed once; later runs find the folder by
-                        matching the account identity in metadata.json.
+      --name NAME       A label for this account, recorded in account.json.
+                        It does not name the folder — the account's sec_uid
+                        does, so changing a 抖音号 can never orphan an
+                        archive — but a later run can find the account by it.
       --profile DIR     Playwright session profile
                         (default: ${XDG_STATE_HOME:-~/.local/state}/douyin-archiver/profile)
   -h, --help            Show this help
 
-Each post lands in <archives>/<folder>/posts/<date>_<id>/, holding its media
-as 1.mp4, 2.jpg… and a text.txt with the permalink, timestamp and caption.
-Those folders are the record of what has landed — delete one and it is
-fetched again. Beside them sit metadata.json (whose account this folder
-is) and, between --plan and --go, .plan.json (the list awaiting approval).
+Each post lands in <archives>/douyin/<sec_uid>/posts/<date>_<id>/, holding a
+post.json — permalink, timestamp, caption and the media it carries — plus that
+media as 1.mp4. post.json is written before the download, and a post counts as
+landed when every file it lists is there; delete one and it is fetched again.
+Beside posts/ sit account.json (whose account this folder is) and sync.json
+(the list awaiting approval between --plan and --go, plus the last run).
 
 Image posts (图文) are counted and reported, but not yet downloaded:
 https://github.com/luojiahai/skills/issues/39
@@ -123,7 +123,20 @@ fi
 # would name a different account folder and silently re-download everything. It
 # also expands ~ and makes the path absolute, since the agent passes the user's
 # flag through as typed and a quoted ~/data never reaches the shell's expansion.
-ARCHIVES="$(node "${SCRIPT_DIR}/metadata.mjs" root --archives "$ARCHIVES_ARG")" || exit 2
+ARCHIVES="$(node "${SCRIPT_DIR}/account.mjs" root --archives "$ARCHIVES_ARG")" || exit 2
+
+# Before the session, before the first request, before anything is written: an
+# archive this build cannot read must cost nothing to discover. With no
+# old-layout detection behind it, this refusal is the only thing standing
+# between a version mismatch and a silent full re-download.
+node "${SCRIPT_DIR}/archiver.mjs" check --archives "$ARCHIVES" || exit 2
+
+# Stamping is deliberately not part of that check: it happens once a folder has
+# been resolved, so a mistyped --archives does not leave a stamped empty
+# directory behind on a run that then goes nowhere.
+stamp_root() {
+  node "${SCRIPT_DIR}/archiver.mjs" stamp --archives "$ARCHIVES"
+}
 
 # The command that makes a plan, quoted back to the user in every message that
 # needs one to exist.
@@ -221,7 +234,7 @@ download_list() {
 }
 
 resolve_folder() {
-  node "${SCRIPT_DIR}/metadata.mjs" resolve --archives "$ARCHIVES" "$@"
+  node "${SCRIPT_DIR}/account.mjs" resolve --archives "$ARCHIVES" "$@"
 }
 
 # ---- single post -----------------------------------------------------------
@@ -230,27 +243,32 @@ if [[ "$URL" =~ /video/([0-9]+) ]]; then
 
   [[ -f "$COOKIE_FILE" ]] || mint_cookies
 
-  # yt-dlp's `uploader` field is the 抖音号 — enough to file the post under the
-  # right account without opening a browser.
+  # yt-dlp's `channel_id` is the sec_uid, which now *is* the folder name, and
+  # `uploader` is the 抖音号, which is what a human reads. Both come from one
+  # metadata request, so a single post is still filed correctly without opening
+  # a browser.
   #
   # `|| true` is load-bearing: under `set -e -o pipefail` a yt-dlp that exits
   # non-zero would take the whole script down here, with its stderr already sent
   # to /dev/null — a silent exit 1, and the retry and diagnosis below would
   # never be reached.
-  uploader_of() {
-    yt-dlp --cookies "$COOKIE_FILE" --print "%(uploader)s" \
+  identity_of() {
+    yt-dlp --cookies "$COOKIE_FILE" --print "%(channel_id|)s	%(uploader|)s" \
       --skip-download "https://www.douyin.com/video/$1" 2>/dev/null | head -1 || true
   }
 
-  DOUYIN_ID="$(uploader_of "$POST_ID")"
+  IDENTITY="$(identity_of "$POST_ID")"
 
-  if [[ -z "$DOUYIN_ID" ]]; then
+  if [[ -z "${IDENTITY//[[:space:]]/}" ]]; then
     echo "[douyin] no metadata — re-minting cookies and retrying once…"
     mint_cookies
-    DOUYIN_ID="$(uploader_of "$POST_ID")"
+    IDENTITY="$(identity_of "$POST_ID")"
   fi
 
-  if [[ -z "$DOUYIN_ID" ]]; then
+  SEC_UID="${IDENTITY%%$'\t'*}"
+  DOUYIN_ID="${IDENTITY#*$'\t'}"
+
+  if [[ -z "${IDENTITY//[[:space:]]/}" ]]; then
     echo "error: could not read metadata for post ${POST_ID}." >&2
     echo "The post may be private, deleted or region-locked; failing that, the" >&2
     echo "session is dead — re-establish it with:" >&2
@@ -258,15 +276,31 @@ if [[ "$URL" =~ /video/([0-9]+) ]]; then
     exit 1
   fi
 
-  FOLDER="$(resolve_folder --douyin-id "$DOUYIN_ID" --name "$NAME")"
+  # With a sec_uid the folder is known outright. Without one there is no name to
+  # invent — the 抖音号 is the mutable identifier this layout stopped filing by —
+  # so the only hope is a folder some earlier run already made for this account.
+  if [[ -n "$SEC_UID" ]]; then
+    FOLDER="$(resolve_folder --sec-uid "$SEC_UID")"
+  else
+    FOLDER_STATUS=0
+    FOLDER="$(resolve_folder --douyin-id "$DOUYIN_ID" --name "$NAME")" || FOLDER_STATUS=$?
+    if [[ "$FOLDER_STATUS" != 0 ]]; then
+      echo "error: this post did not name its account's sec_uid, and no folder here" >&2
+      echo "belongs to 抖音号 ${DOUYIN_ID} yet — so there is nowhere to file it." >&2
+      echo "Archive the profile once first:" >&2
+      echo "  ${SCRIPT_DIR}/archive.sh 'https://www.douyin.com/user/<sec_uid>' --plan" >&2
+      exit 1
+    fi
+  fi
 
   # Identity, written as soon as the folder is known and before anything is
   # fetched: which account this folder belongs to, never how much of it has
   # been downloaded. That is what lets a later full run find this folder
   # instead of starting a second one for the same account. No --url: the URL
   # here names a post, and the recorded one is the profile's.
-  node "${SCRIPT_DIR}/metadata.mjs" write --folder "$FOLDER" \
-    --douyin-id "$DOUYIN_ID" --archives "$ARCHIVES"
+  stamp_root
+  node "${SCRIPT_DIR}/account.mjs" write --folder "$FOLDER" \
+    --sec-uid "$SEC_UID" --douyin-id "$DOUYIN_ID" --name "$NAME"
 
   # A single post is already as specific as an instruction gets, so it is not
   # planned or confirmed — but --plan still answers where it would land.
@@ -342,14 +376,15 @@ run_plan() {
     download_list "$TMP_PENDING" "$folder" || status=$?
   fi
 
-  node "${SCRIPT_DIR}/metadata.mjs" write --folder "$folder" --meta "${folder}/.plan.json" \
-    --url "$URL" --archives "$ARCHIVES"
+  # Only the profile URL: the identity was written by `build` before anything
+  # was fetched, and by an earlier run's `build` on the --go path.
+  node "${SCRIPT_DIR}/account.mjs" write --folder "$folder" --url "$URL"
 
   after="$(plan_mjs count --folder "$folder")"
 
   echo
-  plan_mjs summary --folder "$folder" --before "$before" --after "$after" \
-    --exit-status "$status"
+  plan_mjs summary --folder "$folder" --archives "$ARCHIVES" \
+    --before "$before" --after "$after" --exit-status "$status"
 
   # Kept after a partial run, so a retry re-fetches only what is missing
   # without paying for another collection; removed once it has all landed.
@@ -398,15 +433,25 @@ if [[ -z "$DOUYIN_ID" ]]; then
   exit 1
 fi
 
-FOLDER="$(resolve_folder --douyin-id "$DOUYIN_ID" --sec-uid "$SEC_UID" --name "$NAME")"
+if [[ -z "$SEC_UID" ]]; then
+  echo "error: could not read the account's sec_uid from the profile page or URL." >&2
+  echo "It is the MS4w... part of https://www.douyin.com/user/MS4w..." >&2
+  exit 1
+fi
+
+FOLDER="$(resolve_folder --sec-uid "$SEC_UID")"
+
+stamp_root
 
 echo
 node "${SCRIPT_DIR}/plan.mjs" build --meta "$TMP_META" --urls "$TMP_COLLECTED" \
-  --folder "$FOLDER" --archives "$ARCHIVES" --url "$URL"
+  --folder "$FOLDER" --archives "$ARCHIVES" --url "$URL" --name "$NAME"
 
-# No plan file means nothing to fetch, so the scan was the whole run and there
-# is nothing to confirm. build has already recorded the account's identity.
-if [[ ! -f "${FOLDER}/.plan.json" ]]; then
+# Nothing pending means nothing to fetch, so the scan was the whole run and
+# there is nothing to confirm. build has already recorded the account's
+# identity. The plan now lives inside sync.json, so its presence is a question
+# for plan.mjs rather than for a path test.
+if [[ "$(plan_mjs pending --folder "$FOLDER")" == 0 ]]; then
   exit 0
 fi
 

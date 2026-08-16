@@ -18,27 +18,20 @@ import path from 'node:path';
 import { readArchive } from './landed.mjs';
 import { isMainModule, optString, parseCommandLine } from './cli.mjs';
 import { DEFAULT_ABORT, collect, makeStopper } from './collect.mjs';
-import {
-  findFolderByUrl,
-  folderNameFor,
-  readMetadata,
-  resolveFolder,
-  writeMetadata,
-} from './metadata.mjs';
+import { accountDirFor, findAccountDir, isSafeId, writeAccount } from './account.mjs';
+import { checkRoot, stampRoot } from './archiver.mjs';
+import { saveProfileAssets } from './assets.mjs';
 import { REMEDIES, cookieExportArgs } from './gallerydl.mjs';
 import { fetchPosts, outstanding } from './fetch.mjs';
 import { COOKIE_FILE, STATE_DIR, archivesRoot, normalizeRoot } from './paths.mjs';
 import {
-  PLAN_VERSION,
-  deletePlan,
   diff,
   groupFiles,
-  loadPlan,
   renderPlanBlock,
   renderSummaryBlock,
-  savePlan,
   validatePlan,
 } from './plan.mjs';
+import { clearPlan, loadPlan, previousRoot, recordRun, savePlan } from './sync.mjs';
 import { parseTarget } from './target.mjs';
 
 const EXIT = { OK: 0, USAGE: 2, REFUSED: 3, FAILED: 4, UNAUTHORIZED: 5, EMPTY: 6 };
@@ -55,10 +48,11 @@ const USAGE = `Usage: archive.sh <url> [--archives DIR] [--name NAME] [--plan|--
       --yes, -y         Plan and download in one run, without stopping.
 
       --archives DIR    Root directory the archives live in. The account
-                        folder is DIR/x_<handle or --name>.
-      --name NAME       Account name for the folder (default: its handle). The
-                        x_ prefix is always kept, so a shared archives root
-                        cannot collide with douyin-archiver's folders.
+                        folder is DIR/x/<numeric user id>.
+      --name NAME       A label for this account, recorded in account.json.
+                        It does not name the folder — the account's id does,
+                        so a rename can never orphan an archive — but a later
+                        --go can find the account by it.
       --full            Enumerate the whole timeline even when a re-run could
                         stop early.
       --browser NAME    Browser to read the X session from the first time
@@ -66,9 +60,10 @@ const USAGE = `Usage: archive.sh <url> [--archives DIR] [--name NAME] [--plan|--
       --cookies FILE    Use this cookies.txt instead of a browser or the cache.
   -h, --help            Show this help
 
-State lives in <DIR>/<folder>: posts/ holds the media, metadata.json the
-account's identity, and between --plan and --go, .plan.json is the list
-awaiting approval. The cached X session is in ${STATE_DIR}.`;
+State lives in <DIR>/x/<id>: posts/ holds one folder per post, account.json the
+account's identity, assets/ the current avatar and banner, and sync.json the
+list awaiting approval between --plan and --go. <DIR>/archiver.json records
+which schema the archive uses. The cached X session is in ${STATE_DIR}.`;
 
 function fail(message, code = EXIT.FAILED) {
   console.error(`error: ${message}`);
@@ -134,36 +129,52 @@ async function discardCookies() {
  *
  * `accountUrl` is null for a single-post run: the URL it was given names a
  * post, not the account, and recording it would break the one lookup `--go` has
- * — `findFolderByUrl` matches the account URL an archive was made from. The
- * merge leaves the recorded one alone when this run has none to offer.
+ * — findAccountDir matches the account URL an archive was made from. The merge
+ * leaves the recorded one alone when this run has none to offer.
  */
-function recordAccount(accountDir, { account, root, accountUrl }) {
-  return writeMetadata(accountDir, {
-    account,
-    root,
+function recordAccount(accountDir, { account, name, accountUrl }) {
+  return writeAccount(accountDir, {
+    account: { ...account, name },
     url: accountUrl,
-    updated_at: new Date().toISOString(),
   });
+}
+
+/**
+ * The account's current look, refreshed on every run that downloads.
+ *
+ * Not on `--plan`, which fetches nothing by definition — but on every run past
+ * that, including a `--yes` against an account with no new posts, because
+ * `assets/` is the account as it is *now* rather than as it was when it last
+ * posted. Two CDN requests, and a failure is swallowed: an avatar must not end
+ * a run that has just fetched an account's history.
+ */
+function refreshAssets(accountDir, account) {
+  return saveProfileAssets(accountDir, { avatar: account?.avatar, banner: account?.banner });
 }
 
 async function doPlan({ target, root, name, cookies, full, threshold, accountUrl, bin = 'gallery-dl' }) {
   // All three are settled the moment the first row names the account, because
-  // none of them can be known before it. Resolving the folder from the URL's
-  // handle instead would look in the wrong place for any account that has been
-  // renamed — it would find an empty directory, report "on disk 0", quietly
-  // downgrade the incremental sweep to a full one, and write the plan somewhere
-  // --go then cannot find it.
-  let settled = null;
+  // none of them can be known before it. The folder is the account's numeric id,
+  // so there is nothing to look up and nothing a rename can invalidate — but the
+  // id itself only arrives with the first row.
+  let accountDir = null;
   let archive = new Map();
   let incremental = false;
+  let badId = null;
 
   const result = await collect({
     url: target.url,
     cookies,
     bin,
     onAccount: async (account) => {
-      settled = await resolveFolder({ root, accountId: account.id, handle: account.handle, name });
-      archive = await readArchive(path.join(root, settled));
+      // Recorded and stopped rather than thrown: collect() reads this inside its
+      // row loop, where a throw would surface as an unexplained stream failure.
+      if (!isSafeId(account.id)) {
+        badId = String(account.id ?? '');
+        return () => true;
+      }
+      accountDir = accountDirFor(root, account.id);
+      archive = await readArchive(accountDir);
       // A first run has nothing to recognise, so there is nothing to stop at.
       incremental = archive.size > 0 && !full && target.kind === 'account';
       return makeStopper({ archive, threshold, enabled: incremental });
@@ -171,23 +182,22 @@ async function doPlan({ target, root, name, cookies, full, threshold, accountUrl
   });
 
   if (result.failure) return { failure: result.failure, stderr: result.stderr };
+  if (badId !== null) return { badId };
+  if (!result.rows.length) return { empty: true };
 
-  if (!result.rows.length) {
-    return { empty: true };
-  }
+  // Without an id there is no folder to write into. The old layout could fall
+  // back to naming the folder after the handle; this one cannot, and inventing a
+  // folder that the next run would not find again is worse than stopping.
+  const account = result.account;
+  if (!account?.id) return { unidentified: true };
 
   const posts = groupFiles(result.rows);
   const { counts } = diff(posts, archive);
-  const account = result.account ?? { id: '', handle: target.handle, nickname: '' };
-  settled ??= folderNameFor({ handle: account.handle || target.handle, name });
-  const settledDir = path.join(root, settled);
 
   const plan = {
-    version: PLAN_VERSION,
     createdAt: new Date().toISOString(),
     account,
     root,
-    folder: settled,
     url: target.url,
     mode: incremental ? 'incremental' : 'full',
     stoppedEarly: result.stoppedEarly,
@@ -197,36 +207,38 @@ async function doPlan({ target, root, name, cookies, full, threshold, accountUrl
     // what is still missing from this list, and totals alone could not say
     // which of a post's four images had landed.
     posts,
-    // Whether the folder was named by the user rather than after the handle.
-    // The drift note compares the two, and without this a --name archive would
-    // be reported as a renamed account on every single run.
-    named: Boolean(name),
   };
 
-  await mkdir(settledDir, { recursive: true });
-  await savePlan(settledDir, plan);
+  await mkdir(accountDir, { recursive: true });
+  await stampRoot(root);
 
-  // Read before write, and in this order for a reason: the block's "last run
-  // used …" note compares this run's root against the one the file recorded,
-  // and the write on the next line replaces it.
-  const previousRoot = (await readMetadata(settledDir))?.root ?? null;
+  // Read before anything is written: the block's "last run used …" note compares
+  // this run's root against the one the previous run recorded, and --go's
+  // recordRun below will replace it.
+  const lastRoot = await previousRoot(accountDir);
+
+  await savePlan(accountDir, plan);
 
   // Written now rather than after the download, so a folder that exists always
-  // says whose it is. It is what --go finds the folder by, and what a later run
-  // matches a renamed account against.
-  await recordAccount(settledDir, { account, root, accountUrl });
+  // says whose it is. It is also what --go finds the folder by when all it has
+  // is the URL or a --name.
+  await recordAccount(accountDir, { account, name, accountUrl });
 
-  return { plan, folder: settled, previousRoot };
+  return { plan, accountDir, previousRoot: lastRoot };
 }
 
-async function doGo({ root, folder, url, cookies, planHint, accountUrl, bin = 'gallery-dl' }) {
-  // --go enumerates nothing, so it never learns the numeric id and cannot find
-  // a renamed account's folder the way --plan does. The URL the plan was written
-  // from is the key that still works.
-  const settled = (await findFolderByUrl(root, url)) ?? folder;
-  const accountDir = path.join(root, settled);
+async function doGo({ root, dir, url, name, handle, cookies, planHint, accountUrl, bin = 'gallery-dl' }) {
+  // --yes has just enumerated and knows exactly which folder it wrote into, so
+  // it passes it in. A bare --go enumerates nothing, never learns the numeric
+  // id, and cannot go straight to the folder — the URL the plan was written
+  // from, the user's own --name, and the handle are the keys that still work.
+  const accountDir = dir ?? (await findAccountDir(root, { url, name, handle }));
+  if (!accountDir) {
+    return { refused: `no archive under ${root} for this account yet`, planHint };
+  }
+
   const plan = await loadPlan(accountDir);
-  const valid = validatePlan(plan, { root, folder: settled, url });
+  const valid = validatePlan(plan, { root, url });
   if (!valid.ok) return { refused: valid.reason, planHint };
 
   const archive = await readArchive(accountDir);
@@ -240,13 +252,21 @@ async function doGo({ root, folder, url, cookies, planHint, accountUrl, bin = 'g
     bin,
   });
 
+  await refreshAssets(accountDir, plan.account);
+
   const remaining = outstanding(plan.posts, await readArchive(accountDir)).length;
 
-  await recordAccount(accountDir, { account: plan.account, root, accountUrl });
+  await recordAccount(accountDir, { account: plan.account, name, accountUrl });
+  await recordRun(accountDir, {
+    root,
+    found: plan.counts?.foundPosts ?? null,
+    landed: fetched.posts,
+    failed,
+  });
 
-  // Deleted only once every post in it has landed. Kept when a run stops
+  // Retired only once every post in it has landed. Kept when a run stops
   // partway, which is what makes the retry fetch only what is missing.
-  if (remaining === 0) await deletePlan(accountDir);
+  if (remaining === 0) await clearPlan(accountDir);
 
   return { plan, fetched, failed, stopped, remaining };
 }
@@ -301,6 +321,16 @@ export async function main(argv) {
     return fail(error.message, EXIT.USAGE);
   }
 
+  // Before the session, before the first API call, before anything is written:
+  // an archive this build cannot read must cost nothing to discover. With no
+  // old-layout detection behind it, this refusal is the only thing standing
+  // between a version mismatch and a silent full re-download.
+  try {
+    await checkRoot(root);
+  } catch (error) {
+    return fail(error.message, EXIT.USAGE);
+  }
+
   let cookies;
   try {
     cookies = await ensureCookies({ cookies: optString(opts, 'cookies'), browser, url: target.url });
@@ -321,8 +351,9 @@ export async function main(argv) {
   const accountUrl = target.kind === 'account' ? target.url : null;
 
   if (mode === 'go') {
-    const folder = folderNameFor({ handle: target.handle, name });
-    return report(await doGo({ root, folder, url: target.url, cookies, planHint, accountUrl }));
+    return report(
+      await doGo({ root, url: target.url, name, handle: target.handle, cookies, planHint, accountUrl }),
+    );
   }
 
   const planned = await doPlan({
@@ -334,6 +365,20 @@ export async function main(argv) {
     return fail(
       `${planned.failure}\n\n${REMEDIES[planned.failure] ?? planned.stderr?.trim().split('\n').slice(-8).join('\n') ?? ''}`,
       planned.failure === 'unauthorized' ? EXIT.UNAUTHORIZED : EXIT.FAILED,
+    );
+  }
+
+  if (planned.badId) {
+    return fail(
+      `X reported an account id this skill will not use as a folder name: ${JSON.stringify(planned.badId)}.\n` +
+        '  Nothing has been written. Please report this — an X user id should be digits.',
+    );
+  }
+
+  if (planned.unidentified) {
+    return fail(
+      'the timeline was readable but never named the account, so there is no id to file it under.\n' +
+        '  Try again; if it persists, the saved session may be partly rejected.',
     );
   }
 
@@ -353,11 +398,19 @@ export async function main(argv) {
 
   if (mode === 'plan') return EXIT.OK;
 
-  if (planned.plan.counts.fetchPosts === 0) return EXIT.OK;
+  if (planned.plan.counts.fetchPosts === 0) {
+    // Nothing to download, but this run was still approved — and the avatar may
+    // have changed even where the timeline has not.
+    await refreshAssets(planned.accountDir, planned.plan.account);
+    return EXIT.OK;
+  }
 
   console.log('');
   return report(
-    await doGo({ root, folder: planned.folder, url: target.url, cookies, planHint, accountUrl }),
+    await doGo({
+      root, dir: planned.accountDir, url: target.url, name, handle: target.handle,
+      cookies, planHint, accountUrl,
+    }),
   );
 }
 
@@ -372,7 +425,6 @@ async function report(result) {
     renderSummaryBlock({
       account: result.plan.account,
       root: result.plan.root,
-      folder: result.plan.folder,
       fetched: result.fetched,
       failed: result.failed,
       remaining: result.remaining,
