@@ -31,7 +31,7 @@
  *
  * Subcommands:
  *   build --meta FILE --urls FILE --folder DIR --archives ROOT [--url URL]
- *         [--name NAME]
+ *         [--alias NAME | --unalias]
  *       Diffs the collected list against what is on disk, records the account's
  *       identity in account.json, prints the status block, and parks the plan in
  *       sync.json — unless there is nothing to fetch, in which case the plan is
@@ -59,7 +59,7 @@
  */
 import { isMainModule, optString, parseArgs, readJson, readText, requireOpts, writeText } from './cli.mjs';
 import { onDiskIds, unlistedIds } from './landed.mjs';
-import { writeAccount } from './account.mjs';
+import { accountDirFor, aliasDirFor, recordIdentity } from './account.mjs';
 import { clearPlan, loadPlan, previousRoot, recordRun, savePlan } from './sync.mjs';
 
 export const DEFAULT_TTL_HOURS = 24;
@@ -258,10 +258,18 @@ function skippedImageRows(skipped) {
   ];
 }
 
-/** The block a user is asked to approve. */
+/**
+ * The block a user is asked to approve.
+ *
+ * `movingTo` is set when --alias or --unalias names somewhere this folder is
+ * not yet. A plan performs no move, so it says what a --go would do and stops
+ * there: a preview that silently reorganised the archive would be a preview
+ * that lied.
+ */
 export function statusBlock({
   account,
   folder,
+  movingTo,
   previousRoot,
   archivesRoot,
   collected,
@@ -272,6 +280,9 @@ export function statusBlock({
   pending,
 }) {
   const lines = [headline(account), row('folder', folder)];
+  if (movingTo && movingTo !== folder) {
+    lines.push(row('moves to', `${movingTo} — on --go`));
+  }
   if (previousRoot && archivesRoot && previousRoot !== archivesRoot) {
     lines.push(row('note', `last run used ${previousRoot}`));
   }
@@ -325,6 +336,25 @@ export function postBlock({ account, folder, postId, onDisk }) {
 
 // ---- CLI -------------------------------------------------------------------
 
+/**
+ * Where `--alias`/`--unalias` would put this account's folder, or null when
+ * neither was asked for.
+ *
+ * Only ever *computed* here. The move itself belongs to --go, and a rename
+ * between the two invalidates nothing, because a plan records the archives root
+ * and the account — never the folder it is sitting in.
+ */
+function aliasTarget(opts, secUid) {
+  try {
+    if (opts.unalias === true) return secUid ? accountDirFor(opts.archives, secUid) : null;
+    const alias = optString(opts, 'alias');
+    return alias ? aliasDirFor(opts.archives, alias) : null;
+  } catch {
+    // An unusable alias is refused by check-alias long before the block prints.
+    return null;
+  }
+}
+
 async function build(opts) {
   requireOpts(opts, 'meta', 'urls', 'folder', 'archives');
   const meta = (await readJson(opts.meta)) ?? {};
@@ -338,13 +368,14 @@ async function build(opts) {
 
   // Written here, at the one point every account run passes through once its
   // folder is known, so a folder that exists always says whose it is — before
-  // anything has been downloaded into it.
-  await writeAccount(opts.folder, {
+  // anything has been downloaded into it. The alias is not passed: recordIdentity
+  // reads it off the folder's own name, which is what keeps account.json and the
+  // directory from disagreeing.
+  await recordIdentity(opts.archives, opts.folder, {
     account: {
       id: meta.sec_uid,
       douyin_id: meta.douyin_id,
       nickname: meta.nickname,
-      name: optString(opts, 'name'),
     },
     url: optString(opts, 'url'),
   });
@@ -366,6 +397,7 @@ async function build(opts) {
     statusBlock({
       account: meta,
       folder: opts.folder,
+      movingTo: aliasTarget(opts, meta.sec_uid),
       previousRoot: lastRoot,
       archivesRoot: opts.archives,
       collected: collected.length,

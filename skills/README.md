@@ -18,9 +18,11 @@ Skills live in one of two tiers. `published/` is what installs; `deprecated/` is
 
 **It asks before it downloads.** It reads the account's post list first and tells you whose it is, where the posts would go, how many there are and how many you don't already have — then waits for your yes. Nothing is fetched until you give it.
 
-**One folder per post.** `douyin/<sec_uid>/posts/2024-03-11_7412…/` holds that post's media as `1.mp4` alongside a `post.json` with the permalink, timestamp, full caption and the media the post carries — the same shape `x-archiver` writes, so a shared archives root reads as one archive. `post.json` is written before the download, so a post counts as landed only once every file it names is there.
+**One folder per post.** `douyin/<account>/posts/2024-03-11_7412…/` holds that post's media as `1.mp4` alongside a `post.json` with the permalink, timestamp, full caption and the media the post carries — the same shape `x-archiver` writes, so a shared archives root reads as one archive. `post.json` is written before the download, so a post counts as landed only once every file it names is there.
 
-**Where they land.** `./archives/` beside your project by default, or wherever you say: `/douyin-archiver <url> --archives ~/data`. Give the same folder again next time and it picks up where it left off; give a different one and it starts a fresh archive there. The folder is the account's `sec_uid`, which never changes — so changing a 抖音号 cannot orphan an archive.
+**Where they land.** `./archives/` beside your project by default, or wherever you say: `/douyin-archiver <url> --archives ~/data`. Give the same folder again next time and it picks up where it left off; give a different one and it starts a fresh archive there. The folder is the account's `sec_uid` unless you give it a name — either way changing a 抖音号 cannot orphan an archive.
+
+**Name the folder something you can read.** `--alias 小明` names the account's folder that instead of its `MS4w…` sec_uid — renaming an existing archive on the next `--go`, or creating a new one under that name. The mapping from sec_uid to alias lives in `archiver.json` at the root of the archive, so the skill can still find the folder afterwards, and so can you. Rename a folder by hand and the next run adopts it; `--unalias` puts it back.
 
 **You'll need** [yt-dlp](https://github.com/yt-dlp/yt-dlp) and Node installed, and a one-off Douyin sign-in — a browser opens, you sign in, and the session is reused from then on. The skill's `setup.sh` checks the rest and tells you what's missing.
 
@@ -34,7 +36,9 @@ Skills live in one of two tiers. `published/` is what installs; `deprecated/` is
 
 **It asks before it downloads.** Same shape as its Douyin sibling: it reads the account's posts first and tells you whose they are, where they'd go, how many there are and how many you don't already have — then waits for your yes.
 
-**One folder per post.** `x/<user id>/posts/2024-03-11_1767…/` holds that post's images and videos as `1.jpg`, `2.mp4`… alongside a `post.json` with the full text and the media the post carries. The date sorts a year's archive as a timeline and the id names the post; the words stay in `post.json` in full rather than truncated into a directory name. The account folder is the numeric user id, which never changes — so a renamed account keeps the archive it already has. Its current avatar and banner sit in `assets/`.
+**One folder per post.** `x/<account>/posts/2024-03-11_1767…/` holds that post's images and videos as `1.jpg`, `2.mp4`… alongside a `post.json` with the full text and the media the post carries. The date sorts a year's archive as a timeline and the id names the post; the words stay in `post.json` in full rather than truncated into a directory name. The account folder is the numeric user id unless you give it a name — either way a renamed account keeps the archive it already has. Its current avatar and banner sit in `assets/`.
+
+**Name the folder something you can read.** `--alias jia` names the account's folder that instead of its numeric id, and `archiver.json` at the root of the archive records which id that alias belongs to — so the skill finds the folder afterwards and you can read the listing. Same flag, same rules as the Douyin sibling, and the two share one archives root without their aliases being able to collide.
 
 **It spends your X account.** This runs on your own signed-in session, read once out of your browser and then cached. Bulk archiving is what X's automation rules exist to catch, and the realistic failure isn't a failed download — it's your account getting rate-limited or locked. That's your call to make knowingly, not a surprise. Your session token also ends up in a file on your disk.
 

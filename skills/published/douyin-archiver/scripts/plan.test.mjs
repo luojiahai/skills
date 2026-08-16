@@ -184,7 +184,7 @@ test('validatePlan rejects a plan written for another root', () => {
 test('a plan cannot be for another folder, so nothing checks for it', () => {
   // The plan lives inside the account folder it was written into, so "a plan
   // made for a different folder" is not a state that can be reached — and the
-  // folder is now the account's sec_uid, which a --name change cannot move.
+  // folder is the account's sec_uid or its alias, and neither moves on its own.
   assert.equal(validatePlan(samplePlan(), { ...CHECK, folder: '/data/renamed' }), null);
 });
 
@@ -524,7 +524,7 @@ test('summaryBlock repeats the skipped-image note the approved block showed', ()
 
 const CLI = new URL('./plan.mjs', import.meta.url).pathname;
 
-async function buildIn(folder, { archives, url, name, meta = {}, collected = [] }) {
+async function buildIn(folder, { archives, url, alias, meta = {}, collected = [] }) {
   const scratch = await mkdtemp(path.join(os.tmpdir(), 'douyin-build-'));
   const metaFile = path.join(scratch, 'meta.json');
   const urlsFile = path.join(scratch, 'urls.txt');
@@ -538,7 +538,7 @@ async function buildIn(folder, { archives, url, name, meta = {}, collected = [] 
     '--folder', folder,
     '--archives', archives,
     '--url', url,
-    ...(name ? ['--name', name] : []),
+    ...(alias ? ['--alias', alias] : []),
   ]);
   return stdout;
 }
@@ -553,15 +553,48 @@ test('build records the account before anything is downloaded', async () => {
   await buildIn(folder, {
     archives,
     url: 'https://www.douyin.com/user/MS4wABC',
-    name: 'work',
     meta: { sec_uid: 'MS4wABC', douyin_id: 'abc123', nickname: '某人' },
     collected: ['https://www.douyin.com/video/7111'],
   });
 
   const account = await accountJson(folder);
-  assert.deepEqual(account.account, { id: 'MS4wABC', douyin_id: 'abc123', nickname: '某人', name: 'work' });
+  assert.deepEqual(account.account, { id: 'MS4wABC', douyin_id: 'abc123', nickname: '某人' });
   assert.equal(account.url, 'https://www.douyin.com/user/MS4wABC');
   assert.equal(account.platform, 'douyin');
+});
+
+test('an aliased folder records its own name, and the root file agrees', async () => {
+  // The alias comes off the folder rather than off the flag, so the two cannot
+  // disagree — and archiver.json is written from the same fact.
+  const archives = await mkdtemp(path.join(os.tmpdir(), 'douyin-archives-'));
+  const folder = path.join(archives, 'douyin', '小明');
+
+  await buildIn(folder, {
+    archives,
+    url: 'https://www.douyin.com/user/MS4wABC',
+    meta: { sec_uid: 'MS4wABC', douyin_id: 'abc123', nickname: '某人' },
+    collected: ['https://www.douyin.com/video/7111'],
+  });
+
+  assert.equal((await accountJson(folder)).account.alias, '小明');
+  const rootFile = JSON.parse(await readFile(path.join(archives, 'archiver.json'), 'utf8'));
+  assert.deepEqual(rootFile.accounts.douyin, { MS4wABC: '小明' });
+});
+
+test('a plan says where --alias would move the folder, and moves nothing', async () => {
+  const archives = await mkdtemp(path.join(os.tmpdir(), 'douyin-archives-'));
+  const folder = path.join(archives, 'douyin', 'MS4wABC');
+
+  const out = await buildIn(folder, {
+    archives,
+    url: 'https://www.douyin.com/user/MS4wABC',
+    alias: '小明',
+    meta: { sec_uid: 'MS4wABC', douyin_id: 'abc123', nickname: '某人' },
+    collected: ['https://www.douyin.com/video/7111'],
+  });
+
+  assert.match(out, /moves to .*小明 — on --go/);
+  assert.equal(await accountJson(folder).then((a) => a.account.id), 'MS4wABC');
 });
 
 test('account.json holds no progress, and no root it would go stale about', async () => {

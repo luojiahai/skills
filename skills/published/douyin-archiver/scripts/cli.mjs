@@ -46,9 +46,12 @@ export function parseArgs(argv) {
 
 /**
  * A flag's value as a string, treating "present but valueless" as absent.
- * archive.sh passes optional flags through unconditionally — `--name ""`
- * rather than omitting them — because a `${NAME:+--name "$NAME"}` that is
+ * archive.sh passes optional flags through unconditionally — `--alias ""`
+ * rather than omitting them — because a `${ALIAS:+--alias "$ALIAS"}` that is
  * meant to vanish splits on spaces when it does not.
+ *
+ * It is also why an empty `--alias` cannot mean "remove the alias": an empty
+ * value is how a flag says nothing at all. `--unalias` is the removal.
  */
 export function optString(opts, key) {
   const value = opts[key];

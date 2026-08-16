@@ -43,9 +43,9 @@ test('--downloads is refused by name rather than as a generic unknown flag', asy
 });
 
 test('parseArgs pairs flags with their values', () => {
-  assert.deepEqual(parseArgs(['--folder', '/data/abc', '--name', '小明']), {
+  assert.deepEqual(parseArgs(['--folder', '/data/abc', '--alias', '小明']), {
     folder: '/data/abc',
-    name: '小明',
+    alias: '小明',
   });
 });
 
@@ -74,18 +74,18 @@ test('a trailing flag with no value is true, not undefined', () => {
 });
 
 test('parseArgs keeps an empty-string value as a value', () => {
-  // archive.sh passes optional flags through unconditionally — `--name ""`
+  // archive.sh passes optional flags through unconditionally — `--alias ""`
   // rather than omitting them — so empty must parse as present-but-empty.
-  assert.deepEqual(parseArgs(['--name', '', '--folder', '/data']), {
-    name: '',
+  assert.deepEqual(parseArgs(['--alias', '', '--folder', '/data']), {
+    alias: '',
     folder: '/data',
   });
 });
 
 test('optString treats a valueless flag as absent', () => {
-  const opts = parseArgs(['--require-match', '--name', 'abc']);
+  const opts = parseArgs(['--require-match', '--alias', 'abc']);
   assert.equal(optString(opts, 'require_match'), '');
-  assert.equal(optString(opts, 'name'), 'abc');
+  assert.equal(optString(opts, 'alias'), 'abc');
   assert.equal(optString(opts, 'missing'), '');
 });
 

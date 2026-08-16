@@ -16,7 +16,6 @@
  * place. Hand-aligned copies of "how many are there" across two languages is
  * how a run comes to contradict the number the user approved.
  */
-import { accountDirFor } from './account.mjs';
 import { isMissing } from './landed.mjs';
 
 /** A plan describes a list the user approved. A day later it describes the past. */
@@ -110,7 +109,7 @@ export function diff(posts, archive) {
  * downloading a list the user never approved — a different account, a different
  * archive, or one collected before the account posted another fifty things.
  */
-export function validatePlan(plan, { account, url, root, now = Date.now() } = {}) {
+export function validatePlan(plan, { account, root, now = Date.now() } = {}) {
   if (!plan) return { ok: false, reason: 'no plan has been made for this account yet' };
 
   const age = now - Date.parse(plan.createdAt || '');
@@ -118,21 +117,21 @@ export function validatePlan(plan, { account, url, root, now = Date.now() } = {}
   if (age > MAX_PLAN_AGE_MS) {
     return { ok: false, reason: `the plan is ${describeAge(age)} old, and a plan expires after 24 hours` };
   }
-  if (account && plan.account?.id && String(plan.account.id) !== String(account.id)) {
+  // The only identity check, and it compares ids. `--go` used to have no id to
+  // compare and fell back to matching the URL the plan was made from, which was
+  // a second answer to this question and a wrong one: a single-post run parks a
+  // plan whose url names the *post*, so the next account-level --go was refused
+  // as "for another account" when it was for this one. --go resolves the folder
+  // before it reads the plan, and the account.json in that folder has the id.
+  if (account?.id && plan.account?.id && String(plan.account.id) !== String(account.id)) {
     return { ok: false, reason: `the plan is for @${plan.account.handle} (id ${plan.account.id}), not this account` };
-  }
-  // The check that actually fires. `--go` enumerates nothing, so it has no
-  // numeric id to compare — the URL it was given is the only handle it has on
-  // which account the user means.
-  if (url && plan.url && plan.url !== url) {
-    return { ok: false, reason: `the plan is for @${plan.account?.handle} (${plan.url}), not this account` };
   }
   if (root && plan.root !== root) {
     return { ok: false, reason: `the plan was made for a different archives root (${plan.root})` };
   }
-  // There is no folder check any more, and none is needed: a plan is read out
-  // of the account folder it was written into, so "a plan for another folder"
-  // is not a state that can be reached.
+  // There is no folder check either, and none is needed: a plan is read out of
+  // the account folder it was written into, so "a plan for another folder" is
+  // not a state that can be reached.
   return { ok: true };
 }
 
@@ -158,21 +157,32 @@ const n = (value) => Number(value || 0).toLocaleString('en-US');
  *
  * The folder-drift note that used to sit here is gone with the layout that
  * needed it. A folder named for a handle could fall out of step with the
- * account; a folder named for the id cannot, so there is nothing left to warn
- * about — and the path prints the id, which is why the handle is on the line
- * above it.
+ * account; a folder named for the id or for an alias the user chose cannot, so
+ * there is nothing left to warn about — and the path may now be a name rather
+ * than a number, which is why the handle and id are on the line above it.
+ *
+ * `folder` is passed in rather than recomputed from the id. It has to be: the
+ * folder may be named for an alias, and a block that derived the path itself
+ * would print a different one from the one the run is writing into — which is
+ * exactly the sort of second answer this file exists to avoid.
+ *
+ * `movingTo` is set when `--alias` names somewhere this folder is not yet. A
+ * plan performs no move, so it says what a `--go` would do and stops there.
  *
  * `previousRoot` is the root sync.json recorded for the *previous* run — the
  * caller reads it before this run stamps its own, because by the time this
  * renders the file may already say the new one.
  */
-export function renderPlanBlock(plan, { now = Date.now(), previousRoot = null } = {}) {
+export function renderPlanBlock(plan, { now = Date.now(), previousRoot = null, folder, movingTo = null } = {}) {
   const { account, root, counts, mode, stoppedEarly, abortThreshold, createdAt } = plan;
   const lines = [];
 
   const nickname = account.nickname ? ` (${account.nickname})` : '';
   lines.push(`@${account.handle}${nickname} · id ${account.id}`);
-  lines.push(`  → ${accountDirFor(root, account.id)}`);
+  lines.push(`  → ${folder}`);
+  if (movingTo && movingTo !== folder) {
+    lines.push(`  moves to ${movingTo} when you --go`);
+  }
 
   // The archive is found by the identity inside it, so a run against another
   // root starts a second one in silence. Left unsaid, its "on disk 0" reads as
@@ -203,10 +213,13 @@ export function renderPlanBlock(plan, { now = Date.now(), previousRoot = null } 
   return lines.join('\n');
 }
 
-/** What a finished run reports. The same numbers, after the fact. */
-export function renderSummaryBlock({ account, root, fetched, failed, remaining }) {
+/**
+ * What a finished run reports. The same numbers, after the fact — and, like the
+ * plan block, the folder it was actually given rather than one derived here.
+ */
+export function renderSummaryBlock({ account, folder, fetched, failed, remaining }) {
   const lines = [];
-  lines.push(`@${account.handle} · ${accountDirFor(root, account.id)}`);
+  lines.push(`@${account.handle} · ${folder}`);
   lines.push(`  downloaded ${n(fetched.posts)} posts · ${n(fetched.files)} files`);
   if (failed) lines.push(`  skipped    ${n(failed)} posts whose media could not be fetched`);
   if (remaining) {

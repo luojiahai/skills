@@ -1,7 +1,7 @@
 ---
 name: douyin-archiver
 description: "Archive every video from a Douyin account, or download a single Douyin video, into an archives folder of your choosing — it reports what it would fetch and waits for your yes, and a re-run fetches only what is new. Image posts (图文) are counted and reported, but not yet downloaded."
-argument-hint: "<Douyin profile or video URL> [--archives DIR] [--name NAME]"
+argument-hint: "<Douyin profile or video URL> [--archives DIR] [--alias NAME]"
 disable-model-invocation: true
 ---
 
@@ -55,22 +55,42 @@ The summary block `--go` prints is the run's whole result. Report that and stop.
 
 ## Where the posts go
 
-`--archives DIR` sets the root, and the account folder is
-`DIR/douyin/<sec_uid>` — the `MS4w…` part of a profile URL. Without the flag the
-root is `<git root of the current directory, else cwd>/archives`, the same root
-`x-archiver` uses.
+`--archives DIR` sets the root, and the account folder is `DIR/douyin/<alias>`
+if the account has one and `DIR/douyin/<sec_uid>` — the `MS4w…` part of a profile
+URL — if it does not. Without the flag the root is `<git root of the current
+directory, else cwd>/archives`, the same root `x-archiver` uses.
 
 The `douyin/` folder is what lets both skills share that root: `x-archiver`
 files its accounts under `x/<numeric user id>`, so there is no id the two could
 collide on.
 
-A 抖音号 is mutable and a sec_uid is not, which is why the sec_uid is the folder.
-Changing a 抖音号 cannot orphan an archive, and the 抖音号 is still kept inside
-`account.json` because it is the identifier a human can read and type.
+A 抖音号 is mutable and a sec_uid is not, which is why the sec_uid is the default
+folder. Changing a 抖音号 cannot orphan an archive, and the 抖音号 is still kept
+inside `account.json` because it is the identifier a human can read and type.
 
-`--name NAME` is a label, not a location: it is recorded inside `account.json`,
-and a later run can find the account by it. It cannot move or collide with a
-folder.
+`--alias NAME` overrides that, because `MS4wLjABAAAAEKnfa654JAJ_N5lgZDQluwsxmY0`
+is unreadable to the person whose archive it is. It **names the folder**: an
+account already archived is renamed on the next `--go`, and one that is new is
+created with that name straight away. `--plan` reports the move and performs it
+on `--go`, never before — so a preview never reorganises the archive.
+
+What keeps that safe is `archiver.json`, which records the account's sec_uid
+against its alias. A known sec_uid is one lookup from its folder, and because
+`account.json` inside the folder carries the same alias, the map is rebuilt by
+scanning whenever it turns out to be wrong — so a stale entry costs a directory
+read, never an archive. Rename a folder by hand and the next run adopts the new
+name: where the two disagree, the folder wins.
+
+An alias may be letters — in any script, so 小明 is the point — digits, dots,
+dashes and underscores. No spaces, no slashes, not starting with a dot, and not
+another account's sec_uid. One already in use is refused before the browser
+opens, naming the account that holds it. `--unalias` puts the folder back under
+the sec_uid; an empty `--alias` means nothing at all, not removal.
+
+A single video URL takes `--alias` too: yt-dlp reports the sec_uid alongside the
+post, so the folder can be named and recorded exactly as a profile run would. On
+the rare post that names no sec_uid, an alias can only *find* an existing folder
+— there is no id to record it against — and the run stops as it does today.
 
 Resuming means passing the same `--archives` again. A different root is a
 different archive and starts from nothing, so if the user has downloaded this
@@ -136,8 +156,8 @@ several of them verified the hard way. Read it before modifying anything in
 
 ```
 <archives root>/
-  archiver.json                    {"schema": 2}
-  douyin/<sec_uid>/
+  archiver.json                    {"schema": 3, "accounts": {…}}
+  douyin/<alias, else sec_uid>/
     account.json
     sync.json
     posts/<YYYY-MM-DD|undated>_<id>/
@@ -155,16 +175,20 @@ several of them verified the hard way. Read it before modifying anything in
   them re-downloads it. This is also what finally gives a Douyin post an expected
   file count: yt-dlp reports none, so before this a post whose download failed
   after its text was written could read as complete.
-- `account.json` — the account's identity (sec_uid, 抖音号, nickname), its
-  `--name` if it has one, and the profile URL it was archived from. Written as
+- `account.json` — the account's identity (sec_uid, 抖音号, nickname), its alias
+  if it has one, and the profile URL it was archived from. Written as
   soon as the folder is resolved, before anything is downloaded. It is
   **authoritative for identity** and **never for progress**: what has been
   downloaded is answered by `posts/` alone.
 - `sync.json` — the list awaiting approval between `--plan` and `--go`, plus
   what the last run did. **Deleting it loses no archive content**; the plan
   expires after 24 hours anyway.
-- `archiver.json` at the root records which schema the archive uses. A version
-  this build does not know stops the run before anything is read or written.
+- `archiver.json` — at the root, holding the schema this archive uses and each
+  account's id mapped to its alias, per platform. A schema this build does not
+  know stops the run before anything is read or written. The map is a **cache,
+  not an authority**: the folders and their `account.json` files are the truth,
+  and it is rebuilt from them when it disagrees. An account with no alias has no
+  entry.
 
 There is no `assets/` here. `x-archiver` keeps the account's avatar and banner,
 which it gets free with its listing pass; nothing reads Douyin's out of the

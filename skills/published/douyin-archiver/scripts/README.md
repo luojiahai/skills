@@ -300,8 +300,8 @@ twice. The layout both produce:
 
 ```
 <archives root>/
-  archiver.json                 {"schema": 2}
-  douyin/<sec_uid>/             x/<numeric user id>/
+  archiver.json                 {"schema": 3, "accounts": {…}}
+  douyin/<alias, else sec_uid>/ x/<alias, else user id>/
     account.json
     sync.json
     posts/<YYYY-MM-DD|undated>_<id>/
@@ -315,18 +315,36 @@ twice. The layout both produce:
   `media`, in that order and holding nothing else. Written **before** the media.
   `media[].url` and `media[].id` are optional and often absent.
 - a post counts as downloaded when every file its `post.json` lists is present
-- the account folder is the account's immutable id, under a platform folder —
-  `douyin/<sec_uid>` here, `x/<numeric user id>` there — because both skills
-  default to the same `<git root>/archives` root. `--name` is a label recorded
-  inside `account.json`, never a folder name, so no name can collide.
+- the account folder is the account's `--alias` if it has one and its immutable
+  id if it does not, under a platform folder — because both skills default to the
+  same `<git root>/archives` root, and an alias chosen on one platform must not
+  be able to collide with one chosen on the other.
+- an alias is refused if it is another account's id on that platform, or already
+  another account's alias. Letters (`\p{L}`, so CJK), digits, `.`, `_`, `-`;
+  no spaces, no separators, no leading dot, 128 chars.
+- `account.json`'s `alias` is always `basename(dir)`, written from the folder
+  rather than from the flag. That is the whole of "the folder's location wins":
+  a directory renamed by hand is adopted by the next write, and the two cannot
+  drift. An empty `--alias` is silence; `--unalias` is the removal.
+- a rename is three writes in one order — the folder, then `account.json` inside
+  it, then `archiver.json` — because the tree is the truth and the root file is
+  a cache. A crash before the last one is repaired by the next scan. `--plan`
+  never moves anything; `--go` does.
 - `account.json` beside `posts/`, holding `version`, `platform`, `account` and
-  `url` and nothing else — authoritative for identity, never for progress. Both
+  `url` and nothing else — authoritative for identity, never for progress. The
+  alias is a key *inside* `account`, beside the id, so the file stays four keys
+  wide. Both
   write it when the folder is resolved, both merge into what is already there,
   and both treat a blank as silence rather than an erasure.
 - `sync.json` beside it, holding `version`, `plan` and `last_run`. Deleting it
   loses no archive content.
-- `archiver.json` at the root, holding the schema version. Absent reads as
-  current; unknown stops the run.
+- `archiver.json` at the root, holding the schema version and `accounts`, an
+  id → alias map nested per platform. Absent reads as current; unknown stops the
+  run; **schema 2 is readable and upgraded in place**, since every schema-2
+  folder is a legal un-aliased schema-3 one. An account with no alias has no
+  entry. A mapping entry pointing at a folder that is not there is a stale cache
+  line and self-heals; a file that cannot be *parsed* stops the run, because it
+  may be a schema from the future and rebuilding it would clobber it.
 
 They are duplicated rather than shared. A skill is a self-contained folder under
 `skills/`, distributed and symlinked on its own, so there is nowhere a shared
