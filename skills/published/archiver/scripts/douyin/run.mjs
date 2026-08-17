@@ -6,10 +6,10 @@
  *   --go     download exactly what the last plan listed.
  *   --yes    both, without stopping to confirm.
  *
- * All of the orchestration is here rather than in shell. A shell function called
- * under `||` runs with errexit off for its whole body, so a refused plan printed
- * its refusal and then kept going — through the state write and a summary
- * telling the user to re-run the very command that had just failed.
+ * All of the orchestration is here rather than in shell, and belongs here. A
+ * shell function called under `||` runs with errexit off for its whole body, so
+ * a refused plan prints its refusal and then keeps going — through the state
+ * write and a summary telling the user to re-run the command that just failed.
  */
 import path from 'node:path';
 

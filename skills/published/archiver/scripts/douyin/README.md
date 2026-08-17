@@ -1,12 +1,12 @@
 # Douyin platform scripts
 
 Read this before changing anything here. The constraints below are why the
-design looks the way it does; each is verified against the live site, and
-several of the obvious simplifications do not work.
+design looks the way it does; each is verified against the live site, and the
+simplifications they rule out are named as they come up.
 
 ## Constraints
 
-**yt-dlp cannot enumerate an account.** It ships exactly one Douyin extractor,
+**yt-dlp cannot collect an account's posts.** It ships exactly one Douyin extractor,
 matching only `https://www.douyin.com/video/<id>`. There is no `douyin:user`
 (unlike TikTok, which has `tiktok:user`), so a `/user/...` URL yields nothing —
 IDs have to be collected separately.
@@ -38,7 +38,8 @@ for its whole body, so `run_plan … || status=$?` reads like status capture whi
 letting a *refused* plan print its refusal and then keep going, through the
 metadata write and a bogus summary telling the user to re-run the `--go` that
 just failed. Every refusal here is a returned exit code that the caller must
-read, and `../archive.sh` holds nothing but the node preflight.
+read, and `../archive.sh` holds only the node preflight and the `--downloads`
+refusal.
 
 **The pauses are what let a long run finish.** `fetch.mjs` runs yt-dlp with
 `--sleep-requests 2 --sleep-interval 3 --max-sleep-interval 8`. Douyin
@@ -90,54 +91,40 @@ holds at least one file", and a post whose media failed after its text was
 written would read as complete.
 
 `sync.json` is a third file but not a third source of truth: it holds a cache of
-one collection pass and a note of what the last run did, and **deleting it loses
-no archive content**. Every question it answers is re-derived from disk next
-time. A resumption cursor would break that sentence and is deliberately absent —
-it is the same mistake as a download-archive file, wearing a newer name.
+one collection pass and a note of what the last run did, and deleting it loses no
+archive content — the rule it exists under, specified in
+[`../shared/README.md`](../shared/README.md).
 
-There is no fourth file, and there must not be one. yt-dlp's
-`--download-archive` keys on ids, not paths, so it reports a post as downloaded
-after its files are deleted — a user who removes a bad download gets silence
-instead of a re-fetch. `--no-overwrites` keys on the resolved path instead,
-which is what makes `rm -rf` on a post folder mean "fetch this again".
+There is no fourth file, and there must not be one. The reason is sharp on this
+platform: yt-dlp's `--download-archive` keys on ids, not paths, so it reports a
+post as downloaded after its files are deleted, and a user who removes a bad
+download gets silence instead of a re-fetch. `--no-overwrites` keys on the
+resolved path instead, which is what makes `rm -rf` on a post folder mean "fetch
+this again".
 
 ## Plan, then go
 
-Nothing about an account can be reported before it is collected — not the
-nickname, not the video count, and certainly not how many are new. So the run
-is split: `--plan` collects, diffs and reports; `--go` downloads what the
-report described. In between, the list waits in `<folder>/sync.json`, which is
-why confirming costs no second collection and why what is fetched is exactly
-what was shown.
+The split run, what `sync.json` parks between the halves, when a plan is refused
+and why `--yes` outranks a later mode flag are the same on every platform, and
+are specified in [`../shared/README.md`](../shared/README.md).
 
-`--go` runs no collection pass, and needs none: the `sec_uid` is in the profile
-URL and the `sec_uid` *is* the folder, so the account's directory is known
-outright rather than found by scanning. The parked plan carries identity too,
-but only as a guard for `validatePlan`; nothing looks a folder up by it. The only browser `--go` opens is
-`session.mjs` minting cookies, and only when the cached file is missing or
-yt-dlp has just rejected it.
-
-A plan is refused rather than repaired when it is missing, older than 24h, or
-written for another account, root or folder. The alternative to refusing is
-downloading a list the user never approved. It is deleted once every video in
-it has landed, and kept when a run stops partway, so a retry re-fetches only
-what is missing.
-
-`--yes` does both halves in one process, for using the scripts by hand. The
-skill never reaches for it — an agent asks — but it outranks a `--plan` or
-`--go` that comes after it on the command line, so a user who typed it keeps
-their pre-authorisation when the skill appends its own mode flag.
+What is particular here: `--go` runs no collection pass and needs none. The
+`sec_uid` is in the profile URL and the `sec_uid` *is* the folder, so the
+account's directory is known outright rather than found by scanning. The only
+browser `--go` opens is `session.mjs` minting cookies, and only when the cached
+file is missing or yt-dlp has just rejected it.
 
 Every block printed — the one approved, and the one a finished run reports — is
-rendered by `../shared/plan.mjs`, and what is on disk is counted in exactly one place
-(`landed.mjs`'s `onDiskIds`). Do not hand-align a second copy of either in
+rendered by `../shared/plan.mjs`, and what is on disk is counted in exactly one
+place (`landed.mjs`'s `onDiskIds`). Do not hand-align a second copy of either in
 another language: counting lines in one place and unique ids in another is all
 it takes for a run to contradict the number the user approved.
 
-`load` re-checks the plan against disk before handing it on. Without that, a
-`--go` resumed after a partial run would pay a metadata request per post just
-to discover it was already there — a fast resume, and without a second record
-of what has landed.
+`loadPlan` returns the parked plan and nothing more; `run.mjs` re-checks it
+against disk with `outstanding` before fetching. Without that re-check a `--go`
+resumed after a partial run would pay a metadata request per post just to
+discover it was already there — this way the resume is fast, and there is still
+no second record of what has landed.
 
 ## The archives root is computed once
 
@@ -158,12 +145,12 @@ already-downloaded ID: Douyin pins up to 3 posts at the top regardless of age,
 so a stop-at-first-known rule halts immediately and collects nothing, forever,
 silently.
 
-It is also not worth much: a full scroll of a 405-post account measures **~34
+It is also not worth much: a full scroll of a few hundred posts measures **~34
 seconds**, while downloads take 30–40 minutes and are already deduped against the
 post folders on disk. The X side does stop early, after 100 consecutive known
-posts, and giving this one the same is tracked in
-[#59](https://github.com/luojiahai/skills/issues/59) — deliberately not part of
-the merge, because a stopper that is wrong does not fail loudly, it silently
+posts; giving this one the same is tracked in
+[#59](https://github.com/luojiahai/skills/issues/59) and needs care rather than
+speed, because a stopper that is wrong does not fail loudly — it silently
 archives less.
 
 ## Counts will not match
@@ -239,10 +226,11 @@ lands its exports on `.default` — `loadPlaywright()` normalises that.
 The pure logic — the diff, the plan validation rules, the status rendering,
 path normalisation, the shared argument parsing, the metadata merge and folder
 resolution, and the layout rules in `landed.mjs` — has unit tests, and no
-dependencies beyond Node:
+dependencies beyond Node. From the repo root, which runs every platform's suite
+as well as the shared one:
 
 ```bash
-node --test scripts/*.test.mjs
+npm test
 ```
 
 Everything else (a real grid, a real session, yt-dlp) is verified by running it
@@ -261,11 +249,10 @@ from the URL. Call that rather than this folder:
 ../archive.sh "https://www.douyin.com/user/MS4w..." --archives ~/Videos/douyin --yes
 ```
 
-There is no separate downloader script to point at a list of URLs, and adding
-one back would be a mistake: it was a second path to the same folders, with its
-own flags and its own idea of what `post.json` should contain, and the two
-drifted. One post's worth of yt-dlp arguments lives in `fetch.mjs` and nowhere
-else.
+One post's worth of yt-dlp arguments lives in `fetch.mjs` and nowhere else. Do
+not add a separate downloader script to point at a list of URLs: it would be a
+second path into the same folders, with its own flags and its own idea of what
+`post.json` should contain, and the two would drift.
 
 ## The archive this shares with the other platform
 
@@ -277,21 +264,20 @@ archives root, so those rules are not this platform's to change alone.
 What is particular to this one:
 
 - **Where each field of `post.json` comes from.** The X platform gets everything
-  from its listing pass, because gallery-dl prints the caption, the date and the
-  filename together. Here the caption and the timestamp come from the profile
+  from its collection pass, because gallery-dl prints the caption, the date and
+  the filename together. Here the caption and the timestamp come from the profile
   feed responses read during the scroll, and only the media filename comes from
   yt-dlp — it is what picks the container, so nothing else can know the
   extension. `--print` fires after extraction and before the download, so the
-  name still arrives in time for `post.json` to be written first. The two
-  `post.mjs` modules therefore agree on the *file* and differ in their API: the X
-  platform's owns `toTimestamp` and `mediaEntry` and takes media as
-  `{num, ext, …}`; this one takes `{file, …}`, because by then yt-dlp has already
-  said the name.
+  name still arrives in time for `post.json` to be written first. Both platforms
+  build the file with `../shared/post.mjs`; what differs is what each hands
+  `mediaEntry`, which is `{file}` here because yt-dlp has already said the name,
+  and `{num, ext, …}` on X because that platform assembles the name itself.
 - **Junk files need no rule of their own.** yt-dlp can leave `1.f137.mp4` /
   `1.f140.m4a` behind when a stream merge fails — whole files, which would make
   an unplayable post read as finished under any rule that merely matched the
   positional `<n>.<ext>` shape. Against a named list of expected files, none of
   those is `1.mp4`, so nothing has to know about them.
-- **`assets/` is x-only.** gallery-dl puts the avatar and banner URLs on rows the
+- **`assets/` is X-only.** gallery-dl puts the avatar and banner URLs on rows the
   X platform already reads. Nothing here reads Douyin's out of the profile page
   yet, so the directory is simply absent — the layout allows it to be.

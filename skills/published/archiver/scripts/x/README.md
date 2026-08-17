@@ -1,8 +1,8 @@
 # X platform scripts
 
 Read this before changing anything here. The constraints below are why the
-design looks the way it does, and several of the obvious simplifications do not
-work.
+design looks the way it does; each is verified against the live site, and the
+simplifications they rule out are named as they come up.
 
 ## Constraints
 
@@ -16,8 +16,8 @@ out of a browser a human already signed in to.
 the record of what has landed would mean either a SQLite dependency in every
 counting path, or a second bookkeeping file maintained beside it. So there is
 **no archive file at all**: the post folders *are* the record. A post is on disk
-when `posts/<date>_<id>/` exists, and complete when it holds as many media files
-as the post has. A record derived from the files cannot drift from the files, which
+when `posts/<date>_<id>/` exists, and complete when it holds every file its
+`post.json` names. A record derived from the files cannot drift from the files, which
 is the failure a second record invites — a run that dies between two writes
 leaves them disagreeing, silently and permanently.
 
@@ -28,13 +28,13 @@ construction, since a half-transferred file is not the file. `post.json` itself
 is ours rather than media and is never in the list, so a post whose images failed
 but whose description was written still reads as incomplete — which it is.
 
-**gallery-dl's skip-and-abort does not run in a listing pass.** `skip:
+**gallery-dl's skip-and-abort does not run in a collection pass.** `skip:
 "abort:N"` lives in `DownloadJob.handle_url`, and `SimulationJob` overrides that
 method; `--print` keeps the archive path but only emits rows for files it did
-*not* skip. Either way a listing pass driven by gallery-dl's own machinery
+*not* skip. Either way a collection pass driven by gallery-dl's own machinery
 cannot report both "how much exists" and "how much you already have" — so the
 diff and the stopping rule are ours, in `collect.mjs`, and no archive is passed
-to the listing invocation.
+to the collection invocation.
 
 **`--print` needs its `prepare:` prefix.** gallery-dl partitions the `--print`
 value on its *first* colon to find an event name. A bare format string
@@ -86,13 +86,14 @@ somewhere `--go` then cannot find. So `collect` takes an `onAccount` callback,
 fired on the first row that names the account, and the folder, the archive and
 the stopping rule are all settled inside it.
 
-**`--go` has no id at all, so it finds its folder by scanning.** It enumerates
-nothing by design, so it cannot go straight to `x/<id>/` the way a plan can.
-`findAccountDir` makes one pass over the account folders and matches, in order
-of how much each proves: the `url` recorded in `account.json` (the very URL the
-archive was made from), the user's own `--alias`, then the handle. The URL is
-also what `validatePlan` compares — the numeric-id check in that function can
-never fire on the `--go` path.
+**`--go` has no id at all, so it finds its folder by scanning.** It collects
+nothing by design, so it cannot go straight to `x/<id>/` the way a plan can. An
+`--alias` is tried directly, as a path and then through the mapping; everything
+else is settled in one pass over the account folders, matching in order of how
+much each proves: the `url` recorded in `account.json` (the very URL the archive
+was made from), the alias recorded there, then the handle. Once the folder is
+open, its `account.json` yields the numeric id — and that id, not the URL, is
+what `validatePlan` checks the plan against.
 
 **`account.json` is authoritative for identity, and never for progress.** It
 says nothing about what has been downloaded: that is answered by the post
@@ -103,31 +104,14 @@ whose it is, and the parked plan is never asked who an account is. The plan
 carries identity only as a guard, for `validatePlan` to refuse a plan made for
 someone else. What the last run *did* is run history and lives in `sync.json`.
 
-**Deleting `sync.json` loses no archive content.** That sentence is the whole
-specification of the file, and every field in it has to keep the sentence true.
-It holds the plan awaiting approval and a record of the last run, and nothing
-that a run consults to decide what to fetch. Do not add a resumption cursor: it
-would make a run *shorter in result* rather than merely cheaper, missing posts a
-reordered feed has pushed below the mark.
-
-**`post.json` is written before the media, not after.** It is the post's
-description, not a receipt. A marker written last would be a second record, free
-to go on claiming a post had landed after its media was deleted by hand, which
-is why neither skill keeps a download-archive file. Writing it
-first also means a post that got three of its four images sits in a folder that
-still says what it was, and its media list is what makes the fourth read as
-missing. A folder whose `post.json` could not be written counts the post as
-failed rather than downloading into a folder that can never satisfy the
+**`sync.json`, `post.json`'s write order and the root's schema version are the
+shared archive's rules,** specified in [`../shared/README.md`](../shared/README.md).
+Two of them bite hardest here. Deleting `sync.json` loses no archive content, so
+no resumption cursor may go in it: that would make a run shorter in *result*
+rather than merely cheaper, missing posts a reordered feed has pushed below the
+mark. And a folder whose `post.json` could not be written counts the post as
+failed, rather than downloading into a folder that can never satisfy the
 completeness check.
-
-**The archives root carries a schema version.** `archiver.json` holds
-`{"schema": 3}` and is checked before the session, before the first API call and
-before anything is written. Absent is an ordinary answer and reads as the
-current schema, so a subtree copied to another disk still works; a version this
-build does not know stops the run; schema 2 is readable and upgraded in place.
-It is no guard against the flat `x_<handle>` layout, which has no root file
-either and so is invisible to this build by construction — converting one is a
-job the user does by hand.
 
 **The pauses are what let a long run finish.** X rate-limits the timeline
 endpoints hard, and the failure is not a slow run but a stopped one — and, with
@@ -135,7 +119,7 @@ the user's own session doing the asking, a stopped one that can escalate to a
 challenged account. `--retries` is deliberately low for the same reason: a 429
 should surface as a clean stop a later `--go` resumes, not as a client hammering
 its way into a longer lockout. The numbers in `THROTTLE` are a conservative
-starting point and want measuring against a real account.
+starting point, unverified against a live account.
 
 **`--config-ignore` on every invocation.** A user's own
 `~/.config/gallery-dl/config.json` is loaded first otherwise, and it can quietly
@@ -153,10 +137,10 @@ the tool actually does, and it is the only marker of which layer you are in.
 | --- | --- |
 | `run.mjs` | The whole run: flags, target, session, root, folder, plan, go, and which block gets printed. |
 | `target.mjs` | The account a URL names, and a post's permalink. Everything else on x.com — a single post included — is refused rather than read as an account. |
-| `collect.mjs` | The listing pass: drives gallery-dl, reads rows as they arrive, decides when enough of the timeline has been seen, and folds per-file rows into posts. |
+| `collect.mjs` | The collection pass: drives gallery-dl, reads rows as they arrive, decides when enough of the timeline has been seen, and folds per-file rows into posts. |
 | `fetch.mjs` | Downloads a list of posts, one gallery-dl invocation each, writing each post's `post.json` before its media. |
 | `gallerydl.mjs` | Everything said to gallery-dl and read back from it: policy, throttling, the print format, the row parser, failure classification. |
-| `assets.mjs` | The account's current avatar and banner, fetched from the URLs the listing pass already carried. |
+| `assets.mjs` | The account's current avatar and banner, fetched from the URLs the collection pass already carried. |
 
 The archive itself — `account.json`, `post.json`, `sync.json`, `archiver.json`,
 the post folders and every block this skill prints — is [`../shared/`](../shared/README.md).
@@ -171,38 +155,25 @@ going — through the state write and a summary telling the user to re-run the
 
 ## Plan, then go
 
-Nothing about an account can be reported before it is enumerated — not the
-display name, not the post count, and certainly not how many are new. So the run
-is split: `--plan` enumerates, diffs and reports; `--go` downloads what the
-report described. In between, the list waits in `<folder>/sync.json`, which is
-why confirming costs no second enumeration and why what is fetched is exactly
-what was shown.
+The split run, what `sync.json` parks between the halves, when a plan is refused
+and why `--yes` outranks a later mode flag are the same on every platform, and
+are specified in [`../shared/README.md`](../shared/README.md).
 
-`--go` runs no enumeration pass. It fetches each approved post by permalink,
-which is the second reason for one invocation per post: re-walking the timeline
-would also pull in anything published since the plan, which nobody approved.
-That costs an API call per post where pagination costs one per page. It is the
-price of the guarantee, and the media downloads dominate the wall clock anyway.
+What is particular here: `--go` runs no collection pass. It fetches each approved
+post by permalink, which is the second reason for one invocation per post —
+re-walking the timeline would also pull in anything published since the plan,
+which nobody approved. That costs an API call per post where pagination costs one
+per page. It is the price of the guarantee, and the media downloads dominate the
+wall clock anyway.
 
-A plan is refused rather than repaired when it is missing, older than 24h, or
-written for another account, root or folder. The alternative to refusing is
-downloading a list the user never approved. It is deleted once every post in it
-has landed, and kept when a run stops partway, so a retry re-fetches only what
-is missing.
+## The sweep stops early, unlike Douyin's
 
-`--yes` does both halves in one process, for using the scripts by hand. The
-skill never reaches for it — an agent asks — but it outranks a `--plan` or
-`--go` that comes after it on the command line, so a user who typed it keeps
-their pre-authorisation when the skill appends its own mode flag.
-
-## The sweep stops early, unlike the Douyin platform's
-
-the Douyin platform always scrolls a whole feed and refuses to stop early. That
-rule is evidence, not principle: a 284-video account measures ~34 seconds. The
-evidence does not transfer. An X timeline is paginated API calls against a rate
-limiter and a decade-old account is tens of thousands of posts, so re-enumerating
-all of it every time somebody checks their status would make the confirm step
-cost more than the download.
+Douyin always scrolls a whole feed and refuses to stop early. That rule rests on
+evidence, not principle: a full scroll of a few hundred posts measures ~34
+seconds. The evidence does not transfer. An X timeline is paginated API calls
+against a rate limiter and a decade-old account is thousands of posts, so
+re-collecting all of it every time somebody checks their status would make the
+confirm step cost more than the download.
 
 So a re-run stops after **100 consecutive** already-complete posts. Generous on
 purpose: X pins a post to the top of a timeline regardless of age, and a
@@ -233,14 +204,15 @@ retires the whole class instead, and costs nothing: `post.json` holds the full
 untruncated text anyway.
 
 The reverse direction has a matching rule, and `naming.mjs` carries the reason:
-`tweetIdFromFolder` anchors to the *whole* folder name, never a suffix.
+`postIdFromFolder` anchors to the *whole* folder name, never a suffix.
 
 ## Tests
 
-The pure logic has unit tests, and no dependencies beyond Node:
+The pure logic has unit tests, and no dependencies beyond Node. From the repo
+root, which runs every platform's suite as well as the shared one:
 
 ```bash
-node --test scripts/*.test.mjs
+npm test
 ```
 
 That covers the diff, plan validation and rendering, path normalisation,
@@ -259,9 +231,9 @@ leaves that child holding the inherited stdout pipe, and the suite sits for the
 full sleep after every assertion has already passed.
 
 **Everything touching real gallery-dl and real X is unverified by these tests.**
-It wants a run against a live account: the print format's field names, the
-policy keys, the throttling numbers, and every string `classifyFailure` matches
-on.
+Verifying it takes a run against a live account: the print format's field names,
+the policy keys, the throttling numbers, and every string `classifyFailure`
+matches on.
 
 ## The archive this shares with the other platform
 
@@ -272,20 +244,17 @@ archives root, so those rules are not this platform's to change alone.
 
 What is particular to this one:
 
-- **`assets/` is x-only.** gallery-dl puts the avatar and banner URLs on every
-  row the listing pass already reads, so they cost nothing here. Nothing reads
+- **`assets/` is X-only.** gallery-dl puts the avatar and banner URLs on every
+  row the collection pass already reads, so they cost nothing here. Nothing reads
   Douyin's out of the profile page yet, so the directory is simply absent there
   — the layout allows it to be.
-- **This skill builds `post.json` in JS; Douyin's is written by yt-dlp.** There
-  the JSON is assembled by an output template in `download-douyin.sh`, because
-  `--print-to-file` fires after extraction and before the download, which is
-  exactly when the file has to appear — and doing it any other way would cost a
-  second metadata request per post against a hard rate limiter. So the two
-  `post.mjs` modules agree on the *file* and differ in their API: this one owns
-  `toTimestamp` and `mediaEntry` and takes media as `{num, ext, …}`, because it
-  is the thing turning gallery-dl's rows into filenames; Douyin's has neither and
-  takes `{file, …}`, because by the time anything in Node sees a media entry the
-  name has already been decided by the template.
+- **Where a media entry's name comes from.** Both platforms build `post.json`
+  with `../shared/post.mjs`, so the *file* is one shape. What differs is what
+  each hands `mediaEntry`: this platform passes `{num, ext, …}`, because it is
+  turning gallery-dl's rows into filenames itself, while Douyin passes `{file}`,
+  yt-dlp having already printed the name it is about to write. Reading the name
+  back out of yt-dlp is what makes the extension knowable — it is the thing that
+  picks the container — without a second metadata request per post.
 - **`media[].id` exists here and never there.** For an image it is the
   pbs.twimg.com media token; yt-dlp exposes no per-item identifier for Douyin at
   all. It is also absent for X videos, whose only candidate is a variant name a

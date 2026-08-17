@@ -19,7 +19,7 @@
  * `accounts` maps an account's immutable id to the alias its folder is named
  * for, nested per platform. Keyed by the id because the id is the half that
  * cannot change, and because an object then cannot hold two aliases for one
- * account. Nested per platform because the Douyin platform writes this same file in
+ * account. Nested per platform because both platforms write this same file in
  * this same root, and an X account and a Douyin account may both be called jia.
  *
  * An account with no alias has no entry. Its folder is its id, which the
@@ -33,9 +33,9 @@
  * archive. What is *not* tolerated is a file this build cannot parse: that may
  * be a schema from the future, and rebuilding it would clobber it.
  *
- * The same file, with the same number, is written by the Douyin platform. The two
- * skills share an archives root and share this contract; the copy of this module
- * over there has to keep agreeing with this one.
+ * Every platform writes this file, with this number, into the root they share.
+ * The contract has one home here so that a schema bump is one edit rather than a
+ * negotiation between platforms.
  */
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';

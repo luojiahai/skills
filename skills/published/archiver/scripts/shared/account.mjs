@@ -202,10 +202,10 @@ export async function writeAccount(descriptor, dir, next, options) {
  */
 export async function recordIdentity(descriptor, root, dir, { account, url = null } = {}) {
   // The folder's own account.json is consulted for the id when the caller has
-  // none. A finished run writes only the url — by then the account was recorded
-  // before the download — and taking the caller's word for the id meant that
-  // write silently skipped the map, leaving account.json holding an alias
-  // archiver.json had never heard of. The folder always knows whose it is.
+  // none. A finished run writes only the url, the account having been recorded
+  // before the download, so the caller's word for the id is not enough: take it
+  // and the write skips the map silently, leaving account.json holding an alias
+  // archiver.json has never heard of. The folder always knows whose it is.
   const existing = await readAccount(dir);
   const id = String(account?.id ?? existing?.account?.id ?? '');
   const base = path.basename(dir);
@@ -306,16 +306,20 @@ export async function resolveAccountDir(descriptor, root, { id } = {}) {
 /**
  * The folder for an account whose id we do not know, or null.
  *
- * `--go` enumerates nothing, so it never learns the numeric id and cannot go
- * straight to the folder the way a plan can. The keys are tried in the order of
- * how much they prove, and the first two are direct:
+ * `--go` collects nothing, so it never learns the numeric id and cannot go
+ * straight to the folder the way a plan can.
  *
- *   alias   as a path, then through the mapping — theirs, and it names the folder
+ * An `--alias` is tried directly first — as a path, then through the mapping —
+ * because the user named that folder and the name is enough to open it without
+ * reading anything else. Everything else is settled in one pass over the account
+ * folders, which match in the order of how much each proves:
+ *
  *   url     the very URL the archive was made from — exact, survives a rename
+ *   alias   theirs, recorded in account.json
  *   handle  what the account is called today — right until it is renamed
  *
- * One pass over the directory for the last three, because the answer is wanted
- * once and the alternative is three passes that each stop at a different folder.
+ * One pass rather than three, because the answer is wanted once and three passes
+ * would each stop at a different folder.
  */
 export async function findAccountDir(descriptor, root, { url, alias, handle } = {}) {
   if (alias && isSafeAlias(alias)) {

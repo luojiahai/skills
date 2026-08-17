@@ -19,11 +19,10 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# Checked here rather than after dispatch because of where it sits. The old flag
-# is the one thing likely to still be in a shell history, and a platform refuses
-# it too — but only past its own tool preflight, so on a machine missing
-# gallery-dl or yt-dlp a stale --downloads would report the missing tool instead
-# of the rename that actually broke it.
+# Refused here rather than after dispatch because of where the platforms refuse
+# it: past their own tool preflight. On a machine missing gallery-dl or yt-dlp
+# that order reports the missing tool, which sends the user to install something
+# when the flag is what is wrong. This check runs before any tool is looked for.
 for arg in "$@"; do
   if [[ "$arg" == "--downloads" ]]; then
     echo "error: --downloads was renamed to --archives (and the default root is now archives/)" >&2

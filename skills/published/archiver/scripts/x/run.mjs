@@ -8,7 +8,7 @@
  * telling the user to re-run the command that just failed. Shell holds the node
  * preflight and hands over.
  *
- *   --plan   enumerate, diff, report. Downloads nothing.
+ *   --plan   collect, diff, report. Downloads nothing.
  *   --go     download exactly what the last plan listed.
  *   --yes    both, without stopping to confirm.
  */
@@ -64,7 +64,7 @@ const USAGE = `Usage: archive.sh <url> [--archives DIR] [--alias NAME] [--plan|-
 
   <url>                 https://x.com/<handle>              an account's media
 
-      --plan            Enumerate the account, report what would be fetched,
+      --plan            Collect the account, report what would be fetched,
                         and stop. Downloads nothing, and moves nothing.
       --go              Download the posts the last --plan listed. Needs a
                         plan for this account and root, under a day old.
@@ -79,7 +79,7 @@ const USAGE = `Usage: archive.sh <url> [--archives DIR] [--alias NAME] [--plan|-
                         this name. Recorded in archiver.json against the id,
                         which is what finds the folder again afterwards.
       --unalias         Put this account's folder back under its numeric id.
-      --full            Enumerate the whole timeline even when a re-run could
+      --full            Collect the whole timeline even when a re-run could
                         stop early.
       --browser NAME    Browser to read the X session from the first time
                         (chrome, firefox, safari, edge, brave, chromium...).
@@ -196,9 +196,9 @@ async function doPlan({ target, root, alias, unalias, cookies, full, threshold, 
   if (badId !== null) return { badId };
   if (!result.rows.length) return { empty: true };
 
-  // Without an id there is no folder to write into. The old layout could fall
-  // back to naming the folder after the handle; this one cannot, and inventing a
-  // folder that the next run would not find again is worse than stopping.
+  // Without an id there is no folder to write into. Naming it after the handle
+  // instead is not an option: the handle changes, so that folder is one the next
+  // run would not find again, and inventing it is worse than stopping.
   const account = result.account;
   if (!account?.id) return { unidentified: true };
 
@@ -272,8 +272,8 @@ async function doGo({
   }
 
   // Read before the move, because the move is what makes the path stale. This is
-  // also the id that validatePlan checks the plan against: --go could not do
-  // that before, and fell back to comparing URLs.
+  // also the id validatePlan checks the plan against — an identity check that
+  // holds even when the plan's URL names something other than the account.
   const identity = await readAccount(accountDir);
   const account = identity?.account;
 
@@ -558,11 +558,6 @@ async function report(result) {
   return EXIT.OK;
 }
 
-/**
- * --yes outranks a --plan or --go after it on the command line. The skill never
- * reaches for --yes; a user who typed it has pre-authorised the run, and the
- * skill appending its own mode flag must not take that back.
- */
 /**
  * How X names an account. Platform-shaped on purpose: the shared renderer prints
  * this line without knowing what a handle is.

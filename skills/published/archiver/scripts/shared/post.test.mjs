@@ -67,8 +67,7 @@ test('buildPost holds the post in a fixed order and nothing else', () => {
 });
 
 test('buildPost keeps a post’s words whole', () => {
-  // This is now the only place they are kept: the folder name carries none of
-  // them and text.txt is gone.
+  // The only place they are kept: the folder name carries none of them.
   const text = 'line one\nline two\ttabbed — 中文 🎉';
   assert.equal(buildPost({ id: '1', text }).text, text);
 });

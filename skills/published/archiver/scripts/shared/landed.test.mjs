@@ -25,7 +25,7 @@ async function seedPost(posts, folder, { listed, files, describe = true }) {
   return dir;
 }
 
-test('readArchive indexes post folders by tweet id', async () => {
+test('readArchive indexes post folders by post id', async () => {
   const { dir, posts } = await fixture();
   await seedPost(posts, '2024-03-11_1767', { listed: [{ num: 1, ext: 'jpg' }], files: ['1.jpg'] });
 
@@ -35,8 +35,8 @@ test('readArchive indexes post folders by tweet id', async () => {
 });
 
 test('a post whose fourth image failed reads as incomplete', async () => {
-  // The whole point of post.json listing its media: before it, this folder held
-  // media and so counted as done.
+  // Why post.json lists its media: a folder holding some media is not a folder
+  // holding the post, and only the list can tell the two apart.
   const { dir, posts } = await fixture();
   await seedPost(posts, '2024-03-11_900', {
     listed: [1, 2, 3, 4].map((num) => ({ num, ext: 'jpg' })),
@@ -56,9 +56,9 @@ test('a folder whose post.json never landed is not a downloaded post', async () 
   assert.equal(isLanded((await readArchive(dir)).get('901')), false);
 });
 
-test('deleting a post’s media brings it back, even though post.json remains', async () => {
-  // The rule the removed --download-archive got wrong: a record that outlives
-  // the files goes on claiming a post is done after the user deleted it.
+test('a post whose only media never landed reads as incomplete', async () => {
+  // The folder and its post.json are not the record; the files are. A record
+  // that outlives the files would go on claiming a post is done without them.
   const { dir, posts } = await fixture();
   await seedPost(posts, '2024-03-11_902', { listed: [{ num: 1, ext: 'mp4' }], files: [] });
 
@@ -83,7 +83,7 @@ test('readArchive does not mistake a stray folder ending in _digits for a post',
   assert.equal((await readArchive(dir)).size, 0);
 });
 
-test('isMissing is the one rule the plan, the sweep and the fetch loop all use', async () => {
+test('isMissing is the one rule X’s plan, collection pass and fetch loop all use', async () => {
   const { dir, posts } = await fixture();
   await seedPost(posts, '2024-03-11_1767', { listed: [{ num: 1, ext: 'jpg' }], files: ['1.jpg'] });
   const archive = await readArchive(dir);
@@ -150,8 +150,8 @@ test('a folder with media but no post.json is not a downloaded post', async () =
 });
 
 test('deleting a post’s media brings it back, even though post.json remains', async () => {
-  // The rule the removed --download-archive got wrong: a record that outlives
-  // the files goes on claiming a post is done after the user deleted it.
+  // The files are the record. Anything that outlived them — a download archive,
+  // a done-marker — would go on claiming the post after the user deleted it.
   const dir = await root();
   const folder = await post(dir, '2024-03-11_444', ['1.mp4']);
   await writeFile(path.join(folder, '1.mp4'), 'x');

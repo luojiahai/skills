@@ -9,21 +9,22 @@ they hang off.
 ```
 archive.sh          the entry point — node preflight, then dispatch.mjs
 dispatch.mjs        resolve the platform from the URL, call its main(argv)
-shared/             what more than one platform needs
-  platforms.mjs     the registry: every platform this skill knows
-  exit.mjs          the exit table
-  tools.mjs         is the external downloader installed, and what to say if not
+shared/             what more than one platform needs — README.md beside it
 douyin/             the Douyin platform — README.md beside it
 x/                  the X platform — README.md beside it
 ```
+
+`shared/` holds the archive contract and the modules that write it, module by
+module in [`shared/README.md`](./shared/README.md). Anything a platform owes the
+archive is specified there, not here.
 
 ## The URL decides, and nothing else
 
 `dispatch.mjs` is the only thing in the skill that knows more than one platform
 exists. It scans the command line for an argument matching a registered
 platform's host pattern, and calls that platform's `main(argv)` **in the same
-process** — so exit codes and output need no plumbing and a platform is reached
-exactly as it would be if it were still a skill of its own.
+process** — so exit codes and output need no plumbing and a platform owns its
+whole command line.
 
 It parses no flags. Everything is passed through, including the URL, which the
 platform parses again to work out what part of the site it names. That is what
@@ -55,10 +56,11 @@ gets by using `shared/`, which is where that contract is written down once.
 
 ## Preflight sits where it can act
 
-`archive.sh` checks only node, plus the `--downloads` rename error. Both are
-there because they must happen before node runs or before a platform is reached:
-a stale `--downloads` on a machine missing gallery-dl would otherwise report the
-missing tool instead of the rename that actually broke it.
+`archive.sh` checks only node, plus the `--downloads` refusal. Both are there
+because they must happen before node runs or before a platform is reached: a
+platform refuses `--downloads` too, but only past its own tool preflight, so on a
+machine missing gallery-dl that order reports the missing tool instead of the
+flag that is actually wrong.
 
 Every other tool check belongs to the platform that needs it, after its URL is
 found valid — a refusable URL should be refused on any machine, tools installed

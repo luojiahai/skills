@@ -64,8 +64,8 @@ test('both invocations carry the same throttling', () => {
 });
 
 test('a fetch names the exact directory and a numbered filename', () => {
-  // The root can carry spaces even though the post folder no longer does, so
-  // the path must still reach gallery-dl as a single argument.
+  // The root can carry spaces even though the post folder cannot, so the path
+  // must still reach gallery-dl as a single argument.
   const args = fetchArgs({ url: 'u', directory: '/d/my posts/2024-01-01_1' });
   assert.ok(args.includes('--directory'));
   assert.ok(args.includes('/d/my posts/2024-01-01_1'));

@@ -36,35 +36,50 @@ reason they are shared rather than copied.
       1.jpg, 2.mp4, …
 ```
 
+### The post folders
+
 - `posts/<YYYY-MM-DD|undated>_<id>/`, one folder per post, `undated` a literal
 - media numbered by position — `1.jpg`, `2.mp4`
 - `post.json`: `version`, `id`, `permalink`, `timestamp`, `text`, `reply_to`,
   `media`, in that order and holding nothing else. Written **before** the media.
   `media[].url` and `media[].id` are optional and often absent.
 - a post counts as downloaded when every file its `post.json` lists is present
-- the account folder is the account's `--alias` if it has one and its immutable
-  id if it does not, under a platform folder — because both skills default to the
-  same `<git root>/archives` root, and an alias chosen on one platform must not
-  be able to collide with one chosen on the other.
-- an alias is refused if it is another account's id on that platform, or already
-  another account's alias. Letters (`\p{L}`, so CJK), digits, `.`, `_`, `-`;
-  no spaces, no separators, no leading dot, 128 chars.
-- `account.json`'s `alias` is always `basename(dir)`, written from the folder
-  rather than from the flag. That is the whole of "the folder's location wins":
-  a directory renamed by hand is adopted by the next write, and the two cannot
-  drift. An empty `--alias` is silence; `--unalias` is the removal.
-- a rename is three writes in one order — the folder, then `account.json` inside
-  it, then `archiver.json` — because the tree is the truth and the root file is
-  a cache. A crash before the last one is repaired by the next scan. `--plan`
-  never moves anything; `--go` does.
+
+### The account folder
+
+The account folder is the account's `--alias` if it has one and its immutable id
+if it does not, under a platform folder. Every platform defaults to the same
+`<git root>/archives` root, so without the platform folder an alias chosen on one
+could collide with one chosen on another.
+
+An alias is refused if it is another account's id on that platform, or already
+another account's alias. Letters (`\p{L}`, so CJK), digits, `.`, `_`, `-`; no
+spaces, no separators, no leading dot, 128 chars.
+
+`account.json`'s `alias` is always `basename(dir)`, written from the folder
+rather than from the flag. That is the whole of "the folder's location wins": a
+directory renamed by hand is adopted by the next write, and the two cannot drift.
+An empty `--alias` is silence; `--unalias` is the removal.
+
+A rename is three writes in one order — the folder, then `account.json` inside
+it, then `archiver.json` — because the tree is the truth and the root file is a
+cache. A crash before the last one is repaired by the next scan. `--plan` never
+moves anything; `--go` does.
+
+### The three files
+
 - `account.json` beside `posts/`, holding `version`, `platform`, `account` and
   `url` and nothing else — authoritative for identity, never for progress. The
   alias is a key *inside* `account`, beside the id, so the file stays four keys
-  wide. Both
-  write it when the folder is resolved, both merge into what is already there,
-  and both treat a blank as silence rather than an erasure.
-- `sync.json` beside it, holding `version`, `plan` and `last_run`. Deleting it
-  loses no archive content.
+  wide. Every platform writes it when the folder is resolved, merges into what is
+  already there, and treats a blank as silence rather than an erasure.
+- `sync.json` beside it, holding `version`, `plan` and `last_run`. **Deleting it
+  loses no archive content.** That sentence is the whole specification of the
+  file: every field in it has to keep the sentence true, and a field whose loss
+  costs the user a post is the wrong field. Nothing a run consults to decide what
+  to fetch belongs here — in particular no resumption cursor, which would make a
+  run shorter in *result* rather than merely cheaper, missing posts a reordered
+  feed has pushed below the mark.
 - `archiver.json` at the root, holding the schema version and `accounts`, an
   id → alias map nested per platform. Absent reads as current; unknown stops the
   run; **schema 2 is readable and upgraded in place**, since every schema-2
@@ -72,6 +87,40 @@ reason they are shared rather than copied.
   entry. A mapping entry pointing at a folder that is not there is a stale cache
   line and self-heals; a file that cannot be *parsed* stops the run, because it
   may be a schema from the future and rebuilding it would clobber it.
+
+There is no fourth file, and there must not be one. The post folders are the
+record of what has landed: a post is downloaded when every file its `post.json`
+lists is on disk. Do not add a download archive, a done-marker, or any record
+written *after* the media — each is a second record, free to go on claiming a
+post has landed after its files are deleted by hand.
+
+## Plan, then go
+
+Nothing about an account can be reported before it is collected — not the name,
+not the post count, and certainly not how many are new. So the run is split:
+`--plan` collects, diffs and reports; `--go` downloads what the report described.
+In between, the list waits in `<folder>/sync.json`, which is why confirming costs
+no second collection and why what is fetched is exactly what was shown.
+
+`validatePlan` refuses a plan rather than repairing it. It is refused when it is
+missing, unreadable by this build, without a usable timestamp, older than 24h,
+made for a different account or a different archives root, or left with nothing
+still to download. The alternative to refusing is downloading a list the user
+never approved. There is no folder check
+and none is needed: a plan is read out of the account folder it was written into,
+so "a plan for another folder" is not a state that can be reached. The identity
+check compares account **ids**, not the URL the plan was made from, because
+`--go` resolves the folder before it reads the plan.
+
+A plan is deleted once every post in it has landed, and kept when a run stops
+partway, so a retry re-fetches only what is missing.
+
+`--yes` does both halves in one process, for using the scripts by hand. The skill
+never reaches for it — an agent asks — but it outranks a `--plan` or `--go` that
+comes after it on the command line, so a user who typed it keeps their
+pre-authorisation when the skill appends its own mode flag. Last-one-wins would
+take that back. `pickMode` here in `shared/run.mjs` is the one implementation,
+and every platform imports it.
 
 ## One renderer
 
@@ -108,5 +157,6 @@ platform can never collide with one chosen on the other.
 ## Adding to these
 
 Anything here is read by every platform. Before changing a rule, check what the
-other platform does with it — the archive is meant to be readable with one
-mental model, and these modules are what make that true rather than aspirational.
+other platform does with it: one archives root read with one mental model is
+what these modules buy, and a rule that holds for one caller's shape and not the
+other's corrupts an archive both of them read.
