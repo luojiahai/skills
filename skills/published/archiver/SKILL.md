@@ -1,7 +1,7 @@
 ---
 name: archiver
 description: "Archive a social account's posts to your own disk — Douyin videos, or the images, videos and GIFs an account has posted on X (formerly Twitter). The URL says which. It reports what it would fetch and waits for your yes, and a re-run fetches only what is new."
-argument-hint: "<profile URL> [--archives DIR] [--alias NAME]"
+argument-hint: "[profile URL] [--archives DIR] [--alias NAME]"
 disable-model-invocation: true
 ---
 
@@ -42,6 +42,76 @@ refusal lists what it does archive. There is no generic fallback: every promise
 below — the post folder, the `post.json`, the re-run that fetches only what is
 new — comes from platform code, and a generic downloader would satisfy none of
 it while looking like it had worked.
+
+## Invoked with no URL
+
+Typed bare, this asks what is already archived rather than doing nothing:
+
+```bash
+<skill-dir>/scripts/archive.sh --list [--archives DIR]
+```
+
+It reads the tree and downloads nothing, so it needs no downloader installed and
+no session. It answers in JSON — `{ "root": …, "accounts": [ … ] }` — because
+**the words are yours, not its**. Each account carries:
+
+| | |
+| --- | --- |
+| `platform` | `douyin` or `x` — group by it, since one root holds both |
+| `folder` | what the folder is called: the user's alias, else the account's id |
+| `nickname` | what the account calls itself, or `null` |
+| `dir` | where the archive is, if you need to say so or look inside |
+| `url` | the URL it was archived from, or `null` |
+| `posts` | post folders on disk — **not** a count of what fully landed |
+| `last_run` | an ISO timestamp, or `null` for an account never run |
+| `to_fetch` | how many a prepared list would still fetch, or `null` |
+
+Write that out for the user and ask which to sync, then **give the turn back**.
+Number the accounts, so their answer can be a number. Say who each one is, how
+much is on disk, and whichever of `to_fetch` / `last_run` applies. Add one line,
+once, saying that a profile URL archives an account not on the list — without it
+the listing reads as a closed menu.
+
+Write it in **the user's language**, and in their vocabulary: sync, approve,
+download. Never `--plan`, `--go`, `--list` or `--archives` — those are yours to
+run and mean nothing to someone who typed `/archiver`. `posts` is what is on
+disk, so do not report it as what has been archived successfully; a run that
+stopped partway leaves folders behind too.
+
+Two fields decide what happens when an account is picked. **`url`** is what
+`--plan` needs — use it exactly as given, and never rebuild one from a handle,
+because handles change hands and the archive would fill up with whoever holds
+that name today. A `null` means ask the user for the URL.
+
+**`to_fetch`** being a number means a list has already been worked out and is
+still usable, so those posts can be fetched without crawling the account again.
+Say the number, wait for the user's yes, and only then run `--go` instead of
+`--plan`. **Ask even though a list exists.** A parked list is written when it is
+*collected*, not when it is approved, so it may be one the user was shown and
+never answered — and nothing on disk tells that apart from a download that
+stopped partway. The rule that an account is never archived without a yes has no
+exception here.
+
+Asked for several, do them one at a time: plan, report, wait, go, then the next.
+Never collect every plan first and ask once, which is approval over counts
+nobody has seen. If a run stops on a hard failure, report it and ask before
+starting the next account.
+
+An empty `accounts` is an ordinary answer, not a failure — the root may simply
+never have been archived into. Say what this skill is and how to invoke it, in
+your own words, but copy these lines exactly:
+
+```
+/archiver <profile url>
+/archiver <profile url> --alias NAME      name the folder something readable, not the account id
+/archiver <profile url> --archives DIR    keep the archive somewhere other than ./archives
+```
+
+Name the `root` it reported, so the user can tell you it is the wrong one.
+Nothing else belongs in that message: not the `--help` output, not a
+pointer to it, not an `archive.sh` command — that is the machinery, and the user
+drives this by typing `/archiver`. Not `--plan`, `--go` or `--yes` either. Those
+are yours to run, and `--yes` skips the confirmation this skill is built around.
 
 ## The two steps
 

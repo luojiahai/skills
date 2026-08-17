@@ -29,6 +29,11 @@ const X = /^(?:https?:\/\/)?(?:[a-z0-9-]+\.)*(?:twitter|x)\.com(?:[/?#]|$)/i;
  * `account` is the descriptor the shared account store is threaded with: the
  * folder this platform's accounts live under, and what `account.json` calls the
  * readable handle. See `account.mjs`.
+ *
+ * `postIdKey` is what a collected post calls its own id — `tweetId` for X, `id`
+ * for Douyin. It is the only thing separating the two platforms' "which of these
+ * posts are still missing" from one shared rule, so it is named here rather than
+ * inferred anywhere that asks the question.
  */
 export const PLATFORMS = [
   {
@@ -38,6 +43,7 @@ export const PLATFORMS = [
     hosts: ['douyin.com'],
     match: (arg) => DOUYIN.test(arg),
     account: { platform: 'douyin', handleKey: 'douyin_id' },
+    postIdKey: 'id',
     // The flags that are this platform's alone, for the help a bare run prints.
     // Here rather than in the dispatcher so that adding a platform stays what it
     // claims to be: a folder, and one entry in this table.
@@ -54,6 +60,7 @@ export const PLATFORMS = [
     hosts: ['x.com', 'twitter.com'],
     match: (arg) => X.test(arg),
     account: { platform: 'x', handleKey: 'handle' },
+    postIdKey: 'tweetId',
     usage: 'x.com/<handle>',
     flags: [
       ['--browser NAME', 'Browser to read the X session from the first time'],

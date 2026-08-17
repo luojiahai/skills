@@ -13,6 +13,7 @@ platforms are threaded with a descriptor where they differ.
 | `post.mjs` | The shape of `post.json`, and whether a post holds every file it lists. |
 | `naming.mjs` | A post folder's name, and a moment as a string. Built and read back in one place. |
 | `sync.mjs` | `sync.json`: the parked plan and the last run's history. Deletable without loss. |
+| `listing.mjs` | What is already archived under a root, across every platform, as facts for `SKILL.md` to word. Reads and never writes. |
 | `archiver.mjs` | The archives root's schema version, the id → alias map, and the refusal when the schema is one this build cannot read. |
 | `paths.mjs` | Where state lives, per platform, and where archives land. |
 | `cli.mjs` | Argument parsing, file reading, atomic JSON writing, entry-point detection. |

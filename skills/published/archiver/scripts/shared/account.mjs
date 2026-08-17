@@ -249,7 +249,7 @@ async function exists(dir) {
  * rather than guessed at: it reads as no archive at all, which is the same
  * answer as a folder nobody has archived into.
  */
-async function* accounts(descriptor, root) {
+export async function* accounts(descriptor, root) {
   let entries;
   try {
     entries = await readdir(platformDir(descriptor, root), { withFileTypes: true });

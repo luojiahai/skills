@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import { realpathSync } from 'node:fs';
-import { mkdtemp, symlink } from 'node:fs/promises';
+import { mkdir, mkdtemp, symlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -130,6 +130,136 @@ test('no arguments at all prints the help, and says so with its exit code', asyn
     io.restore();
   }
   assert.match(io.lines.join('\n'), /Usage:/);
+});
+
+/** An archives root holding one X account, for the --list tests. */
+async function archived() {
+  const root = realpathSync(await mkdtemp(path.join(os.tmpdir(), 'archiver-dispatch-')));
+  const dir = path.join(root, 'x', 'jia');
+  await mkdir(dir, { recursive: true });
+  await writeFile(
+    path.join(dir, 'account.json'),
+    JSON.stringify({ version: 1, platform: 'x', account: { id: '1', nickname: 'Jia' }, url: 'https://x.com/jia' }),
+  );
+  return root;
+}
+
+test('--list reports the accounts under the root, without loading a platform', async () => {
+  // It must answer on a machine with no yt-dlp, no gallery-dl and no session:
+  // reading the tree is not archiving, so nothing is loaded and nothing is
+  // preflighted.
+  const { load, seen } = spy();
+  const io = capture();
+  const root = await archived();
+  try {
+    assert.equal(await main(['--list', '--archives', root], { load }), EXIT.OK);
+  } finally {
+    io.restore();
+  }
+  assert.equal(seen.length, 0, 'no platform should be loaded');
+
+  const reported = JSON.parse(io.lines.join('\n'));
+  assert.equal(reported.root, root);
+  assert.equal(reported.accounts.length, 1);
+  assert.equal(reported.accounts[0].folder, 'jia');
+  assert.equal(reported.accounts[0].url, 'https://x.com/jia');
+});
+
+test('--list writes JSON, because the skill is what does the talking', async () => {
+  const { load } = spy();
+  const io = capture();
+  try {
+    await main(['--list', '--archives', await archived()], { load });
+  } finally {
+    io.restore();
+  }
+  assert.doesNotThrow(() => JSON.parse(io.lines.join('\n')));
+});
+
+test('--list on a root with nothing in it still says where it looked, and succeeds', async () => {
+  const { load } = spy();
+  const io = capture();
+  const empty = realpathSync(await mkdtemp(path.join(os.tmpdir(), 'archiver-empty-')));
+  try {
+    assert.equal(await main(['--list', '--archives', empty], { load }), EXIT.OK);
+  } finally {
+    io.restore();
+  }
+  assert.deepEqual(JSON.parse(io.lines.join('\n')), { root: empty, accounts: [] });
+});
+
+test('--list with a URL is refused, because they ask different questions', async () => {
+  const { load, seen } = spy();
+  const io = capture();
+  try {
+    assert.equal(await main(['--list', 'https://x.com/jack'], { load }), EXIT.USAGE);
+  } finally {
+    io.restore();
+  }
+  assert.equal(seen.length, 0);
+  assert.match(io.lines.join('\n'), /a URL asks about one account/);
+});
+
+test('--list alongside a flag that acts is refused, and names it', async () => {
+  for (const flag of ['--plan', '--go', '--yes', '-y', '--unalias', '--alias']) {
+    const { load, seen } = spy();
+    const io = capture();
+    try {
+      assert.equal(await main(['--list', flag], { load }), EXIT.USAGE, flag);
+    } finally {
+      io.restore();
+    }
+    assert.equal(seen.length, 0, flag);
+    assert.match(io.lines.join('\n'), new RegExp(`takes only --archives DIR, not ${flag}`), flag);
+  }
+});
+
+test('--list with a stray positional is refused', async () => {
+  const { load } = spy();
+  const io = capture();
+  try {
+    assert.equal(await main(['--list', 'jia'], { load }), EXIT.USAGE);
+  } finally {
+    io.restore();
+  }
+  assert.match(io.lines.join('\n'), /takes only --archives DIR, not "jia"/);
+});
+
+test('--list --help is the help, not a conflict', async () => {
+  // Asking what a command does is always answerable, and answering it is not
+  // the action --list would conflict with.
+  const { load } = spy();
+  const io = capture();
+  try {
+    assert.equal(await main(['--list', '--help'], { load }), EXIT.OK);
+  } finally {
+    io.restore();
+  }
+  assert.match(io.lines.join('\n'), /Usage:/);
+});
+
+test('a root this build cannot read refuses the listing, and says why', async () => {
+  const { load } = spy();
+  const io = capture();
+  try {
+    const root = await archived();
+    await writeFile(path.join(root, 'archiver.json'), JSON.stringify({ schema: 99 }));
+    assert.equal(await main(['--list', '--archives', root], { load }), EXIT.USAGE);
+  } finally {
+    io.restore();
+  }
+  assert.match(io.lines.join('\n'), /newer version of this skill/);
+});
+
+test('the help names --list', async () => {
+  const { load } = spy();
+  const io = capture();
+  try {
+    await main(['--help'], { load });
+  } finally {
+    io.restore();
+  }
+  assert.match(io.lines.join('\n'), /--list/);
 });
 
 test('the skill runs when it is reached through a symlink', async () => {
