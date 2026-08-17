@@ -1,0 +1,5 @@
+interface:
+  display_name: "Archiver"
+  short_description: "Archive a Douyin or X account's posts"
+policy:
+  allow_implicit_invocation: false
