@@ -52,10 +52,11 @@ found, how many you already have, and how many are new. It downloads nothing.
 Report that block and ask whether to go ahead. Then **give the turn back and
 wait**. Do not run `--go` until the user has answered.
 
-`--go` downloads from that plan, and does not collect again: it takes the posts
-the plan named and fetches the ones still missing from disk. It refuses a plan
-that is missing, more than 24 hours old, or made for a different account or a
-different archives root; each refusal prints the `--plan` command that fixes it.
+`--go` downloads from that plan, and does not collect again: it fetches the posts
+the block counted as new and never more than those, skipping any that have landed
+since. It refuses a plan that is missing, more than 24 hours old, or made for a
+different account or a different archives root; each refusal prints the `--plan`
+command that fixes it.
 
 A `--go` that stops partway leaves the plan in place, so re-running `--go` picks
 up only what is missing — and needs no new question, because the user already

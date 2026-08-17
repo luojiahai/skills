@@ -3,6 +3,7 @@ import test from 'node:test';
 
 import {
   DEFAULT_TTL_HOURS,
+  approved,
   buildPlan,
   describeAge,
   renderPlanBlock,
@@ -30,6 +31,17 @@ const counts = (over = {}) => ({ found: 405, onDisk: 0, toFetch: 405, ...over })
 
 test('the plan carries each post whole, so --go needs no second listing', () => {
   assert.deepEqual(plan().pending, [{ id: '7222' }]);
+});
+
+test('--go is handed what the block counted as new, never the whole listing', () => {
+  // The plan saw both posts and counted one as new. Handing over the listing
+  // would let a run fetch more than the number the user said yes to.
+  assert.deepEqual(approved(plan()), [{ id: '7222' }]);
+});
+
+test('a plan with no list to hand over hands over nothing', () => {
+  assert.deepEqual(approved({}), []);
+  assert.deepEqual(approved(null), []);
 });
 
 test('a fresh plan for this account and root may be acted on', () => {
@@ -169,7 +181,7 @@ test('a root that has not moved says nothing about it', () => {
 });
 
 test('the summary reports in the columns the plan was approved in', () => {
-  const approved = renderPlanBlock({
+  const approvedBlock = renderPlanBlock({
     headline: '小明 (抖音号 abc123)',
     folder: '/f',
     counts: counts({ foundDetail: 'of 411 reported' }),
@@ -183,7 +195,7 @@ test('the summary reports in the columns the plan was approved in', () => {
   });
 
   for (const line of ['folder', 'found']) {
-    const inPlan = approved.split('\n').find((l) => l.includes(line));
+    const inPlan = approvedBlock.split('\n').find((l) => l.includes(line));
     const inSummary = done.split('\n').find((l) => l.includes(line));
     assert.equal(inPlan, inSummary, `${line} must line up between the two blocks`);
   }
