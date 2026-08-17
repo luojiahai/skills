@@ -1,5 +1,17 @@
 # luojiahai-skills
 
+## 0.1.27
+
+### Patch Changes
+
+- [#68](https://github.com/luojiahai/skills/pull/68) [`d91fc98`](https://github.com/luojiahai/skills/commit/d91fc98d1852161796f4a06755675393ecc260d3) Thanks [@luojiahai](https://github.com/luojiahai)! - archiver (x): accept `--full`, `--browser` and `--cookies`
+
+  All three were documented and none were reachable — X parsed its command line
+  with the shared defaults, which name neither, so each was refused as an unknown
+  option. `--browser NAME` additionally handed `NAME` to the URL slot, letting a
+  flag decide which account got archived. X now declares its own flag sets, as
+  Douyin does.
+
 ## 0.1.26
 
 ### Patch Changes
