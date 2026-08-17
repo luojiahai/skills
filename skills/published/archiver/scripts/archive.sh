@@ -5,6 +5,7 @@
 #   archive.sh <url> --plan     report what would be fetched
 #   archive.sh <url> --go       download what that plan listed
 #   archive.sh <url> --yes      both, without stopping to confirm
+#   archive.sh --list           report what is already archived, as JSON
 #
 # The URL says which platform this is; dispatch.mjs resolves it and hands the
 # whole command line over. An account is never downloaded without an explicit

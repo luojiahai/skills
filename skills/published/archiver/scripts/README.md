@@ -26,11 +26,29 @@ platform's host pattern, and calls that platform's `main(argv)` **in the same
 process** — so exit codes and output need no plumbing and a platform owns its
 whole command line.
 
-It parses no flags. Everything is passed through, including the URL, which the
-platform parses again to work out what part of the site it names. That is what
-lets a platform add a flag without this file changing, and it is what makes the
-promise in `SKILL.md` true: whatever the user typed is the platform's usage error
-to report, not the dispatcher's to guess at.
+Anything bound for a platform passes through untouched, including the URL, which
+the platform parses again to work out what part of the site it names. That is
+what lets a platform add a flag without this file changing, and it is what makes
+the promise in `SKILL.md` true: whatever the user typed is the platform's usage
+error to report, not the dispatcher's to guess at.
+
+What it does parse is only what no platform will ever see: `--list` and the
+`--archives` it takes, plus `--help` when there is no platform to answer it.
+
+`--list` is the exception because it is the one command that belongs to no
+platform: "which accounts are archived" is a question about the root both
+platforms share, so there is nothing to dispatch it to. It is answered before a
+platform is loaded, which is also what lets it work on a machine with no
+downloader installed and no session — reading the tree is not archiving.
+
+It answers in JSON, because its reader is `SKILL.md` rather than a person: the
+skill words the listing for a user who has never seen this command line and may
+not be reading in English, and a block rendered in `listing.mjs` would be one
+fixed English layout for all of them.
+
+Every other flag beside it is refused rather than ignored, because `--list` and
+`--plan` ask for different things and letting one quietly win is how somebody
+who asked to archive an account ends up looking at a listing.
 
 Because the URL may sit anywhere among the flags, **every** argument is scanned —
 so the host patterns in `platforms.mjs` are anchored at the start and must end at
