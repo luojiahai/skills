@@ -17,7 +17,13 @@ import { spawn } from 'node:child_process';
 import path from 'node:path';
 
 import { readArchive } from '../shared/landed.mjs';
-import { isMainModule, optString, parseCommandLine } from '../shared/cli.mjs';
+import {
+  COMMON_BOOLEAN_FLAGS,
+  COMMON_FLAGS,
+  isMainModule,
+  optString,
+  parseCommandLine,
+} from '../shared/cli.mjs';
 import { DEFAULT_ABORT, collect, diff, groupFiles, makeStopper } from './collect.mjs';
 import {
   accountDirFor,
@@ -60,6 +66,10 @@ import { fail, pickMode } from '../shared/run.mjs';
 import { missingTool, onPath } from '../shared/tools.mjs';
 
 const GALLERY_DL = 'gallery-dl';
+
+/** What X adds to the flags every platform shares. */
+const BOOLEAN_FLAGS = new Set([...COMMON_BOOLEAN_FLAGS, 'full']);
+const KNOWN_FLAGS = new Set([...COMMON_FLAGS, ...BOOLEAN_FLAGS, 'browser', 'cookies']);
 
 const USAGE = `Usage: archive.sh <url> [--archives DIR] [--alias NAME] [--plan|--go|--yes]
 
@@ -331,7 +341,10 @@ export async function doGo({
 }
 
 export async function main(argv) {
-  const { opts, positional, unknown } = parseCommandLine(argv);
+  const { opts, positional, unknown } = parseCommandLine(argv, {
+    booleans: BOOLEAN_FLAGS,
+    known: KNOWN_FLAGS,
+  });
 
   if (opts.help || opts.h) {
     console.log(USAGE);
