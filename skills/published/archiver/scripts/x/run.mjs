@@ -46,6 +46,7 @@ const ACCOUNT = descriptorFor(PLATFORM);
 const STATE_DIR = stateDir(PLATFORM);
 const COOKIE_FILE = cookieFile(PLATFORM);
 import {
+  approved,
   buildPlan,
   describeAge,
   renderPlanBlock,
@@ -259,7 +260,12 @@ async function doPlan({ target, root, alias, unalias, cookies, full, threshold, 
   };
 }
 
-async function doGo({
+/**
+ * Exported so the download half's decisions — which posts it hands the fetcher,
+ * and when it retires the plan — can be asserted without a network or a
+ * gallery-dl on the machine. `main` reaches it the same way.
+ */
+export async function doGo({
   root, dir, alias, unalias, url, handle, cookies, planHint, bin = 'gallery-dl',
 }) {
   // --yes has just enumerated and knows exactly which folder it wrote into, so
@@ -294,7 +300,7 @@ async function doGo({
   if (!valid.ok) return { refused: valid.reason, planHint };
 
   const archive = await readArchive(accountDir);
-  const todo = outstanding(plan.collected, archive);
+  const todo = outstanding(approved(plan), archive);
 
   const { fetched, failed, stopped } = await fetchPosts({
     accountDir,
@@ -306,7 +312,7 @@ async function doGo({
 
   await refreshAssets(accountDir, plan.account);
 
-  const remaining = outstanding(plan.collected, await readArchive(accountDir)).length;
+  const remaining = outstanding(approved(plan), await readArchive(accountDir)).length;
 
   // After the move, so the alias recorded is the folder this run finished in.
   await recordIdentity(ACCOUNT, root, accountDir, { account: plan.account, url });

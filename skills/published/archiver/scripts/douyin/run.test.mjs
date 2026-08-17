@@ -8,12 +8,14 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, realpathSync } from 'node:fs';
-import { mkdtemp, readFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
 import { main } from './run.mjs';
+import { postDir } from './fetch.mjs';
 import { EXIT } from '../shared/exit.mjs';
+import { buildPost, writePost } from '../shared/post.mjs';
 import { savePlan } from '../shared/sync.mjs';
 
 // Realpath'd, because normalizeRoot does: on macOS /var is a symlink to
@@ -22,6 +24,9 @@ const root = async () => realpathSync(await mkdtemp(path.join(os.tmpdir(), 'douy
 const URL_MS4W = 'https://www.douyin.com/user/MS4wSEC';
 
 const post = (id, over = {}) => ({ id, text: '', createTime: 1710144139, ...over });
+
+/** One post on disk and complete — a post.json listing no media lists nothing missing. */
+const land = (accountDir, p) => writePost(postDir(accountDir, p), buildPost({ id: p.id }));
 
 /** A listing pass that answers from memory. */
 const listing = (over = {}) => ({
@@ -212,6 +217,57 @@ test('--go hands the fetcher exactly the posts the plan listed', async () => {
   assert.deepEqual(handed.map((p) => p.id), ['7111', '7222']);
   // Whole records, not ids: --go writes every post.json without a browser.
   assert.equal(handed[0].createTime, 1710144139);
+});
+
+test('--go fetches what the block counted, not everything the listing saw', async () => {
+  // 7111 is on disk when the plan is made, so the block counts one new post.
+  // It then leaves the disk before --go runs. --go re-checks against disk, but
+  // only across what was approved, so it still fetches exactly the one.
+  const dir = await root();
+  const folder = path.join(dir, 'douyin', 'MS4wSEC');
+  await land(folder, post('7111'));
+
+  const { output } = await run([URL_MS4W, '--archives', dir, '--plan']);
+  assert.match(output, /to fetch\s+1 new/);
+
+  await rm(postDir(folder, post('7111')), { recursive: true });
+
+  let handed = null;
+  await run([URL_MS4W, '--archives', dir, '--go'], {
+    fetchImpl: async ({ posts }) => ((handed = posts), { fetched: posts.length, failed: 0 }),
+  });
+
+  assert.deepEqual(handed.map((p) => p.id), ['7222']);
+});
+
+test('a plan is retired by what is on disk, not by the fetcher’s own report', async () => {
+  // A fetcher that exits clean without writing the files has downloaded
+  // nothing. Retiring the plan on its word would cost a second listing to
+  // discover that.
+  const dir = await root();
+  await run([URL_MS4W, '--archives', dir, '--plan']);
+
+  await run([URL_MS4W, '--archives', dir, '--go'], {
+    fetchImpl: async ({ posts }) => ({ fetched: posts.length, failed: 0 }),
+  });
+
+  const sync = await syncJson(path.join(dir, 'douyin', 'MS4wSEC'));
+  assert.ok(sync.plan, 'the plan stays, so the retry needs no new approval');
+});
+
+test('a plan is retired once every post in it has landed', async () => {
+  const dir = await root();
+  await run([URL_MS4W, '--archives', dir, '--plan']);
+
+  await run([URL_MS4W, '--archives', dir, '--go'], {
+    fetchImpl: async ({ accountDir, posts }) => {
+      for (const p of posts) await land(accountDir, p);
+      return { fetched: posts.length, failed: 0 };
+    },
+  });
+
+  const sync = await syncJson(path.join(dir, 'douyin', 'MS4wSEC'));
+  assert.equal(sync.plan ?? null, null);
 });
 
 test('--go never collects again', async () => {

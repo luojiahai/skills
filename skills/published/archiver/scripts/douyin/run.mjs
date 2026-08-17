@@ -43,6 +43,7 @@ import { descriptorFor } from '../shared/platforms.mjs';
 const ACCOUNT = descriptorFor(PLATFORM);
 const COOKIE_FILE = cookieFile(PLATFORM);
 import {
+  approved,
   buildPlan,
   listedIds,
   renderPlanBlock,
@@ -414,7 +415,7 @@ async function doGo({ root, target, alias, unalias, profileDir, chromium, planHi
   // Re-checked against disk rather than taken as written. A --go that died
   // partway leaves a plan still listing what it managed to fetch, and every one
   // of those would otherwise cost a request to discover it was already there.
-  const pending = outstanding(plan.pending, archive);
+  const pending = outstanding(approved(plan), archive);
 
   let fetched = 0;
   let failed = 0;
@@ -434,6 +435,11 @@ async function doGo({ root, target, alias, unalias, profileDir, chromium, planHi
 
   const landed = await onDiskIds(accountDir);
   const total = landed.size;
+
+  // Asked of the folder rather than of the fetcher. A downloader that exits
+  // clean without writing the files has archived nothing, and a plan retired on
+  // its word would cost a second listing to find that out.
+  const remaining = outstanding(approved(plan), await readArchive(accountDir)).length;
 
   await recordRun(accountDir, {
     root,
@@ -465,7 +471,7 @@ async function doGo({ root, target, alias, unalias, profileDir, chromium, planHi
 
   // Kept after a partial run, so a retry re-fetches only what is missing without
   // paying for another collection; retired once it has all landed.
-  if (!failed) await clearPlan(accountDir);
+  if (remaining === 0) await clearPlan(accountDir);
 
   return failed ? EXIT.FAILED : EXIT.OK;
 }

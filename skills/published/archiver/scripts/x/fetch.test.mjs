@@ -6,6 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { fetchPosts, outstanding } from './fetch.mjs';
+import { approved } from '../shared/plan.mjs';
 import { buildPost, readPost } from '../shared/post.mjs';
 
 async function fakeBin(script) {
@@ -52,6 +53,16 @@ test('a post whose files half landed is finished rather than abandoned', () => {
 test('a folder holding more files than the post lists still counts as done', () => {
   const archive = new Map([onDisk('2', ['1.jpg'], ['1.jpg', 'notes.txt', '2.jpg'])]);
   assert.ok(!outstanding(posts, archive).some((p) => p.tweetId === '2'));
+});
+
+test('a post that left the disk after the plan was made is not fetched by --go', () => {
+  // Posts 1 and 2 were on disk when the block was rendered, so only 3 was
+  // counted as new. Post 1 has since gone, and --go re-checks against disk —
+  // but only across the posts the block promised, so it stays at one.
+  const parked = { collected: posts, pending: [posts[2]] };
+  const archive = new Map([onDisk('2', ['1.jpg'])]);
+
+  assert.deepEqual(outstanding(approved(parked), archive).map((p) => p.tweetId), ['3']);
 });
 
 test('an approved plan fully on disk leaves nothing outstanding', () => {

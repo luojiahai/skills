@@ -62,6 +62,22 @@ export function buildPlan({
 }
 
 /**
+ * The posts `--go` fetches: what the approved block counted as new, never more.
+ *
+ * `pending` is that list. `collected` is everything the listing pass saw, and is
+ * kept for one other job — telling a finished run how many archived posts the
+ * account no longer lists. Fetching from `collected` would let a run exceed the
+ * number the user said yes to: a post that left the disk after the block was
+ * rendered was never counted as new, and the next `--plan` is what offers it.
+ *
+ * Every platform's `--go` reads its list through here, so the field is named in
+ * one place and two platforms cannot come to answer this differently.
+ */
+export function approved(plan) {
+  return plan?.pending ?? [];
+}
+
+/**
  * Whether a plan may be acted on: `{ ok }`, or `{ ok: false, reason }`.
  *
  * A plan is refused rather than repaired. The alternative to refusing is
