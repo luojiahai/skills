@@ -38,6 +38,14 @@ export const PLATFORMS = [
     hosts: ['douyin.com'],
     match: (arg) => DOUYIN.test(arg),
     account: { platform: 'douyin', handleKey: 'douyin_id' },
+    // The flags that are this platform's alone, for the help a bare run prints.
+    // Here rather than in the dispatcher so that adding a platform stays what it
+    // claims to be: a folder, and one entry in this table.
+    usage: 'douyin.com/user/<sec_uid>',
+    flags: [
+      ['--login', 'Sign in to Douyin in a browser, and stop.'],
+      ['--profile DIR', 'Browser profile holding that session.'],
+    ],
   },
   {
     name: 'x',
@@ -46,6 +54,13 @@ export const PLATFORMS = [
     hosts: ['x.com', 'twitter.com'],
     match: (arg) => X.test(arg),
     account: { platform: 'x', handleKey: 'handle' },
+    usage: 'x.com/<handle>',
+    flags: [
+      ['--browser NAME', 'Browser to read the X session from the first time'],
+      ['', '(chrome, firefox, safari, edge, brave, chromium...).'],
+      ['--cookies FILE', 'Use this cookies.txt instead of a browser or the cache.'],
+      ['--full', 'List the whole timeline even when a re-run could stop early.'],
+    ],
   },
 ];
 
@@ -90,4 +105,14 @@ export function supported() {
   return each.length <= 1
     ? (each[0] ?? '')
     : `${each.slice(0, -1).join(', ')} and ${each[each.length - 1]}`;
+}
+
+/** Each platform's own flags, as help the dispatcher can print without knowing them. */
+export function platformHelp() {
+  return PLATFORMS.map((platform) => {
+    const rows = platform.flags.map(
+      ([flag, text]) => `      ${flag.padEnd(17)} ${text}`,
+    );
+    return [`  ${platform.label} — ${platform.usage}`, ...rows].join('\n');
+  }).join('\n\n');
 }

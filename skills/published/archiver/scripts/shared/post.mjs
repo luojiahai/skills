@@ -7,10 +7,10 @@
  * `post.json` is written *before* the media, not after. It is the post's
  * description, not a receipt — and that distinction is what keeps the archive's
  * oldest rule intact: a post is complete when every file it lists is on disk,
- * which is a question the files themselves answer. A marker written last would
- * have been a second record, free to go on claiming a post had landed after its
- * media was deleted by hand, which is exactly the failure that got yt-dlp's
- * `--download-archive` removed from the sibling skill.
+ * which is a question the files themselves answer. Do not add a marker written
+ * *after* the media, and do not reach for yt-dlp's `--download-archive` or
+ * gallery-dl's equivalent: both are second records, free to go on claiming a
+ * post has landed after its media is deleted by hand.
  *
  * Writing it first buys two more things. A post whose media fails leaves a
  * folder that still says what it was, rather than anonymous rubble; and the

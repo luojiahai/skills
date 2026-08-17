@@ -1,11 +1,12 @@
 /**
  * run.mjs — the whole run: what the user asked for, in, and a block out.
  *
- * All of the orchestration lives here rather than in archive.sh. The sibling
- * skill records what the alternative costs: a shell function called under `||`
- * runs with errexit off, so a refused plan prints its refusal and then keeps
- * going, through the state write and a summary telling the user to re-run the
- * command that just failed. Shell holds the preflight and hands over.
+ * All of the orchestration lives here rather than in archive.sh, and the same is
+ * true of the Douyin platform. Shell cannot hold this shape safely: a function
+ * called under `||` runs with errexit off for its whole body, so a refused plan
+ * prints its refusal and then keeps going, through the state write and a summary
+ * telling the user to re-run the command that just failed. Shell holds the node
+ * preflight and hands over.
  *
  *   --plan   enumerate, diff, report. Downloads nothing.
  *   --go     download exactly what the last plan listed.
@@ -21,6 +22,7 @@ import { DEFAULT_ABORT, collect, diff, groupFiles, makeStopper } from './collect
 import {
   accountDirFor,
   aliasDirFor,
+  aliasTarget,
   aliasShapeRefusal,
   applyAlias,
   checkAlias,
@@ -53,6 +55,7 @@ import {
 import { clearPlan, loadPlan, previousRoot, recordRun, savePlan } from '../shared/sync.mjs';
 import { parseTarget } from './target.mjs';
 import { EXIT } from '../shared/exit.mjs';
+import { fail, pickMode } from '../shared/run.mjs';
 import { missingTool, onPath } from '../shared/tools.mjs';
 
 const GALLERY_DL = 'gallery-dl';
@@ -88,11 +91,6 @@ account.json the account's identity, assets/ the current avatar and banner, and
 sync.json the list awaiting approval between --plan and --go. <DIR>/archiver.json
 records which schema the archive uses and maps each account's id to its alias.
 The cached X session is in ${STATE_DIR}.`;
-
-function fail(message, code = EXIT.FAILED) {
-  console.error(`error: ${message}`);
-  return code;
-}
 
 /**
  * The session, as a cookies.txt path.
@@ -146,20 +144,6 @@ async function ensureCookies({ cookies, browser, url, bin = 'gallery-dl' }) {
 /** A rejected session is discarded, so the next run reads the browser again. */
 async function discardCookies() {
   await rm(COOKIE_FILE, { force: true });
-}
-
-/**
- * Where `--alias`/`--unalias` would put this account's folder, or null when
- * neither was asked for.
- *
- * Only ever *computed* here. The move itself belongs to `--go`: a `--plan` that
- * silently reorganised the archive would be a preview that lied, and a rename
- * between the two invalidates nothing, because a plan records the archives root
- * and the account — never the folder it is sitting in.
- */
-function aliasTarget(root, { id, alias, unalias }) {
-  if (unalias) return accountDirFor(ACCOUNT, root, id);
-  return alias ? aliasDirFor(ACCOUNT, root, alias) : null;
 }
 
 /**
@@ -271,7 +255,7 @@ async function doPlan({ target, root, alias, unalias, cookies, full, threshold, 
     plan,
     accountDir,
     previousRoot: lastRoot,
-    movingTo: aliasTarget(root, { id: account.id, alias, unalias }),
+    movingTo: aliasTarget(ACCOUNT, root, { id: account.id, alias, unalias }),
   };
 }
 
@@ -598,12 +582,6 @@ function sweepNote({ incremental, stoppedEarly, threshold }) {
   return stoppedEarly
     ? `incremental sweep · stopped after ${threshold} consecutive known posts`
     : 'incremental sweep · reached the end of the timeline';
-}
-
-export function pickMode(opts) {
-  if (opts.yes === true || opts.y === true) return 'yes';
-  if (opts.go === true) return 'go';
-  return 'plan';
 }
 
 if (isMainModule(import.meta.url)) {

@@ -7,9 +7,18 @@
  */
 export const EXIT = {
   OK: 0,
-  /** The command line is wrong: an unknown flag, no URL, a URL that names no account. */
+  /**
+   * The run cannot start on what it was given: an unknown flag, no URL, a URL
+   * that names no account, an alias already in use, an archives root this build
+   * cannot read. Everything answerable before the first request.
+   */
   USAGE: 2,
-  /** The run was refused on its own terms: a stale plan, an alias already in use. */
+  /**
+   * The run could have started but was refused on its own terms — a plan that is
+   * missing, stale, or made for another account or root. The remedy is always a
+   * fresh `--plan`, which is why this is not USAGE: nothing the user typed is
+   * wrong.
+   */
   REFUSED: 3,
   /** The tools or the network failed. */
   FAILED: 4,

@@ -151,25 +151,19 @@ the tool actually does, and it is the only marker of which layer you are in.
 
 | File | Role |
 | --- | --- |
-| `archive.sh` | Entry point. Preflights node and gallery-dl, then hands the run to `run.mjs`. Deliberately holds no logic. |
 | `run.mjs` | The whole run: flags, target, session, root, folder, plan, go, and which block gets printed. |
-| `collect.mjs` | Drives the listing pass, reads rows as they arrive, and decides when enough of the timeline has been seen. |
+| `target.mjs` | The account a URL names, and a post's permalink. Everything else on x.com — a single post included — is refused rather than read as an account. |
+| `collect.mjs` | The listing pass: drives gallery-dl, reads rows as they arrive, decides when enough of the timeline has been seen, and folds per-file rows into posts. |
 | `fetch.mjs` | Downloads a list of posts, one gallery-dl invocation each, writing each post's `post.json` before its media. |
 | `gallerydl.mjs` | Everything said to gallery-dl and read back from it: policy, throttling, the print format, the row parser, failure classification. |
-| `collect.mjs` | The listing pass, and folding gallery-dl's per-file rows into posts. What a plan *means* and how a block is rendered are `../shared/plan.mjs`. |
-| `landed.mjs` | What is already on disk, read from the post folders. |
-| `naming.mjs` | A post's `<date>_<id>` folder name, the id back out of one, and a post's permalink. |
-| `post.mjs` | The shape of `post.json`, and whether a post holds every file it lists. |
-| `account.mjs` | Where an account's folder is (`x/<id>`), and the identity written in `account.json`. |
-| `sync.mjs` | `sync.json`: the parked plan and the last run's history. Deletable without loss. |
-| `archiver.mjs` | The archives root's schema version, and the refusal when it is one this build cannot read. |
 | `assets.mjs` | The account's current avatar and banner, fetched from the URLs the listing pass already carried. |
-| `paths.mjs` | Single source of truth for the state directory and the archives root. |
-| `target.mjs` | The account a URL names. Everything else on x.com — a single post included — is refused rather than read as an account. |
+
+The archive itself — `account.json`, `post.json`, `sync.json`, `archiver.json`,
+the post folders and every block this skill prints — is [`../shared/`](../shared/README.md).
 
 ## Why bash holds no logic
 
-`archive.sh` preflights and `exec`s. The sibling skill records what the
+`archive.sh` preflights and `exec`s. The Douyin platform records what the
 alternative costs: a shell function called under `||` runs with errexit switched
 off for its whole body, so a refused plan prints its refusal and then keeps
 going — through the state write and a summary telling the user to re-run the
@@ -201,7 +195,7 @@ skill never reaches for it — an agent asks — but it outranks a `--plan` or
 `--go` that comes after it on the command line, so a user who typed it keeps
 their pre-authorisation when the skill appends its own mode flag.
 
-## The sweep stops early, unlike the sibling's
+## The sweep stops early, unlike the Douyin platform's
 
 the Douyin platform always scrolls a whole feed and refuses to stop early. That
 rule is evidence, not principle: a 284-video account measures ~34 seconds. The

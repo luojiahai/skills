@@ -1,3 +1,8 @@
+/**
+ * Tests for folding gallery-dl's per-file rows into posts — the half of
+ * collect.mjs that needs no subprocess. The listing pass itself is
+ * collect.test.mjs.
+ */
 import assert from 'node:assert/strict';
 import test from 'node:test';
 

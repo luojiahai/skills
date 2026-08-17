@@ -274,9 +274,6 @@ export async function collect({
       reported,
       skippedImagePosts: noteIds.size,
       hitRoundLimit: rounds >= MAX_ROUNDS,
-      // How many of the collected posts the feed responses actually described,
-      // so a run can say when it is about to pay for the difference.
-      described: [...ids].filter((id) => metadata.has(id)).length,
     };
   } finally {
     await context.close();

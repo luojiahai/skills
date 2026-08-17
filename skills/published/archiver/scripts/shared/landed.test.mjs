@@ -5,7 +5,7 @@ import path from 'node:path';
 import test from 'node:test';
 
 import { POSTS_DIR, isLanded, isMissing, onDiskIds, readArchive, unlistedIds } from './landed.mjs';
-import { POST_FILE, POST_VERSION, buildPost, isComplete, writePost } from './post.mjs';
+import { POST_FILE, buildPost, isComplete, writePost } from './post.mjs';
 
 async function fixture() {
   const dir = await mkdtemp(path.join(os.tmpdir(), 'x-landed-'));

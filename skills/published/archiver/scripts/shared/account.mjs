@@ -80,7 +80,7 @@ export function isSafeId(accountId) {
  * An alias that may be used as a directory name.
  *
  * Wider than isSafeId on purpose: an alias is typed by the person who owns the
- * archive, and the sibling skill's accounts are Chinese, so letters means
+ * archive, and Douyin accounts are commonly Chinese, so letters means
  * `\p{L}` rather than A–Z. Everything excluded is excluded because of what it
  * would do to a path — separators, control characters, a leading dot that hides
  * the folder — except spaces, which are excluded because every quoted example in
@@ -491,4 +491,26 @@ export async function clearAlias(descriptor, root, { id }) {
   else await writeAlias(root, descriptor.platform, wanted, null);
 
   return target;
+}
+
+/**
+ * Where `--alias`/`--unalias` would put this account's folder, or null when
+ * neither was asked for.
+ *
+ * Only ever *computed*. The move itself belongs to `--go`: a `--plan` that
+ * silently reorganised the archive would be a preview that lied, and a rename
+ * between the two invalidates nothing, because a plan records the archives root
+ * and the account — never the folder it is sitting in.
+ *
+ * An id or an alias this build would refuse as a folder name yields null rather
+ * than throwing. The refusal itself belongs to the run, which says so properly
+ * long before a block is rendered; a preview is not the place to raise it.
+ */
+export function aliasTarget(descriptor, root, { id, alias, unalias }) {
+  try {
+    if (unalias) return id ? accountDirFor(descriptor, root, id) : null;
+    return alias ? aliasDirFor(descriptor, root, alias) : null;
+  } catch {
+    return null;
+  }
 }

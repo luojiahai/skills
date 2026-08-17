@@ -58,20 +58,16 @@ account, which is the whole reason this layer sits above it.
 | File | Role |
 | --- | --- |
 | `run.mjs` | The whole run: parses the command line, refuses what it must, and drives plan and go. Everything else is called by it. |
-| `target.mjs` | What the user pointed at. A profile URL, or a refusal by name — a `/video/` URL is never read as the account that posted it. |
+| `target.mjs` | What the user pointed at, and a post's permalink. A profile URL, or a refusal by name — a `/video/` URL is never read as the account that posted it. |
 | `collect.mjs` | Drives Playwright, scrolls the profile, and returns every post the grid names. The DOM says which posts exist; the feed responses passing underneath say what each one is. |
 | `fetch.mjs` | Everything said to yt-dlp, and the download loop. One invocation per post, into a folder this side chose. |
 | `login.mjs` | Signing in, as its own step. Waits by watching for the session cookie, not by trusting a keypress. |
 | `session.mjs` | Whether the profile holds a session, and minting it as a Netscape `cookies.txt` yt-dlp can read. |
-| `naming.mjs` | A post's identity as a directory name: `<date>_<id>`, built and read back in one place. |
-| `blocks.mjs` | The parts of a block that are Douyin's: how this site names an account, and the three gaps between numbers that would otherwise look like an error. The block itself is `../shared/plan.mjs`. |
-| `landed.mjs` | What is already downloaded, answered from the post folders themselves. The layout rules, shared with the X platform. |
-| `cli.mjs` | The argument parsing, file reading, atomic JSON writing and entry-point detection the other modules share. |
-| `account.mjs` | Where an account's folder is (`douyin/<sec_uid>`); owns the shape of `account.json` and how it merges. |
-| `post.mjs` | The shape of `post.json`, and whether a post holds every file it lists. |
-| `sync.mjs` | `sync.json`: the parked plan and the last run's history. Deletable without loss. |
-| `archiver.mjs` | The archives root's schema version, and the refusal when it is one this build cannot read. |
-| `paths.mjs` | Single source of truth for where state lives and how Playwright is found. |
+| `playwright.mjs` | Finding the browser this platform drives — the one dependency no other platform has. |
+| `blocks.mjs` | The parts of a block that are Douyin's: how this site names an account, and the three gaps between numbers that would otherwise look like an error. |
+
+The archive itself — `account.json`, `post.json`, `sync.json`, `archiver.json`,
+the post folders and every block this skill prints — is [`../shared/`](../shared/README.md).
 
 ## State files, disjoint on purpose
 

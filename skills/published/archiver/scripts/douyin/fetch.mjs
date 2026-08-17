@@ -174,6 +174,7 @@ export async function fetchPosts({
   let fetched = 0;
   let failed = 0;
   let undescribed = 0;
+  let undated = 0;
 
   for (const post of posts) {
     let described = post;
@@ -184,6 +185,11 @@ export async function fetchPosts({
     if (described.createTime === null || described.createTime === undefined) {
       undescribed += 1;
       described = await describe(post, { cookies: activeCookies, bin, spawnImpl });
+      // The fallback can fail too, and a post that lands in `undated_<id>` is
+      // filed under a date the archive does not actually know. It is still
+      // fetched — an undated post is better than a missing one — but it is
+      // counted and said out loud rather than left to be noticed in a listing.
+      if (described.createTime === null || described.createTime === undefined) undated += 1;
     }
 
     const dir = postDir(accountDir, described);
@@ -249,7 +255,14 @@ export async function fetchPosts({
     );
   }
 
-  return { fetched, failed, undescribed };
+  if (undated) {
+    log(
+      `[douyin] note: ${undated} post(s) could not be dated at all, and are filed ` +
+        'under undated_<id>',
+    );
+  }
+
+  return { fetched, failed, undescribed, undated };
 }
 
 /** One post's timestamp and caption, asked of yt-dlp because the feed did not say. */

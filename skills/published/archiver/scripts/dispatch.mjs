@@ -12,7 +12,7 @@
  */
 import { pathToFileURL } from 'node:url';
 
-import { detect, supported } from './shared/platforms.mjs';
+import { detect, platformHelp, supported } from './shared/platforms.mjs';
 import { EXIT } from './shared/exit.mjs';
 
 const SELF = process.env.ARCHIVE_SELF || 'archive.sh';
@@ -31,16 +31,7 @@ The URL says which platform this is. ${supported()}.
       --unalias         Put this account's folder back under its id.
   -h, --help            Show this help. With a URL, the platform's own help.
 
-  Douyin — douyin.com/user/<sec_uid>
-      --login           Sign in to Douyin in a browser, and stop.
-      --profile DIR     Browser profile holding that session.
-
-  X — x.com/<handle>
-      --browser NAME    Browser to read the X session from the first time
-                        (chrome, firefox, safari, edge, brave, chromium...).
-      --cookies FILE    Use this cookies.txt instead of a browser or the cache.
-      --full            Enumerate the whole timeline even when a re-run could
-                        stop early.`;
+${platformHelp()}`;
 
 /**
  * `load` is injected so the dispatcher's own behaviour — what it does with a URL
@@ -60,9 +51,17 @@ export async function main(argv, { load = loadPlatform } = {}) {
     // --help before the refusal: someone who ran this with no arguments is
     // asking what it does, and being told their absent URL is unsupported
     // answers a question they did not ask.
-    if (argv.length === 0 || argv.includes('-h') || argv.includes('--help')) {
+    //
+    // Asked for, it is output and goes to stdout; arrived at by typing nothing,
+    // it is a usage error and goes to stderr. Printing a usage error to stdout
+    // would put it in the pipe of anything reading this command.
+    if (argv.includes('-h') || argv.includes('--help')) {
       console.log(USAGE);
-      return argv.length === 0 ? EXIT.USAGE : EXIT.OK;
+      return EXIT.OK;
+    }
+    if (argv.length === 0) {
+      console.error(USAGE);
+      return EXIT.USAGE;
     }
     console.error('error: no URL here names a platform this skill archives');
     console.error(`  it archives ${supported()}`);

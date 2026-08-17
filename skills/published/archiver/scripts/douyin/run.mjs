@@ -14,12 +14,14 @@
 import path from 'node:path';
 
 import { EXIT } from '../shared/exit.mjs';
+import { fail, pickMode, self } from '../shared/run.mjs';
 import { missingTool, onPath } from '../shared/tools.mjs';
 import { isMainModule, optString, parseCommandLine } from '../shared/cli.mjs';
 import {
   accountDirFor,
   aliasDirFor,
   aliasShapeRefusal,
+  aliasTarget,
   applyAlias,
   checkAlias,
   clearAlias,
@@ -343,6 +345,11 @@ async function doPlan({ root, target, alias, unalias, profileDir, chromium, coll
       foundDetail: foundDetail(listing.reported),
       onDisk: onDisk.size,
       toFetch: pending.length,
+      // Kept because the summary makes its own notes from them. Carrying the
+      // rendered notes alone would leave the finished run picking its own
+      // sentences back out of the plan by matching on their wording.
+      reported: listing.reported,
+      skipped: listing.skippedImagePosts,
     },
     notes: notes({
       collected: listing.posts.length,
@@ -363,7 +370,7 @@ async function doPlan({ root, target, alias, unalias, profileDir, chromium, coll
     block: renderPlanBlock({
       headline: headline(plan.account),
       folder: accountDir,
-      movingTo: aliasTarget({ root, alias, unalias, secUid: target.secUid, accountDir }),
+      movingTo: aliasTarget(ACCOUNT, root, { id: target.secUid, alias, unalias }),
       previousRoot: lastRoot,
       root,
       counts: plan.counts,
@@ -441,9 +448,15 @@ async function doGo({ root, target, alias, unalias, profileDir, chromium, planHi
       headline: headline(plan.account),
       folder: accountDir,
       counts: plan.counts,
-      // The unlisted count is recomputed against what is on disk now; the other
-      // notes describe the listing pass and are as true as when it ran.
-      notes: withUnlisted(plan, unlistedCountFromPlan(plan, landed)),
+      // Made afresh from the numbers the plan recorded, with the unlisted count
+      // recomputed against what is on disk now. The rest describe the listing
+      // pass and are as true as when it ran.
+      notes: notes({
+        collected: plan.counts?.found ?? 0,
+        reported: plan.counts?.reported ?? null,
+        skipped: plan.counts?.skipped ?? null,
+        unlisted: unlistedCountFromPlan(plan, landed),
+      }),
       downloaded: total - before,
       total,
       failed,
@@ -463,52 +476,10 @@ async function moveIfAsked({ root, alias, unalias, secUid, accountDir }) {
   return accountDir;
 }
 
-/**
- * Where `--alias`/`--unalias` would put this folder, or null when neither was
- * asked for. Only ever computed: the move belongs to `--go`, so a preview never
- * reorganises the archive.
- */
-function aliasTarget({ root, alias, unalias, secUid, accountDir }) {
-  try {
-    if (unalias) return secUid ? accountDirFor(ACCOUNT, root, secUid) : null;
-    return alias ? aliasDirFor(ACCOUNT, root, alias) : null;
-  } catch {
-    return null;
-  }
-}
-
-function withUnlisted(plan, unlisted) {
-  const kept = (plan.notes ?? []).filter(
-    (note) => !String(Array.isArray(note) ? note[0] : note).includes('no longer on the profile'),
-  );
-  if (!unlisted) return kept;
-  return [...kept, `${unlisted} archived post${unlisted === 1 ? '' : 's'} no longer on the profile`];
-}
-
-function self() {
-  return process.env.ARCHIVE_SELF || 'archive.sh';
-}
-
 /** Progress lines rewrite one line rather than scrolling a wall of them. */
 function progress(message, { progress: inPlace } = {}) {
   if (inPlace && process.stdout.isTTY) process.stdout.write(`\r${message}`);
   else console.log(message);
-}
-
-function fail(message, code = EXIT.FAILED) {
-  console.error(`error: ${message}`);
-  return code;
-}
-
-/**
- * --yes outranks a --plan or --go after it on the command line. The skill never
- * reaches for --yes; a user who typed it has pre-authorised the run, and the
- * skill appending its own mode flag must not take that back.
- */
-export function pickMode(opts) {
-  if (opts.yes === true || opts.y === true) return 'yes';
-  if (opts.go === true) return 'go';
-  return 'plan';
 }
 
 if (isMainModule(import.meta.url)) {

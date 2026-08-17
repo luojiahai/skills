@@ -64,7 +64,7 @@ test('a real X id is accepted', () => {
 });
 
 test('an alias may be any script a person writes their own name in', () => {
-  // The motivating case is the sibling skill, where a nickname is Chinese. An
+  // The motivating case is a Douyin account, whose nickname is Chinese. An
   // alias is typed by the user, not scraped, so ASCII would be the wrong rule.
   for (const good of ['jia', '罗嘉海', 'работа', 'work-2', 'a.b_c', 'Ω']) {
     assert.equal(isSafeAlias(good), true, `expected ${JSON.stringify(good)} to be allowed`);
