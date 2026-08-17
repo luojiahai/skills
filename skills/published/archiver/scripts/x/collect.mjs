@@ -16,7 +16,7 @@
 import { spawn } from 'node:child_process';
 import readline from 'node:readline';
 
-import { isLanded } from '../shared/landed.mjs';
+import { isLanded, isMissing } from '../shared/landed.mjs';
 import { classifyFailure, listArgs, parseRow } from './gallerydl.mjs';
 
 /**
@@ -188,3 +188,88 @@ export function makeStopper({ archive, threshold, enabled }) {
   };
 }
 
+// ---- rows into posts -------------------------------------------------------
+// gallery-dl reports one row per *file*; everything downstream counts posts.
+// Folding them lives here, beside the pass that produced them, rather than in
+// the plan — what a plan means is the same on every platform, and this is not.
+
+const VIDEO_EXT = new Set(['mp4', 'm4v', 'mov', 'webm', 'mkv', 'ts']);
+
+/**
+ * The per-file rows the listing pass emits, folded into one row per post.
+ *
+ * Order is preserved as enumerated — newest first — because that is the order
+ * `--go` fetches in, and a run stopped partway should have got the recent
+ * things rather than an arbitrary slice.
+ */
+export function groupFiles(rows) {
+  const posts = new Map();
+  for (const row of rows) {
+    const id = String(row.tweetId);
+    let post = posts.get(id);
+    if (!post) {
+      post = {
+        tweetId: id,
+        date: row.date || '',
+        content: row.content || '',
+        replyId: row.replyId || '',
+        handle: row.user?.name || '',
+        count: 0,
+        files: [],
+      };
+      posts.set(id, post);
+    }
+    post.files.push({
+      num: row.num,
+      ext: row.ext || '',
+      // Already in the shape post.json's media list wants, so the plan's file
+      // records are handed to buildPost unchanged. `id` is blank for anything
+      // whose basename is not an identity — parseRow decides that, so the rule
+      // lives in one place.
+      url: row.url || '',
+      type: row.type || '',
+      id: row.mediaId || '',
+    });
+    // The extractor reports how many files the post carries; trust it over our
+    // own tally, which is short whenever enumeration was cut off mid-post.
+    post.count = Math.max(Number(row.count) || 0, post.files.length);
+  }
+  return [...posts.values()];
+}
+
+/** Images versus videos, for the one line of the block that says what you are getting. */
+export function classify(posts) {
+  let images = 0;
+  let videos = 0;
+  for (const post of posts) {
+    for (const file of post.files) {
+      if (VIDEO_EXT.has(String(file.ext).toLowerCase())) videos++;
+      else images++;
+    }
+  }
+  return { images, videos };
+}
+
+/**
+ * What is missing: every enumerated post whose folder does not already hold all
+ * of its files. Incomplete counts as missing, so a run that died mid-post is
+ * finished rather than abandoned.
+ */
+export function diff(posts, archive) {
+  const toFetch = posts.filter((post) => isMissing(post, archive));
+
+  const foundFiles = posts.reduce((n, p) => n + p.files.length, 0);
+  const onDisk = posts.length - toFetch.length;
+
+  return {
+    toFetch,
+    counts: {
+      foundPosts: posts.length,
+      foundFiles,
+      onDiskPosts: onDisk,
+      fetchPosts: toFetch.length,
+      fetchFiles: toFetch.reduce((n, p) => n + p.files.length, 0),
+      ...classify(toFetch),
+    },
+  };
+}

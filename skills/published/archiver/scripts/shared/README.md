@@ -7,6 +7,7 @@ platforms are threaded with a descriptor where they differ.
 | File | Role |
 | --- | --- |
 | `platforms.mjs` | The registry: every platform this skill knows, the host patterns that resolve a URL to one, and each one's account descriptor. |
+| `plan.mjs` | The confirm step: what a plan means, the rules that refuse a stale or foreign one, and **every block this skill prints**. |
 | `account.mjs` | Where an account's folder is, and the identity written inside it. Takes a descriptor, because the platform folder and the name of the readable handle are the only things that vary. |
 | `landed.mjs` | What is already downloaded, answered from the post folders themselves. |
 | `post.mjs` | The shape of `post.json`, and whether a post holds every file it lists. |
@@ -71,6 +72,27 @@ reason they are shared rather than copied.
   entry. A mapping entry pointing at a folder that is not there is a stale cache
   line and self-heals; a file that cannot be *parsed* stops the run, because it
   may be a schema from the future and rebuilding it would clobber it.
+
+## One renderer
+
+Every block both platforms print is rendered by `plan.mjs`, and nothing in it
+branches on which platform is running. The block a user approves and the block a
+finished run reports have to agree — same columns, same rule for counting what is
+on disk — and they only reliably agree by being the same code.
+
+What genuinely differs arrives as text the platform wrote:
+
+- `headline` — how that site names an account (`小明 (抖音号 abc123)`,
+  `@jack (Jack) · id 55`)
+- `foundDetail` / `toFetchDetail` — a phrase beside a count, where a platform
+  knows more than the number (X counts files as well as posts; Douyin knows what
+  the profile header claimed)
+- `notes` — anything one platform has to say and the other does not: Douyin's
+  unfetchable image posts, X's sweep that stopped early
+
+A note is a string, or `[first, …continuations]` where a citation needs its own
+line. Adding a case to the renderer for one platform's fact is the thing this
+arrangement exists to prevent.
 
 ## The descriptor
 

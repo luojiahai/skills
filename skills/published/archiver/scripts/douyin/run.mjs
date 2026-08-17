@@ -41,14 +41,14 @@ import { descriptorFor } from '../shared/platforms.mjs';
 const ACCOUNT = descriptorFor(PLATFORM);
 const COOKIE_FILE = cookieFile(PLATFORM);
 import {
-  DEFAULT_TTL_HOURS,
   buildPlan,
   listedIds,
-  statusBlock,
-  summaryBlock,
+  renderPlanBlock,
+  renderSummaryBlock,
   unlistedCountFromPlan,
   validatePlan,
-} from './plan.mjs';
+} from '../shared/plan.mjs';
+import { foundDetail, headline, notes } from './blocks.mjs';
 import { mintCookies, profileHasSession } from './session.mjs';
 import { clearPlan, loadPlan, previousRoot, recordRun, savePlan } from '../shared/sync.mjs';
 import { parseTarget } from './target.mjs';
@@ -325,19 +325,31 @@ async function doPlan({ root, target, alias, unalias, profileDir, chromium, coll
   const archive = await readArchive(accountDir);
   const onDisk = await onDiskIds(accountDir);
   const pending = outstanding(listing.posts, archive);
+
   const listed = listedIds(listing.posts);
+  const unlisted = [...onDisk].filter((id) => !listed.has(id)).length;
 
   const plan = buildPlan({
     account: {
-      sec_uid: target.secUid,
+      id: target.secUid,
       douyin_id: listing.account.douyin_id,
       nickname: listing.account.nickname,
     },
+    root,
     collected: listing.posts,
     pending,
-    archivesRoot: root,
-    reported: listing.reported,
-    skippedImagePosts: listing.skippedImagePosts,
+    counts: {
+      found: listing.posts.length,
+      foundDetail: foundDetail(listing.reported),
+      onDisk: onDisk.size,
+      toFetch: pending.length,
+    },
+    notes: notes({
+      collected: listing.posts.length,
+      reported: listing.reported,
+      skipped: listing.skippedImagePosts,
+      unlisted,
+    }),
     now: new Date(),
   });
 
@@ -348,18 +360,14 @@ async function doPlan({ root, target, alias, unalias, profileDir, chromium, coll
 
   return {
     pending: pending.length,
-    block: statusBlock({
-      account: plan,
+    block: renderPlanBlock({
+      headline: headline(plan.account),
       folder: accountDir,
       movingTo: aliasTarget({ root, alias, unalias, secUid: target.secUid, accountDir }),
       previousRoot: lastRoot,
-      archivesRoot: root,
-      collected: listing.posts.length,
-      reported: listing.reported,
-      onDisk: onDisk.size,
-      unlisted: [...onDisk].filter((id) => !listed.has(id)).length,
-      skipped: listing.skippedImagePosts,
-      pending: pending.length,
+      root,
+      counts: plan.counts,
+      notes: plan.notes,
     }),
   };
 }
@@ -380,17 +388,10 @@ async function doGo({ root, target, alias, unalias, profileDir, chromium, planHi
   }
 
   const plan = await loadPlan(accountDir);
-  const refusal = validatePlan(plan, {
-    secUid: target.secUid,
-    douyinId: null,
-    folder: accountDir,
-    archivesRoot: root,
-    now: new Date(),
-    ttlHours: DEFAULT_TTL_HOURS,
-  });
+  const verdict = validatePlan(plan, { accountId: target.secUid, root });
 
-  if (refusal) {
-    console.error(`error: ${refusal.message}`);
+  if (!verdict.ok) {
+    console.error(`error: ${verdict.reason}`);
     console.error(`  make one with:\n    ${planHint}`);
     return EXIT.REFUSED;
   }
@@ -429,23 +430,23 @@ async function doGo({ root, target, alias, unalias, profileDir, chromium, planHi
 
   await recordRun(accountDir, {
     root,
-    found: plan.collected_count ?? null,
+    found: plan.counts?.found ?? null,
     landed: total - before,
     failed,
   });
 
   console.log('');
   console.log(
-    summaryBlock({
-      account: plan,
+    renderSummaryBlock({
+      headline: headline(plan.account),
       folder: accountDir,
-      collected: plan.collected_count ?? '?',
-      reported: plan.reported_works_count ?? null,
-      unlisted: unlistedCountFromPlan(plan, landed),
-      skipped: plan.skipped_image_posts ?? null,
+      counts: plan.counts,
+      // The unlisted count is recomputed against what is on disk now; the other
+      // notes describe the listing pass and are as true as when it ran.
+      notes: withUnlisted(plan, unlistedCountFromPlan(plan, landed)),
       downloaded: total - before,
       total,
-      failed: failed > 0,
+      failed,
     }),
   );
 
@@ -474,6 +475,14 @@ function aliasTarget({ root, alias, unalias, secUid, accountDir }) {
   } catch {
     return null;
   }
+}
+
+function withUnlisted(plan, unlisted) {
+  const kept = (plan.notes ?? []).filter(
+    (note) => !String(Array.isArray(note) ? note[0] : note).includes('no longer on the profile'),
+  );
+  if (!unlisted) return kept;
+  return [...kept, `${unlisted} archived post${unlisted === 1 ? '' : 's'} no longer on the profile`];
 }
 
 function self() {

@@ -156,7 +156,7 @@ the tool actually does, and it is the only marker of which layer you are in.
 | `collect.mjs` | Drives the listing pass, reads rows as they arrive, and decides when enough of the timeline has been seen. |
 | `fetch.mjs` | Downloads a list of posts, one gallery-dl invocation each, writing each post's `post.json` before its media. |
 | `gallerydl.mjs` | Everything said to gallery-dl and read back from it: policy, throttling, the print format, the row parser, failure classification. |
-| `plan.mjs` | The diff, the plan's validation rules, and **every** block the skill prints. |
+| `collect.mjs` | The listing pass, and folding gallery-dl's per-file rows into posts. What a plan *means* and how a block is rendered are `../shared/plan.mjs`. |
 | `landed.mjs` | What is already on disk, read from the post folders. |
 | `naming.mjs` | A post's `<date>_<id>` folder name, the id back out of one, and a post's permalink. |
 | `post.mjs` | The shape of `post.json`, and whether a post holds every file it lists. |

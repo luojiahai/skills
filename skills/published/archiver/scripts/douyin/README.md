@@ -64,7 +64,7 @@ account, which is the whole reason this layer sits above it.
 | `login.mjs` | Signing in, as its own step. Waits by watching for the session cookie, not by trusting a keypress. |
 | `session.mjs` | Whether the profile holds a session, and minting it as a Netscape `cookies.txt` yt-dlp can read. |
 | `naming.mjs` | A post's identity as a directory name: `<date>_<id>`, built and read back in one place. |
-| `plan.mjs` | The confirm step: what a run *would* download, the rules that refuse a stale or foreign plan, and **every** block the skill prints. |
+| `blocks.mjs` | The parts of a block that are Douyin's: how this site names an account, and the three gaps between numbers that would otherwise look like an error. The block itself is `../shared/plan.mjs`. |
 | `landed.mjs` | What is already downloaded, answered from the post folders themselves. The layout rules, shared with the X platform. |
 | `cli.mjs` | The argument parsing, file reading, atomic JSON writing and entry-point detection the other modules share. |
 | `account.mjs` | Where an account's folder is (`douyin/<sec_uid>`); owns the shape of `account.json` and how it merges. |
@@ -133,7 +133,7 @@ skill never reaches for it — an agent asks — but it outranks a `--plan` or
 their pre-authorisation when the skill appends its own mode flag.
 
 Every block printed — the one approved, and the one a finished run reports — is
-rendered by `plan.mjs`, and what is on disk is counted in exactly one place
+rendered by `../shared/plan.mjs`, and what is on disk is counted in exactly one place
 (`landed.mjs`'s `onDiskIds`). Do not hand-align a second copy of either in
 another language: counting lines in one place and unique ids in another is all
 it takes for a run to contradict the number the user approved.

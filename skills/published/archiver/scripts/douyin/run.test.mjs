@@ -145,8 +145,8 @@ test('the plan is parked where --go will look for it', async () => {
   await run([URL_MS4W, '--archives', dir, '--plan']);
   const sync = await syncJson(path.join(dir, 'douyin', 'MS4wSEC'));
 
-  assert.equal(sync.plan.sec_uid, 'MS4wSEC');
-  assert.equal(sync.plan.archives_root, dir);
+  assert.equal(sync.plan.account.id, 'MS4wSEC');
+  assert.equal(sync.plan.root, dir);
   assert.deepEqual(sync.plan.pending.map((p) => p.id), ['7111', '7222']);
 });
 
@@ -178,7 +178,7 @@ test('--go refuses a plan made for another archives root', async () => {
   await run([URL_MS4W, '--archives', dir, '--plan']);
   const folder = path.join(dir, 'douyin', 'MS4wSEC');
   const sync = await syncJson(folder);
-  await savePlan(folder, { ...sync.plan, archives_root: '/somewhere/else' });
+  await savePlan(folder, { ...sync.plan, root: '/somewhere/else' });
 
   const { code, output } = await run([URL_MS4W, '--archives', dir, '--go']);
   assert.equal(code, EXIT.REFUSED);

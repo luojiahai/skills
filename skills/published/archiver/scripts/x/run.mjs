@@ -17,7 +17,7 @@ import path from 'node:path';
 
 import { readArchive } from '../shared/landed.mjs';
 import { isMainModule, optString, parseCommandLine } from '../shared/cli.mjs';
-import { DEFAULT_ABORT, collect, makeStopper } from './collect.mjs';
+import { DEFAULT_ABORT, collect, diff, groupFiles, makeStopper } from './collect.mjs';
 import {
   accountDirFor,
   aliasDirFor,
@@ -44,12 +44,12 @@ const ACCOUNT = descriptorFor(PLATFORM);
 const STATE_DIR = stateDir(PLATFORM);
 const COOKIE_FILE = cookieFile(PLATFORM);
 import {
-  diff,
-  groupFiles,
+  buildPlan,
+  describeAge,
   renderPlanBlock,
   renderSummaryBlock,
   validatePlan,
-} from './plan.mjs';
+} from '../shared/plan.mjs';
 import { clearPlan, loadPlan, previousRoot, recordRun, savePlan } from '../shared/sync.mjs';
 import { parseTarget } from './target.mjs';
 import { EXIT } from '../shared/exit.mjs';
@@ -228,22 +228,29 @@ async function doPlan({ target, root, alias, unalias, cookies, full, threshold, 
   }
 
   const posts = groupFiles(result.rows);
-  const { counts } = diff(posts, archive);
+  const { counts, toFetch } = diff(posts, archive);
 
-  const plan = {
-    createdAt: new Date().toISOString(),
+  const plan = buildPlan({
     account,
     root,
-    url: target.url,
-    mode: incremental ? 'incremental' : 'full',
-    stoppedEarly: result.stoppedEarly,
-    abortThreshold: threshold,
-    counts,
     // The files array is kept rather than reduced to a count: --go re-derives
     // what is still missing from this list, and totals alone could not say
     // which of a post's four images had landed.
-    posts,
-  };
+    collected: posts,
+    pending: toFetch,
+    counts: {
+      found: counts.foundPosts,
+      foundDetail: `posts · ${counts.foundFiles.toLocaleString('en-US')} files`,
+      onDisk: counts.onDiskPosts,
+      toFetch: counts.fetchPosts,
+      toFetchDetail: counts.fetchFiles
+        ? `posts · ${counts.fetchFiles.toLocaleString('en-US')} files ` +
+          `(${counts.images.toLocaleString('en-US')} images, ${counts.videos.toLocaleString('en-US')} videos)`
+        : 'posts',
+    },
+    notes: [sweepNote({ incremental, stoppedEarly: result.stoppedEarly, threshold })],
+    now: new Date(),
+  });
 
   await mkdir(accountDir, { recursive: true });
   await stampRoot(root);
@@ -299,11 +306,11 @@ async function doGo({
   }
 
   const plan = await loadPlan(accountDir);
-  const valid = validatePlan(plan, { root, account });
+  const valid = validatePlan(plan, { root, accountId: account?.id });
   if (!valid.ok) return { refused: valid.reason, planHint };
 
   const archive = await readArchive(accountDir);
-  const todo = outstanding(plan.posts, archive);
+  const todo = outstanding(plan.collected, archive);
 
   const { fetched, failed, stopped } = await fetchPosts({
     accountDir,
@@ -315,13 +322,13 @@ async function doGo({
 
   await refreshAssets(accountDir, plan.account);
 
-  const remaining = outstanding(plan.posts, await readArchive(accountDir)).length;
+  const remaining = outstanding(plan.collected, await readArchive(accountDir)).length;
 
   // After the move, so the alias recorded is the folder this run finished in.
   await recordIdentity(ACCOUNT, root, accountDir, { account: plan.account, url });
   await recordRun(accountDir, {
     root,
-    found: plan.counts?.foundPosts ?? null,
+    found: plan.counts?.found ?? null,
     landed: fetched.posts,
     failed,
   });
@@ -504,16 +511,23 @@ export async function main(argv) {
   }
 
   console.log(
-    renderPlanBlock(planned.plan, {
-      previousRoot: planned.previousRoot,
+    renderPlanBlock({
+      headline: headline(planned.plan.account),
       folder: planned.accountDir,
       movingTo: planned.movingTo,
+      previousRoot: planned.previousRoot,
+      root: planned.plan.root,
+      counts: planned.plan.counts,
+      notes: [
+        ...planned.plan.notes,
+        `plan collected ${describeAge(Date.now() - Date.parse(planned.plan.created_at))} ago`,
+      ],
     }),
   );
 
   if (mode === 'plan') return EXIT.OK;
 
-  if (planned.plan.counts.fetchPosts === 0) {
+  if (planned.plan.counts.toFetch === 0) {
     // Nothing to download, but this run was still approved — and the avatar may
     // have changed even where the timeline has not.
     await refreshAssets(planned.accountDir, planned.plan.account);
@@ -538,11 +552,13 @@ async function report(result) {
 
   console.log(
     renderSummaryBlock({
-      account: result.plan.account,
+      headline: headline(result.plan.account),
       folder: result.accountDir,
-      fetched: result.fetched,
+      counts: result.plan.counts,
+      notes: result.plan.notes,
+      downloaded: result.fetched.posts,
+      total: (result.plan.counts.onDisk ?? 0) + result.fetched.posts,
       failed: result.failed,
-      remaining: result.remaining,
     }),
   );
 
@@ -563,6 +579,27 @@ async function report(result) {
  * reaches for --yes; a user who typed it has pre-authorised the run, and the
  * skill appending its own mode flag must not take that back.
  */
+/**
+ * How X names an account. Platform-shaped on purpose: the shared renderer prints
+ * this line without knowing what a handle is.
+ */
+function headline(account) {
+  const nickname = account?.nickname ? ` (${account.nickname})` : '';
+  return `@${account?.handle ?? '?'}${nickname} · id ${account?.id ?? '?'}`;
+}
+
+/**
+ * Whether the sweep reached the end of the timeline or stopped early. Without
+ * it, `to fetch 0` cannot be told apart from "gave up before reaching anything
+ * new".
+ */
+function sweepNote({ incremental, stoppedEarly, threshold }) {
+  if (!incremental) return 'full sweep';
+  return stoppedEarly
+    ? `incremental sweep · stopped after ${threshold} consecutive known posts`
+    : 'incremental sweep · reached the end of the timeline';
+}
+
 export function pickMode(opts) {
   if (opts.yes === true || opts.y === true) return 'yes';
   if (opts.go === true) return 'go';
