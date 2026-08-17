@@ -1,8 +1,18 @@
 import assert from 'node:assert/strict';
+import { execFile } from 'node:child_process';
+import { realpathSync } from 'node:fs';
+import { mkdtemp, symlink } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
 import test from 'node:test';
+import { fileURLToPath } from 'node:url';
+import { promisify } from 'node:util';
 
 import { main } from './dispatch.mjs';
 import { EXIT } from './shared/exit.mjs';
+
+const run = promisify(execFile);
+const SKILL_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 /** A platform that records what it was handed, so passthrough can be asserted on. */
 function spy(code = EXIT.OK) {
@@ -120,4 +130,23 @@ test('no arguments at all prints the help, and says so with its exit code', asyn
     io.restore();
   }
   assert.match(io.lines.join('\n'), /Usage:/);
+});
+
+test('the skill runs when it is reached through a symlink', async () => {
+  // How the skill is installed: the skills CLI copies it to one directory and
+  // symlinks the agent's skill directory at that copy. node resolves the entry
+  // module to its real location while argv[1] keeps the path archive.sh handed
+  // it, so an entry guard comparing the two unresolved never fires — and the
+  // skill exits 0 having printed nothing, reporting success for a run that
+  // never happened. This spawns the real thing, because the guard is only
+  // reached when node is asked to run the file.
+  //
+  // --help without a URL is deliberate: it answers from the dispatcher and
+  // loads no platform, so what is installed on this machine cannot affect it.
+  const dir = realpathSync(await mkdtemp(path.join(os.tmpdir(), 'archiver-symlink-')));
+  await symlink(SKILL_DIR, path.join(dir, 'archiver'));
+
+  const { stdout } = await run(path.join(dir, 'archiver', 'scripts', 'archive.sh'), ['--help']);
+
+  assert.match(stdout, /Usage:/);
 });

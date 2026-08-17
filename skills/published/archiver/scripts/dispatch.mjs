@@ -9,10 +9,9 @@
  * an unknown one is the platform's usage error rather than a guess made up here —
  * which also means a platform can add a flag without this file changing.
  */
-import { pathToFileURL } from 'node:url';
-
 import { detect, platformHelp, supported } from './shared/platforms.mjs';
 import { EXIT } from './shared/exit.mjs';
+import { isMainModule } from './shared/cli.mjs';
 
 const SELF = process.env.ARCHIVE_SELF || 'archive.sh';
 
@@ -75,6 +74,6 @@ function loadPlatform(platform) {
   return import(`./${platform.dir}/run.mjs`);
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (isMainModule(import.meta.url)) {
   process.exitCode = await main(process.argv.slice(2));
 }
