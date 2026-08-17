@@ -1,5 +1,5 @@
 /**
- * run.mjs — the whole run: what the user asked for, in, and a block out.
+ * run.mjs — the whole run: what the user asked for, in, and one document out.
  *
  * All of the orchestration lives here rather than in archive.sh, and the same is
  * true of the Douyin platform. Shell cannot hold this shape safely: a function
@@ -11,10 +11,13 @@
  *   --plan   collect, diff, report. Downloads nothing.
  *   --go     download exactly what the last plan listed.
  *   --yes    both, without stopping to confirm.
+ *
+ * Every one of them answers with a single JSON document on stdout, composed by
+ * `shared/output.mjs`. Nothing here writes a sentence for a user — that belongs
+ * to `SKILL.md`, which reads this.
  */
 import { access, constants, chmod, mkdir, rm } from 'node:fs/promises';
 import { spawn } from 'node:child_process';
-import path from 'node:path';
 
 import { readArchive } from '../shared/landed.mjs';
 import {
@@ -42,7 +45,7 @@ import {
 } from '../shared/account.mjs';
 import { checkRoot, stampRoot } from '../shared/archiver.mjs';
 import { saveProfileAssets } from './assets.mjs';
-import { REMEDIES, cookieExportArgs } from './gallerydl.mjs';
+import { FAILURES, cookieExportArgs } from './gallerydl.mjs';
 import { fetchPosts, outstanding } from './fetch.mjs';
 import { archivesRoot, cookieFile, normalizeRoot, stateDir } from '../shared/paths.mjs';
 import { descriptorFor } from '../shared/platforms.mjs';
@@ -51,21 +54,30 @@ const PLATFORM = 'x';
 const ACCOUNT = descriptorFor(PLATFORM);
 const STATE_DIR = stateDir(PLATFORM);
 const COOKIE_FILE = cookieFile(PLATFORM);
-import {
-  approved,
-  buildPlan,
-  describeAge,
-  renderPlanBlock,
-  renderSummaryBlock,
-  validatePlan,
-} from '../shared/plan.mjs';
+import { DEFAULT_TTL_HOURS, approved, buildPlan, planRefusal, validatePlan } from '../shared/plan.mjs';
 import { clearPlan, loadPlan, previousRoot, recordRun, savePlan } from '../shared/sync.mjs';
 import { parseTarget } from './target.mjs';
 import { EXIT } from '../shared/exit.mjs';
-import { fail, pickMode } from '../shared/run.mjs';
+import { Refusal, refusalFields } from '../shared/errors.mjs';
+import {
+  accountFields,
+  answer,
+  archiveCounts,
+  archiveResult,
+  commandFor,
+  nothingFetched,
+  planWindow,
+  refuse,
+  runCounts,
+  sharedNotes,
+} from '../shared/output.mjs';
+import { pickMode } from '../shared/run.mjs';
 import { missingTool, onPath } from '../shared/tools.mjs';
 
 const GALLERY_DL = 'gallery-dl';
+
+/** The browsers gallery-dl can read a session out of, for a refusal that lists them. */
+const BROWSERS = ['chrome', 'firefox', 'safari', 'edge', 'brave', 'chromium', 'opera', 'vivaldi'];
 
 /** What X adds to the flags every platform shares. */
 const BOOLEAN_FLAGS = new Set([...COMMON_BOOLEAN_FLAGS, 'full']);
@@ -93,9 +105,12 @@ const USAGE = `Usage: archive.sh <url> [--archives DIR] [--alias NAME] [--plan|-
       --full            Collect the whole timeline even when a re-run could
                         stop early.
       --browser NAME    Browser to read the X session from the first time
-                        (chrome, firefox, safari, edge, brave, chromium...).
+                        (${BROWSERS.join(', ')}).
       --cookies FILE    Use this cookies.txt instead of a browser or the cache.
   -h, --help            Show this help
+
+Every command but this one answers with a single JSON document on stdout;
+progress and tool chatter go to stderr.
 
 State lives in the account folder: posts/ holds one folder per post,
 account.json the account's identity, assets/ the current avatar and banner, and
@@ -122,12 +137,15 @@ async function ensureCookies({ cookies, browser, url, bin = 'gallery-dl' }) {
   }
 
   if (!browser) {
-    throw new Error(
-      'no saved X session yet, and no browser to read one from.\n' +
-        '  Sign in to X in a browser, then add --browser NAME to this command\n' +
-        '  (chrome, firefox, safari, edge, brave, chromium, opera, vivaldi).\n' +
-        '  Or point at an exported session with --cookies FILE.',
-    );
+    throw new Refusal('no-session-source', 'no saved X session yet, and no browser to read one from', {
+      details: { browsers: BROWSERS },
+      remedy: {
+        message:
+          'sign in to X in a browser and say which one to read the session from, ' +
+          'or point this at an exported cookies.txt',
+        run_by: 'user',
+      },
+    });
   }
 
   await mkdir(STATE_DIR, { recursive: true });
@@ -140,10 +158,10 @@ async function ensureCookies({ cookies, browser, url, bin = 'gallery-dl' }) {
   });
 
   if (code !== 0) {
-    throw new Error(
-      `could not read an X session from ${browser}.\n` +
-        '  Close that browser and try again, or sign in to X in it first.',
-    );
+    throw new Refusal('session-unreadable', `could not read an X session from ${browser}`, {
+      details: { browser },
+      remedy: { message: `close ${browser} and try again, or sign in to X in it first`, run_by: 'user' },
+    });
   }
 
   // It is a live session token sitting in a file; nobody else on this machine
@@ -170,7 +188,9 @@ function refreshAssets(accountDir, account) {
   return saveProfileAssets(accountDir, { avatar: account?.avatar, banner: account?.banner });
 }
 
-async function doPlan({ target, root, alias, unalias, cookies, full, threshold, bin = 'gallery-dl' }) {
+async function doPlan({
+  target, root, alias, unalias, cookies, full, threshold, bin = 'gallery-dl', collectImpl = collect,
+}) {
   // All settled the moment the first row names the account, because none of them
   // can be known before it: the id itself only arrives with the first row, and
   // the folder is looked up from it.
@@ -179,7 +199,7 @@ async function doPlan({ target, root, alias, unalias, cookies, full, threshold, 
   let incremental = false;
   let badId = null;
 
-  const result = await collect({
+  const result = await collectImpl({
     url: target.url,
     cookies,
     bin,
@@ -203,23 +223,47 @@ async function doPlan({ target, root, alias, unalias, cookies, full, threshold, 
     },
   });
 
-  if (result.failure) return { failure: result.failure, stderr: result.stderr };
-  if (badId !== null) return { badId };
-  if (!result.rows.length) return { empty: true };
+  if (result.failure) throw collectRefusal(result.failure, result.stderr);
+
+  if (badId !== null) {
+    throw new Refusal(
+      'bad-account-id',
+      `X reported an account id this skill will not use as a folder name: ${JSON.stringify(badId)}`,
+      { details: { id: badId } },
+    );
+  }
+
+  if (!result.rows.length) {
+    // Zero posts and no error is a real answer for an account that has posted
+    // no media. It is never reported as "up to date", because an account you
+    // are not allowed to read produces exactly the same silence.
+    throw new Refusal(
+      'empty',
+      'found no media posts there — an account can genuinely have none, and it also ' +
+        'looks like this when the account is protected or the saved session has expired without saying so',
+    );
+  }
 
   // Without an id there is no folder to write into. Naming it after the handle
   // instead is not an option: the handle changes, so that folder is one the next
   // run would not find again, and inventing it is worse than stopping.
   const account = result.account;
-  if (!account?.id) return { unidentified: true };
+  if (!account?.id) {
+    throw new Refusal(
+      'unidentified-account',
+      'the timeline was readable but never named the account, so there is no id to file it under',
+    );
+  }
 
   // Checked again now the id is known. The pre-flight check ran before the
   // fetch on whatever identity could be worked out without one, which is enough
   // to catch a typo cheaply but not enough to be the answer — and promising a
-  // move in the block that --go would then refuse is worse than stopping here.
+  // move that --go would then refuse is worse than stopping here.
   if (alias) {
     const verdict = await checkAlias(ACCOUNT, root, { id: account.id, alias });
-    if (!verdict.ok) return { aliasRefused: verdict.reason };
+    // Nothing has moved: the alias is decided before the plan is written, so a
+    // refusal here leaves the archive exactly as it was found.
+    if (!verdict.ok) throw verdict.refusal;
   }
 
   const posts = groupFiles(result.rows);
@@ -233,16 +277,17 @@ async function doPlan({ target, root, alias, unalias, cookies, full, threshold, 
     // which of a post's four images had landed.
     collected: posts,
     pending: toFetch,
-    counts: {
+    counts: archiveCounts({
       found: counts.foundPosts,
-      foundDetail: `posts · ${counts.foundFiles.toLocaleString('en-US')} files`,
       onDisk: counts.onDiskPosts,
       toFetch: counts.fetchPosts,
-      toFetchDetail: counts.fetchFiles
-        ? `posts · ${counts.fetchFiles.toLocaleString('en-US')} files ` +
-          `(${counts.images.toLocaleString('en-US')} images, ${counts.videos.toLocaleString('en-US')} videos)`
-        : 'posts',
-    },
+      platform: {
+        found_files: counts.foundFiles,
+        fetch_files: counts.fetchFiles,
+        images: counts.images,
+        videos: counts.videos,
+      },
+    }),
     notes: [sweepNote({ incremental, stoppedEarly: result.stoppedEarly, threshold })],
     now: new Date(),
   });
@@ -250,9 +295,9 @@ async function doPlan({ target, root, alias, unalias, cookies, full, threshold, 
   await mkdir(accountDir, { recursive: true });
   await stampRoot(root);
 
-  // Read before anything is written: the block's "last run used …" note compares
-  // this run's root against the one the previous run recorded, and --go's
-  // recordRun below will replace it.
+  // Read before anything is written: the "last run used …" note compares this
+  // run's root against the one the previous run recorded, and --go's recordRun
+  // below will replace it.
   const lastRoot = await previousRoot(accountDir);
 
   await savePlan(accountDir, plan);
@@ -270,13 +315,33 @@ async function doPlan({ target, root, alias, unalias, cookies, full, threshold, 
   };
 }
 
+/** What a failed listing pass was, as the refusal the run answers with. */
+function collectRefusal(failure, stderr) {
+  const known = FAILURES[failure];
+  return new Refusal(failure, known?.message ?? `the listing pass failed: ${failure}`, {
+    // Carried only where nothing has classified the failure. The tail is the
+    // last of gallery-dl's own words, which is all that is left to go on when
+    // the classifier recognised nothing.
+    details:
+      failure === 'collect-failed'
+        ? { stderr_tail: stderr?.trim().split('\n').slice(-8).join('\n') ?? '' }
+        : null,
+    remedy: known?.remedy ?? null,
+  });
+}
+
 /**
  * Exported so the download half's decisions — which posts it hands the fetcher,
  * and when it retires the plan — can be asserted without a network or a
  * gallery-dl on the machine. `main` reaches it the same way.
+ *
+ * Returns `{ refusal }` for a plan it will not run, and otherwise everything the
+ * finished run has to report. It composes no document itself: `main` owns the
+ * envelope, so a `--yes` emits exactly one.
  */
 export async function doGo({
-  root, dir, alias, unalias, url, handle, cookies, planHint, bin = 'gallery-dl',
+  root, dir, alias, unalias, url, handle, cookies, planCommand,
+  bin = 'gallery-dl', fetchImpl = fetchPosts,
 }) {
   // --yes has just enumerated and knows exactly which folder it wrote into, so
   // it passes it in. A bare --go enumerates nothing, never learns the numeric
@@ -284,7 +349,7 @@ export async function doGo({
   // URL the plan was written from, and the handle are the keys that still work.
   let accountDir = dir ?? (await findAccountDir(ACCOUNT, root, { url, alias, handle }));
   if (!accountDir) {
-    return { refused: `no archive under ${root} for this account yet`, planHint };
+    return { refusal: noArchive(root, planCommand) };
   }
 
   // Read before the move, because the move is what makes the path stale. This is
@@ -301,18 +366,18 @@ export async function doGo({
         ? await clearAlias(ACCOUNT, root, { id: account.id })
         : await applyAlias(ACCOUNT, root, { id: account.id, alias });
     } catch (error) {
-      return { refused: error.message };
+      return { refusal: error };
     }
   }
 
   const plan = await loadPlan(accountDir);
   const valid = validatePlan(plan, { root, accountId: account?.id });
-  if (!valid.ok) return { refused: valid.reason, planHint };
+  if (!valid.ok) return { refusal: withPlanRemedy(planRefusal(valid), planCommand) };
 
   const archive = await readArchive(accountDir);
   const todo = outstanding(approved(plan), archive);
 
-  const { fetched, failed, stopped } = await fetchPosts({
+  const { fetched, failed, stopped } = await fetchImpl({
     accountDir,
     posts: todo,
     handle: plan.account?.handle,
@@ -340,7 +405,27 @@ export async function doGo({
   return { plan, accountDir, fetched, failed, stopped, remaining };
 }
 
-export async function main(argv) {
+function noArchive(root, planCommand) {
+  return new Refusal('no-archive', `no archive under ${root} for this account yet`, {
+    details: { root },
+    remedy: { message: 'collect the account first', command: planCommand, run_by: 'agent' },
+  });
+}
+
+/** Every plan refusal has the same remedy, and it is the agent's to run. */
+function withPlanRemedy(refusal, planCommand) {
+  refusal.remedy = { message: 'collect the account again', command: planCommand, run_by: 'agent' };
+  return refusal;
+}
+
+export async function main(argv, deps = {}) {
+  const {
+    collectImpl = collect,
+    fetchImpl = fetchPosts,
+    onPathImpl = onPath,
+    cookiesImpl = ensureCookies,
+  } = deps;
+
   const { opts, positional, unknown } = parseCommandLine(argv, {
     booleans: BOOLEAN_FLAGS,
     known: KNOWN_FLAGS,
@@ -351,37 +436,43 @@ export async function main(argv) {
     return EXIT.OK;
   }
 
+  // What the command line asked for, settled before the first refusal so every
+  // document says which command was being run when it stopped.
+  const command = pickMode(opts);
+  const refuseHere = (fields) => refuse({ command, platform: PLATFORM, ...fields });
+
   // Named rather than left to the unknown-flag path below. The old flag is the
   // one thing likely to still be sitting in a shell history, and "unknown
   // option" would be true while sending the user to --help to work out why.
   if (unknown.includes('--downloads')) {
-    console.error(
-      'error: --downloads was renamed to --archives (and the default root is now archives/)',
-    );
-    console.error(
-      '  the old root is not read: rename downloads/ to archives/, or pass --archives DIR',
-    );
-    return EXIT.USAGE;
+    return refuseHere({
+      code: 'downloads-renamed',
+      message: '--downloads was renamed to --archives, and the default root is now archives/',
+      remedy: { message: 'the old root is not read: rename downloads/ to archives/, or name the root explicitly', run_by: 'user' },
+    });
   }
 
   // Whatever the user typed is passed through as given, so an unknown flag is
   // their typo to see rather than something for the agent to guess at.
   if (unknown.length) {
-    console.error(`error: unknown option '${unknown[0]}' (try --help)`);
-    return EXIT.USAGE;
+    return refuseHere({
+      code: 'unknown-flag',
+      message: `unknown option '${unknown[0]}'`,
+      details: { flag: unknown[0] },
+    });
   }
 
   const url = positional[0];
   if (!url) {
     console.error(USAGE);
-    return EXIT.USAGE;
+    return refuseHere({ code: 'no-url', message: 'no URL given' });
   }
 
   let target;
   try {
     target = parseTarget(url);
   } catch (error) {
-    return fail(`${error.message}.\n  This skill takes an account URL: https://x.com/<handle>.`, EXIT.USAGE);
+    return refuseHere(refusalFields(error));
   }
 
   // gallery-dl both enumerates and downloads, so nothing past here works
@@ -389,15 +480,17 @@ export async function main(argv) {
   // refused on any machine, installed tools or not — and before the session,
   // because reading cookies out of a browser is a real cost to pay for a run
   // that cannot proceed anyway.
-  if (!(await onPath(GALLERY_DL))) {
-    console.error(
-      missingTool(GALLERY_DL, {
-        brew: 'brew install gallery-dl',
-        otherwise: 'pipx install gallery-dl\n      or see https://github.com/mikf/gallery-dl#installation',
-        hasBrew: await onPath('brew'),
-      }),
+  if (!(await onPathImpl(GALLERY_DL))) {
+    return refuseHere(
+      refusalFields(
+        missingTool(GALLERY_DL, {
+          brew: 'brew install gallery-dl',
+          otherwise: 'pipx install gallery-dl',
+          docs: 'https://github.com/mikf/gallery-dl#installation',
+          hasBrew: await onPathImpl('brew'),
+        }),
+      ),
     );
-    return EXIT.FAILED;
   }
 
   const browser = optString(opts, 'browser');
@@ -406,21 +499,24 @@ export async function main(argv) {
   const unalias = opts.unalias === true;
 
   if (alias && unalias) {
-    return fail('--alias and --unalias ask for opposite things. Pass one or the other.', EXIT.USAGE);
+    return refuseHere({
+      code: 'alias-and-unalias',
+      message: '--alias and --unalias ask for opposite things',
+    });
   }
 
   // The shape of an alias needs no filesystem and no network, so a typo is
-  // refused here rather than after a full timeline crawl. checkAlias says the
-  // same thing later in the same words — they share the sentence rather than
-  // keeping two copies of it that could come to disagree.
-  if (alias && !isSafeAlias(alias)) return fail(aliasShapeRefusal(alias), EXIT.USAGE);
+  // refused here rather than after a full timeline crawl. checkAlias reaches the
+  // same refusal later — they share it rather than keeping two copies that could
+  // come to disagree.
+  if (alias && !isSafeAlias(alias)) return refuseHere(refusalFields(aliasShapeRefusal(alias)));
 
   let root;
   try {
     const given = optString(opts, 'archives');
     root = given ? normalizeRoot(given) : archivesRoot();
   } catch (error) {
-    return fail(error.message, EXIT.USAGE);
+    return refuseHere(refusalFields(error));
   }
 
   // Before the session, before the first API call, before anything is written:
@@ -430,7 +526,7 @@ export async function main(argv) {
   try {
     await checkRoot(root);
   } catch (error) {
-    return fail(error.message, EXIT.USAGE);
+    return refuseHere(refusalFields(error));
   }
 
   // Everything an alias can be refused for except "it is already yours" needs
@@ -445,157 +541,153 @@ export async function main(argv) {
       id: existing ? ((await readAccount(existing))?.account?.id ?? null) : null,
       alias,
     });
-    if (!verdict.ok) return fail(verdict.reason, EXIT.USAGE);
+    if (!verdict.ok) return refuseHere(refusalFields(verdict.refusal));
   }
 
   let cookies;
   try {
-    cookies = await ensureCookies({ cookies: optString(opts, 'cookies'), browser, url: target.url });
+    cookies = await cookiesImpl({ cookies: optString(opts, 'cookies'), browser, url: target.url });
   } catch (error) {
-    return fail(error.message);
+    return refuseHere(refusalFields(error));
   }
 
-  const mode = pickMode(opts);
+  const planCommand = commandFor(argv, 'plan');
 
-  const planHint = `${process.env.ARCHIVE_SELF || 'archive.sh'} '${url}'${
-    optString(opts, 'archives') ? ` --archives '${optString(opts, 'archives')}'` : ''
-  } --plan`;
-
-  if (mode === 'go') {
-    return report(
+  if (command === 'go') {
+    return await report(
+      command,
       await doGo({
-        root, url: target.url, alias, unalias, handle: target.handle, cookies, planHint,
+        root, url: target.url, alias, unalias, handle: target.handle, cookies, planCommand, fetchImpl,
       }),
+      { url: target.url },
     );
   }
 
-  const planned = await doPlan({
-    target, root, alias, unalias, cookies, full, threshold: DEFAULT_ABORT,
-  });
-
-  if (planned.failure) {
-    if (planned.failure === 'unauthorized') await discardCookies();
-    return fail(
-      `${planned.failure}\n\n${REMEDIES[planned.failure] ?? planned.stderr?.trim().split('\n').slice(-8).join('\n') ?? ''}`,
-      planned.failure === 'unauthorized' ? EXIT.UNAUTHORIZED : EXIT.FAILED,
-    );
+  let planned;
+  try {
+    planned = await doPlan({
+      target, root, alias, unalias, cookies, full, threshold: DEFAULT_ABORT, collectImpl,
+    });
+  } catch (error) {
+    const fields = refusalFields(error);
+    // The remedy text says the cached session has been thrown away, and leaving
+    // the file in place would make that a lie the next run repeats.
+    if (fields.code === 'session-rejected') await discardCookies();
+    return refuseHere(fields);
   }
 
-  if (planned.badId) {
-    return fail(
-      `X reported an account id this skill will not use as a folder name: ${JSON.stringify(planned.badId)}.\n` +
-        '  Nothing has been written. Please report this — an X user id should be digits.',
-    );
-  }
-
-  if (planned.aliasRefused) {
-    // Nothing has moved: the alias is decided before the plan is written, so a
-    // refusal here leaves the archive exactly as it was found.
-    return fail(planned.aliasRefused, EXIT.USAGE);
-  }
-
-  if (planned.unidentified) {
-    return fail(
-      'the timeline was readable but never named the account, so there is no id to file it under.\n' +
-        '  Try again; if it persists, the saved session may be partly rejected.',
-    );
-  }
-
-  if (planned.empty) {
-    // Zero posts and no error is a real answer for an account that has posted
-    // no media. It is never rendered as "up to date", because an account you
-    // are not allowed to read produces exactly the same silence.
-    return fail(
-      'found no media posts there.\n' +
-        '  An account can genuinely have none. It also looks like this when the account is\n' +
-        '  protected, or when the saved session has expired without saying so.',
-      EXIT.EMPTY,
-    );
-  }
-
-  console.log(
-    renderPlanBlock({
-      headline: headline(planned.plan.account),
-      folder: planned.accountDir,
+  // Worked out once and carried through whichever branch answers, so a rename or
+  // a moved archives root is reported whether the user is being asked or has
+  // already said yes.
+  const notes = [
+    ...sharedNotes({
+      dir: planned.accountDir,
       movingTo: planned.movingTo,
+      root,
       previousRoot: planned.previousRoot,
-      root: planned.plan.root,
-      counts: planned.plan.counts,
-      notes: [
-        ...planned.plan.notes,
-        `plan collected ${describeAge(Date.now() - Date.parse(planned.plan.created_at))} ago`,
-      ],
     }),
-  );
+    ...planned.plan.notes,
+  ];
 
-  if (mode === 'plan') return EXIT.OK;
+  const described = (extra) =>
+    archiveResult({
+      account: accountFields(ACCOUNT, planned.plan.account, target.url),
+      dir: planned.accountDir,
+      root,
+      counts: planned.plan.counts,
+      notes,
+      plan: planWindow({ createdAt: planned.plan.created_at, ttlHours: DEFAULT_TTL_HOURS }),
+      ...extra,
+    });
 
-  if (planned.plan.counts.toFetch === 0) {
+  if (command === 'plan') {
+    return answer({ command, platform: PLATFORM, result: described({ nextFor: argv }) });
+  }
+
+  if (planned.plan.counts.to_fetch === 0) {
     // Nothing to download, but this run was still approved — and the avatar may
     // have changed even where the timeline has not.
     await refreshAssets(planned.accountDir, planned.plan.account);
-    return EXIT.OK;
+    return answer({
+      command,
+      platform: PLATFORM,
+      result: described({ run: nothingFetched(planned.plan.counts) }),
+    });
   }
 
-  console.log('');
-  return report(
+  return await report(
+    command,
     await doGo({
       root, dir: planned.accountDir, alias, unalias, url: target.url, handle: target.handle,
-      cookies, planHint,
+      cookies, planCommand, fetchImpl,
     }),
+    { url: target.url, notes, plan: planned.plan },
   );
-}
-
-async function report(result) {
-  if (result.refused) {
-    console.error(`error: ${result.refused}`);
-    if (result.planHint) console.error(`  make one with:\n    ${result.planHint}`);
-    return EXIT.REFUSED;
-  }
-
-  console.log(
-    renderSummaryBlock({
-      headline: headline(result.plan.account),
-      folder: result.accountDir,
-      counts: result.plan.counts,
-      notes: result.plan.notes,
-      downloaded: result.fetched.posts,
-      total: (result.plan.counts.onDisk ?? 0) + result.fetched.posts,
-      failed: result.failed,
-    }),
-  );
-
-  if (result.stopped) {
-    // Discarded here as well as on the plan path. The remedy text tells the user
-    // the cached session has been thrown away, and leaving the file in place
-    // would make that a lie the next run repeats — it would read the same dead
-    // token back and stop in exactly the same way, forever.
-    if (result.stopped === 'unauthorized') await discardCookies();
-    console.error(`\n${REMEDIES[result.stopped] ?? `the run stopped: ${result.stopped}`}`);
-    return result.stopped === 'unauthorized' ? EXIT.UNAUTHORIZED : EXIT.FAILED;
-  }
-  return EXIT.OK;
 }
 
 /**
- * How X names an account. Platform-shaped on purpose: the shared renderer prints
- * this line without knowing what a handle is.
+ * A finished download, as the one document it answers with.
+ *
+ * A run that stopped partway carries both halves: the posts that landed and the
+ * reason it stopped. Collapsing it either way loses something the user needs —
+ * a rate-limited run that fetched two hundred posts is neither a success nor a
+ * nothing.
  */
-function headline(account) {
-  const nickname = account?.nickname ? ` (${account.nickname})` : '';
-  return `@${account?.handle ?? '?'}${nickname} · id ${account?.id ?? '?'}`;
+async function report(command, outcome, { url = null, notes = null, plan = null } = {}) {
+  if (outcome.refusal) {
+    return refuse({ command, platform: PLATFORM, ...refusalFields(outcome.refusal) });
+  }
+
+  const payload = archiveResult({
+    account: accountFields(ACCOUNT, outcome.plan.account, url),
+    dir: outcome.accountDir,
+    root: outcome.plan.root,
+    counts: outcome.plan.counts,
+    // A --yes has just made this plan and knows what it announced; a bare --go
+    // has only what the plan recorded.
+    notes: notes ?? outcome.plan.notes ?? [],
+    // Carried by the run that made the plan, and by that run only. A --go is
+    // acting on a list already approved, and its window has done its work.
+    plan: plan ? planWindow({ createdAt: plan.created_at, ttlHours: DEFAULT_TTL_HOURS }) : null,
+    run: runCounts({
+      downloaded: outcome.fetched.posts,
+      total: (outcome.plan.counts?.on_disk ?? 0) + outcome.fetched.posts,
+      failed: outcome.failed,
+      remaining: outcome.remaining,
+    }),
+  });
+
+  if (!outcome.stopped) return answer({ command, platform: PLATFORM, result: payload });
+
+  // Discarded here as well as on the plan path. The remedy says the cached
+  // session has been thrown away, and leaving the file in place would make that
+  // a lie the next run repeats — it would read the same dead token back and stop
+  // in exactly the same way, forever.
+  if (outcome.stopped === 'session-rejected') await discardCookies();
+
+  const known = FAILURES[outcome.stopped];
+  return refuse({
+    command,
+    platform: PLATFORM,
+    code: outcome.stopped,
+    message: known?.message ?? `the run stopped: ${outcome.stopped}`,
+    remedy: known?.remedy ?? null,
+    result: payload,
+  });
 }
 
 /**
  * Whether the sweep reached the end of the timeline or stopped early. Without
- * it, `to fetch 0` cannot be told apart from "gave up before reaching anything
+ * it, `to_fetch: 0` cannot be told apart from "gave up before reaching anything
  * new".
  */
 function sweepNote({ incremental, stoppedEarly, threshold }) {
-  if (!incremental) return 'full sweep';
-  return stoppedEarly
-    ? `incremental sweep · stopped after ${threshold} consecutive known posts`
-    : 'incremental sweep · reached the end of the timeline';
+  return {
+    code: 'sweep',
+    mode: incremental ? 'incremental' : 'full',
+    stopped_early: Boolean(incremental && stoppedEarly),
+    threshold: incremental ? threshold : null,
+  };
 }
 
 if (isMainModule(import.meta.url)) {

@@ -1,27 +1,17 @@
 /**
- * blocks.mjs — the parts of a block that are Douyin's and nobody else's.
+ * notes.mjs — the three things a Douyin run has to say that an X run does not.
  *
- * The block itself is rendered by `shared/plan.mjs`, which never branches on
- * platform. What differs arrives as text, and this is where that text is
- * written: how this site names an account, and the three things a Douyin run has
- * to say that an X run does not.
+ * Each is a gap between two numbers that would otherwise look like an error, and
+ * each leaves here as a code with its count beside it. The sentence belongs to
+ * `SKILL.md`: the count of skipped image posts is something the user is told out
+ * loud, and a rule keyed off wording is a rule that breaks the next time the
+ * wording changes.
  */
 
-/**
- * How Douyin names an account: the nickname if the profile showed one, and the
- * 抖音号 always — it is the identifier a human can read and type, where the
- * sec_uid the folder is named for is not.
- */
-export function headline(account) {
-  const id = account?.douyin_id ?? '?';
-  return account?.nickname ? `${account.nickname} (抖音号 ${id})` : `抖音号 ${id}`;
-}
+/** Issue #48 is what closes the image-post gap; the note carries it so the skill can cite it. */
+export const IMAGE_POSTS_ISSUE = 'https://github.com/luojiahai/skills/issues/48';
 
-/**
- * The notes a Douyin block carries, in the order they are worth reading.
- *
- * Each is a gap between two numbers that would otherwise look like an error.
- */
+/** The notes a Douyin run carries, in the order they are worth reading. */
 export function notes({ collected, reported, skipped, unlisted }) {
   return [...hidden(collected, reported, skipped), ...images(skipped), ...missing(unlisted)];
 }
@@ -37,7 +27,7 @@ function hidden(collected, reported, skipped) {
   if (reported === null || reported === undefined) return [];
   const count = reported - collected - (skipped || 0);
   if (count <= 0) return [];
-  return [[`${count} post(s) counted but not shown`, '(private, deleted, or region-locked)']];
+  return [{ code: 'hidden-posts', count }];
 }
 
 /**
@@ -48,12 +38,7 @@ function hidden(collected, reported, skipped) {
  */
 function images(skipped) {
   if (!skipped) return [];
-  return [
-    [
-      `${skipped} image post${skipped === 1 ? '' : 's'} skipped — not yet supported`,
-      '(see github.com/luojiahai/skills/issues/48)',
-    ],
-  ];
+  return [{ code: 'image-posts-skipped', count: skipped, issue: IMAGE_POSTS_ISSUE }];
 }
 
 /**
@@ -68,10 +53,5 @@ function images(skipped) {
  */
 function missing(unlisted) {
   if (!unlisted) return [];
-  return [`${unlisted} archived post${unlisted === 1 ? '' : 's'} no longer on the profile`];
-}
-
-/** `405 of 411 reported`, or just the number when the profile showed no count. */
-export function foundDetail(reported) {
-  return reported === null || reported === undefined ? '' : `of ${reported} reported`;
+  return [{ code: 'unlisted-posts', count: unlisted }];
 }

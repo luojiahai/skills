@@ -66,7 +66,7 @@ test('giving up is reported as not signed in, not as success', async () => {
   });
 
   assert.equal(result.ok, false);
-  assert.match(result.reason, /no Douyin session/);
+  assert.equal(result.code, 'login-abandoned');
 });
 
 test('a sign-in that never comes times out rather than waiting forever', async () => {
@@ -81,8 +81,11 @@ test('a sign-in that never comes times out rather than waiting forever', async (
     input: noKeys(),
   });
 
+  // A separate code from giving up: one person stopped waiting, the other never
+  // got as far as the login.
   assert.equal(result.ok, false);
-  assert.match(result.reason, /gave up waiting/);
+  assert.equal(result.code, 'login-timed-out');
+  assert.equal(result.details.waited_seconds, 0);
   assert.equal(state.closed, true);
 });
 

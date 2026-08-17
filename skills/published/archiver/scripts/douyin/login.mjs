@@ -17,6 +17,7 @@
  */
 import { createInterface } from 'node:readline';
 
+import { progress } from '../shared/output.mjs';
 import { loadPlaywright } from './playwright.mjs';
 import { hasSession } from './session.mjs';
 
@@ -24,13 +25,18 @@ const POLL_MS = 1000;
 const TIMEOUT_MS = 10 * 60 * 1000;
 
 /**
- * Resolves `{ ok, reason }`. `ok` means the profile now holds a Douyin session
- * — never merely that the browser was opened and closed.
+ * Resolves `{ ok }`, or `{ ok: false, code, reason, details }`. `ok` means the
+ * profile now holds a Douyin session — never merely that the browser was opened
+ * and closed.
+ *
+ * Giving up and running out of time are two codes, because they lead to
+ * different things being said: one person stopped waiting, the other never got
+ * as far as the login.
  */
 export async function login({
   url,
   profileDir,
-  log = console.log,
+  log = progress,
   launch,
   pollMs = POLL_MS,
   timeoutMs = TIMEOUT_MS,
@@ -69,10 +75,19 @@ export async function login({
         return { ok: true };
       }
       if (giveUp) {
-        return { ok: false, reason: 'no Douyin session in the browser profile yet' };
+        return {
+          ok: false,
+          code: 'login-abandoned',
+          reason: 'the wait was ended before a Douyin session appeared',
+        };
       }
       if (Date.now() >= deadline) {
-        return { ok: false, reason: 'gave up waiting for a sign-in' };
+        return {
+          ok: false,
+          code: 'login-timed-out',
+          reason: 'gave up waiting for a sign-in',
+          details: { waited_seconds: Math.round(timeoutMs / 1000) },
+        };
       }
       await new Promise((resolve) => setTimeout(resolve, pollMs));
     }

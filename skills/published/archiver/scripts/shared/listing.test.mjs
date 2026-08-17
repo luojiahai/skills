@@ -295,7 +295,14 @@ test('a schema this build cannot read refuses, and reads nothing', async () => {
   await seed(dir, 'x', 'jia', { id: '1', nickname: 'Jia' });
   await writeFile(path.join(dir, 'archiver.json'), JSON.stringify({ schema: SCHEMA_VERSION + 1 }));
 
-  await assert.rejects(() => listArchive(dir, { now: NOW }), /newer version of this skill/);
+  await assert.rejects(
+    () => listArchive(dir, { now: NOW }),
+    (error) => {
+      assert.equal(error.code, 'archive-schema-unsupported');
+      assert.equal(error.details.found, SCHEMA_VERSION + 1);
+      return true;
+    },
+  );
 });
 
 test('listing stamps nothing into the root', async () => {

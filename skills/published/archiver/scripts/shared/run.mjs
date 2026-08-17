@@ -5,9 +5,10 @@
  * a Douyin profile and listing an X timeline have almost nothing in common. What
  * is here is what would otherwise be copied verbatim into both — and a mode rule
  * that drifted between platforms would mean `--yes` meaning two things.
+ *
+ * A refusal is not here: it goes through `output.mjs`, which owns the envelope
+ * every command answers in.
  */
-import { EXIT } from './exit.mjs';
-
 /**
  * `--yes` outranks a `--plan` or `--go` after it on the command line.
  *
@@ -19,15 +20,4 @@ export function pickMode(opts) {
   if (opts.yes === true || opts.y === true) return 'yes';
   if (opts.go === true) return 'go';
   return 'plan';
-}
-
-/** A refusal, said once and in one voice, with the code that goes with it. */
-export function fail(message, code = EXIT.FAILED) {
-  console.error(`error: ${message}`);
-  return code;
-}
-
-/** The entry point as the user can type it, for a remedy they can run. */
-export function self() {
-  return process.env.ARCHIVE_SELF || 'archive.sh';
 }

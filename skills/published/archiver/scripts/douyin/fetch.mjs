@@ -101,12 +101,17 @@ function cookieArgs(cookies) {
 }
 
 /**
- * Whether the output says the session was rejected, rather than the post being
+ * Whether the output says the session has gone stale, rather than the post being
  * unavailable. yt-dlp asks for "Fresh cookies" by name when Douyin turns it
  * away, and that is the one failure a retry can fix.
+ *
+ * A boolean rather than a refusal code, because it never becomes one: it is
+ * answered inside the download loop, where the remedy is to re-mint the cookies
+ * and try the post again. A session Douyin refuses outright is caught earlier,
+ * by a grid that renders nothing.
  */
-export function classifyFailure(output) {
-  return /Fresh cookies/i.test(String(output ?? '')) ? 'unauthorized' : null;
+export function saysSessionStale(output) {
+  return /Fresh cookies/i.test(String(output ?? ''));
 }
 
 /** The posts that still need fetching, in the order they were collected. */
@@ -232,7 +237,7 @@ export async function fetchPosts({
 
     let result = await attempt();
 
-    if (result.code !== 0 && classifyFailure(result.output) === 'unauthorized' && !refreshed && refreshCookies) {
+    if (result.code !== 0 && saysSessionStale(result.output) && !refreshed && refreshCookies) {
       log('[douyin] session cookies rejected — re-minting and retrying once…');
       refreshed = true;
       activeCookies = await refreshCookies();

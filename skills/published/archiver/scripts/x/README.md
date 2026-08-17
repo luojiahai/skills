@@ -135,7 +135,7 @@ the tool actually does, and it is the only marker of which layer you are in.
 
 | File | Role |
 | --- | --- |
-| `run.mjs` | The whole run: flags, target, session, root, folder, plan, go, and which block gets printed. |
+| `run.mjs` | The whole run: flags, target, session, root, folder, plan, go, and the one document it answers with. |
 | `target.mjs` | The account a URL names, and a post's permalink. Everything else on x.com — a single post included — is refused rather than read as an account. |
 | `collect.mjs` | The collection pass: drives gallery-dl, reads rows as they arrive, decides when enough of the timeline has been seen, and folds per-file rows into posts. |
 | `fetch.mjs` | Downloads a list of posts, one gallery-dl invocation each, writing each post's `post.json` before its media. |
@@ -143,7 +143,8 @@ the tool actually does, and it is the only marker of which layer you are in.
 | `assets.mjs` | The account's current avatar and banner, fetched from the URLs the collection pass already carried. |
 
 The archive itself — `account.json`, `post.json`, `sync.json`, `archiver.json`,
-the post folders and every block this skill prints — is [`../shared/`](../shared/README.md).
+the post folders and the envelope every command answers in — is
+[`../shared/`](../shared/README.md).
 
 ## Why bash holds no logic
 
@@ -179,17 +180,20 @@ So a re-run stops after **100 consecutive** already-complete posts. Generous on
 purpose: X pins a post to the top of a timeline regardless of age, and a
 stop-at-the-first-thing-you-recognise rule would halt immediately and forever.
 A first run has nothing to recognise and sweeps the lot; `--full` forces a
-complete pass; and the block always names which mode ran, so `to fetch 0` can
-never be confused with "gave up before reaching anything new".
+complete pass; and every run carries a `sweep` note naming which mode ran and
+whether it stopped early, so `to_fetch: 0` can never be confused with "gave up
+before reaching anything new".
 
 ## Zero posts is never "up to date"
 
 An account that is protected, or a session that has quietly expired, produces
 exactly the same silence as an account that has posted no media. Reporting that
 silence as "you already have everything" would be a lie the user acts on, so it
-is its own outcome with its own message, and `classifyFailure` exists to keep
-protected, suspended, missing, rate-limited and unauthorized apart from each
-other and from success.
+is its own refusal under its own code, and `classifyFailure` exists to keep
+`protected`, `suspended`, `no-such-account`, `rate-limited` and `session-rejected`
+apart from each other and from success. It returns those codes directly: a name
+that meant one thing here and another in the envelope would be a translation
+step, and a translation step is somewhere the distinction can be lost.
 
 ## No post text reaches a path
 

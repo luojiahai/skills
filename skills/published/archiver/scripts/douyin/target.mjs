@@ -9,6 +9,7 @@
  * A `v.douyin.com` share link cannot be resolved without following it, so it is
  * refused with the one instruction that works: open it and copy where it lands.
  */
+import { Refusal } from '../shared/errors.mjs';
 
 const PROFILE = /^(?:https?:\/\/)?(?:[a-z0-9-]+\.)*douyin\.com\/user\/([^/?#]+)/i;
 const SHARE = /^(?:https?:\/\/)?v\.douyin\.com\//i;
@@ -30,15 +31,24 @@ export function parseTarget(input) {
   const raw = String(input ?? '').trim();
 
   if (SHARE.test(raw)) {
-    throw new Error(
-      'v.douyin.com share links have to be expanded first: open the link in a ' +
-        `browser and copy the douyin.com URL it lands on.\n${EXPECTED}`,
+    throw new Refusal(
+      'url-share-link',
+      `v.douyin.com share links have to be expanded first. ${EXPECTED}`,
+      {
+        details: { url: raw },
+        remedy: {
+          message: 'open the share link in a browser and copy the douyin.com profile URL it lands on',
+          run_by: 'user',
+        },
+      },
     );
   }
 
   const match = raw.match(PROFILE);
   if (!match) {
-    throw new Error(`not a Douyin profile URL: ${raw || '(none)'}\n${EXPECTED}`);
+    throw new Refusal('url-not-profile', `not a Douyin profile URL: ${raw || '(none)'}. ${EXPECTED}`, {
+      details: { url: raw },
+    });
   }
 
   const secUid = match[1];

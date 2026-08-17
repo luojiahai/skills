@@ -65,10 +65,11 @@ account, which is the whole reason this layer sits above it.
 | `login.mjs` | Signing in, as its own step. Waits by watching for the session cookie, not by trusting a keypress. |
 | `session.mjs` | Whether the profile holds a session, and minting it as a Netscape `cookies.txt` yt-dlp can read. |
 | `playwright.mjs` | Finding the browser this platform drives — the one dependency no other platform has. |
-| `blocks.mjs` | The parts of a block that are Douyin's: how this site names an account, and the three gaps between numbers that would otherwise look like an error. |
+| `notes.mjs` | The three gaps between numbers that would otherwise look like an error, as codes with their counts beside them. |
 
 The archive itself — `account.json`, `post.json`, `sync.json`, `archiver.json`,
-the post folders and every block this skill prints — is [`../shared/`](../shared/README.md).
+the post folders and the envelope every command answers in — is
+[`../shared/`](../shared/README.md).
 
 ## State files, disjoint on purpose
 
@@ -114,11 +115,11 @@ account's directory is known outright rather than found by scanning. The only
 browser `--go` opens is `session.mjs` minting cookies, and only when the cached
 file is missing or yt-dlp has just rejected it.
 
-Every block printed — the one approved, and the one a finished run reports — is
-rendered by `../shared/plan.mjs`, and what is on disk is counted in exactly one
-place (`landed.mjs`'s `onDiskIds`). Do not hand-align a second copy of either in
-another language: counting lines in one place and unique ids in another is all
-it takes for a run to contradict the number the user approved.
+Every document emitted — the plan a user approves, and what a finished run
+reports — is composed by `../shared/output.mjs`, and what is on disk is counted
+in exactly one place (`landed.mjs`'s `onDiskIds`). Do not hand-assemble a second
+copy of either: counting one way here and another way there is all it takes for
+a run to contradict the number the user approved.
 
 `loadPlan` returns the parked plan and nothing more; `run.mjs` re-checks it
 against disk with `outstanding` before fetching. Without that re-check a `--go`
@@ -151,10 +152,11 @@ seconds**, and a stopper does not save that: page load, the 3s settle and up to
 twenty seconds, once per re-run.
 
 Against that, every way it goes wrong is silent. Stopping short truncates
-`collected`, and three block lines are computed from it — `found N of M
-reported`, `hidden()`, and `missing()`, which would report every archived post
-below the cut as *no longer on the profile*. That last one is parked in the plan
-and read back at `--go` time, so the false number outlives the run that made it.
+`collected`, and three reported numbers are computed from it — `counts.found`
+against `counts.platform.reported`, the `hidden-posts` note, and the
+`unlisted-posts` note, which would count every archived post below the cut as no
+longer on the profile. That last one is parked in the plan and read back at
+`--go` time, so the false number outlives the run that made it.
 The fetch list stays correct throughout, which is precisely the problem: the
 archive quietly gets smaller while the run reports success.
 
@@ -169,21 +171,21 @@ Three numbers describe one account and none of them measure the same thing:
 cards a pass actually harvested, and `on disk` / `total` is post folders holding
 media.
 
-They part company in both directions, and a block notes each gap rather than
-leaving a disagreeing pair of numbers looking like an error:
+They part company in both directions, and each gap is its own note rather than
+a disagreeing pair of numbers left looking like an error:
 
 - **`collected < reported`** — `作品 N` counts posts that never render as cards:
   private, deleted, region-locked. The 284-video account used in testing
   collects 282 on every run, reproducibly.
 - **on disk > collected** — no run ever removes a post. A post the account
   stops showing stays downloaded, and from then on the folder outnumbers the
-  profile: `1 archived post no longer on the profile`. (Deleting a post folder
+  profile, which is the `unlisted-posts` note. (Deleting a post folder
   by hand is the one thing that shrinks an archive, and it is how you ask for
   that post again.)
 - **image posts are counted, never collected** — 图文 posts link as `/note/<id>`
-  and nothing here can fetch them yet (issue #48). They are reported as skipped
-  and subtracted before the `counted but not shown` gap is worked out, so the
-  same posts are not blamed twice.
+  and nothing here can fetch them yet (issue #48). They are counted in
+  `image-posts-skipped` and subtracted before `hidden-posts` is worked out, so
+  the same posts are not blamed twice.
 
 That second note claims only what was observed, an id here and not in the
 listing. Deleted, hidden, region-locked, and missed by a collection that stopped
@@ -192,9 +194,9 @@ short are indistinguishable without fetching each one.
 No gap is recorded anywhere. A remembered count is a second account of what has
 downloaded sitting beside the folders themselves, which is the drift "State
 files, disjoint on purpose" exists to prevent, so each is re-derived from the
-collected list and the disk every run. Hence `summary` needs the parked plan's
-`collected` **list** rather than its count, and a plan carrying no such list
-prints no note rather than a wrong one.
+collected list and the disk every run. Hence a finished run needs the parked
+plan's `collected` **list** rather than its count, and a plan carrying no such
+list carries no note rather than a wrong one.
 
 ## Where things live
 

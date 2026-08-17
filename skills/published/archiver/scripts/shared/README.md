@@ -7,18 +7,21 @@ platforms are threaded with a descriptor where they differ.
 | File | Role |
 | --- | --- |
 | `platforms.mjs` | The registry: every platform this skill knows, the host patterns that resolve a URL to one, and each one's account descriptor. |
-| `plan.mjs` | The confirm step: what a plan means, the rules that refuse a stale or foreign one, and **every block this skill prints**. |
+| `plan.mjs` | The confirm step: what a plan means, and the rules that refuse a stale or foreign one. |
 | `account.mjs` | Where an account's folder is, and the identity written inside it. Takes a descriptor, because the platform folder and the name of the readable handle are the only things that vary. |
 | `landed.mjs` | What is already downloaded, answered from the post folders themselves. |
 | `post.mjs` | The shape of `post.json`, and whether a post holds every file it lists. |
 | `naming.mjs` | A post folder's name, and a moment as a string. Built and read back in one place. |
 | `sync.mjs` | `sync.json`: the parked plan and the last run's history. Deletable without loss. |
 | `listing.mjs` | What is already archived under a root, across every platform, as facts for `SKILL.md` to word. Reads and never writes. |
+| `output.mjs` | **The one document every command answers with**, and the builders that fill it. Every command serialises through it. |
+| `errors.mjs` | Every refusal this skill can make, as a code with an exit beside it, and the `Refusal` a module raises when it has no business emitting one. |
+| `output.schema.json` | That document's JSON Schema. Every document a test produces is validated against it, so "did we change the contract" is a reviewable diff. |
 | `archiver.mjs` | The archives root's schema version, the id → alias map, and the refusal when the schema is one this build cannot read. |
 | `paths.mjs` | Where state lives, per platform, and where archives land. |
 | `cli.mjs` | Argument parsing, file reading, atomic JSON writing, entry-point detection. |
-| `exit.mjs` | One exit table, so a caller can tell "rate-limited" from "you typed the flag wrong" without knowing which platform ran. |
-| `tools.mjs` | Whether the platform's downloader is installed, and what to say if not. |
+| `exit.mjs` | One exit table, so a shell caller can tell "rate-limited" from "you typed the flag wrong" without knowing which platform ran. |
+| `tools.mjs` | Whether the platform's downloader is installed, and the refusal when it is not. |
 
 ## The archive both platforms write
 
@@ -123,26 +126,102 @@ pre-authorisation when the skill appends its own mode flag. Last-one-wins would
 take that back. `pickMode` here in `shared/run.mjs` is the one implementation,
 and every platform imports it.
 
-## One renderer
+## One envelope
 
-Every block both platforms print is rendered by `plan.mjs`, and nothing in it
-branches on which platform is running. The block a user approves and the block a
-finished run reports have to agree — same columns, same rule for counting what is
-on disk — and they only reliably agree by being the same code.
+Every command writes exactly one JSON document to stdout and nothing else.
+`output.mjs` composes it, and nothing in it branches on which platform is
+running.
 
-What genuinely differs arrives as text the platform wrote:
+```json
+{ "schema": 1, "ok": true, "command": "plan", "platform": "x",
+  "exit": 0, "result": { … }, "error": { … } }
+```
 
-- `headline` — how that site names an account (`小明 (抖音号 abc123)`,
-  `@jack (Jack) · id 55`)
-- `foundDetail` / `toFetchDetail` — a phrase beside a count, where a platform
-  knows more than the number (X counts files as well as posts; Douyin knows what
-  the profile header claimed)
-- `notes` — anything one platform has to say and the other does not: Douyin's
-  unfetchable image posts, X's sweep that stopped early
+Its reader is `SKILL.md`, not a person. The skill words the outcome for somebody
+who typed `/archiver`, has never seen this command line, and may not be reading
+in English — so what leaves here is facts, in the user's own numbers rather than
+in one fixed English layout for all of them.
 
-A note is a string, or `[first, …continuations]` where a citation needs its own
-line. Adding a case to the renderer for one platform's fact is the thing this
-arrangement exists to prevent.
+- `command` is `null`, with `platform` null too, only where nothing was
+  dispatched: a bare invocation, a URL naming no supported platform, two
+  platforms at once.
+- `exit` repeats the process exit code, because output gets captured and read
+  away from the process that produced it.
+- `error` is present exactly when `ok` is false. `result` is present whenever
+  the run got far enough to have one, **independently of `ok`** — a `--go` that
+  rate-limits mid-download carries both, because a run that fetched two hundred
+  posts and then stopped is neither a success nor a nothing.
+- `ok` answers "was this run refused or stopped", which is not "did the exit
+  code say zero". A Douyin `--go` that lost three posts to the downloader
+  finished as asked and still exits `FAILED`, because that is the exit its shell
+  callers have always seen. It is `ok`, with the posts it lost in
+  `result.run.failed`.
+
+The document a user approves and the one a finished run reports have to agree —
+same counts, same rule for counting what is on disk — and they only reliably
+agree by being the same code. That is why one module owns this and platforms
+hand it facts rather than assembling their own object.
+
+What genuinely differs arrives as data the platform supplied:
+
+- `account` — the identity fields, with the readable handle named by the
+  descriptor (`handle`, `douyin_id`)
+- `counts.platform` — what only one platform knows, as counts: X's file totals
+  and image/video split, Douyin's header count and skipped image posts. They
+  nest inside `counts` because they *are* counts, which leaves `details` meaning
+  one thing only — the facts behind a refusal.
+- `notes` — anything one platform has to say and the other does not, each a
+  `{ code, … }` with its numbers beside it: Douyin's unfetchable image posts,
+  X's sweep that stopped early
+
+A rule keyed off wording is a rule that breaks the next time the wording
+changes, which is the whole reason a note is a code and a count is an integer.
+
+### Refusals
+
+```json
+{ "code": "plan-stale", "message": "…", "details": {},
+  "remedy": { "message": "…", "command": "…", "run_by": "agent | user" } }
+```
+
+`errors.mjs` holds every code with the exit it pins to. The table is exhaustive:
+`exitFor` throws for a code that is not in it, and every document a test produces
+is validated against `output.schema.json`, whose enum is that same table.
+
+**`message` is a fallback, not a user-facing string.** The agent branches on
+`code` and words the outcome itself. The message exists so a refusal added to
+these scripts after `SKILL.md` was written degrades to something sayable rather
+than to silence, and it is reworded before it reaches anybody. The skill must
+never relay it verbatim: the prose belongs in `SKILL.md`, and a message read out
+as written is that prose back in the scripts.
+
+`remedy` is present only where one exists, and `run_by` is load-bearing rather
+than decorative: re-running a plan is the agent's to do, while `brew install
+gallery-dl`, signing in to X in a browser, and the `--login` handoff are the
+user's.
+
+A module that cannot compose a document — it knows the archives root is inside
+the skill, but not which command is running — throws a `Refusal` instead, and
+the run that catches it fills in the envelope.
+
+### Streams
+
+Stdout carries the one document. Progress and any tool chatter go to stderr, so
+the liveness chatter of a long Douyin run can never land in the middle of what is
+being parsed. In-place progress rewriting is suppressed entirely when stderr is
+not a terminal: those messages exist to show a human that something is still
+happening, and off a terminal there is nobody watching.
+
+`--help`, the usage text and `setup.sh` are the documented exceptions and stay
+prose. Nobody parses them; they exist for a person typing the command. A usage
+error still prints its prose to *stderr* while the document goes to stdout.
+
+The two refusals in `archive.sh` happen before node runs and so cannot reach the
+serialiser — they write their envelope by hand. Both are fixed strings needing no
+interpolation. An uncaught exception anywhere else is caught in `dispatch.mjs`
+and emitted as `internal-error` with the stack in `details`: a command this skill
+invokes must never leave stdout empty, because from the agent's side that is
+indistinguishable from a command with nothing to say.
 
 ## The descriptor
 

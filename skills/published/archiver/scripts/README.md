@@ -9,6 +9,7 @@ they hang off.
 ```
 archive.sh          the entry point — node preflight, then dispatch.mjs
 dispatch.mjs        resolve the platform from the URL, call its main(argv)
+testing.mjs         the seam every run-level test goes through — not a test
 shared/             what more than one platform needs — README.md beside it
 douyin/             the Douyin platform — README.md beside it
 x/                  the X platform — README.md beside it
@@ -41,10 +42,10 @@ platforms share, so there is nothing to dispatch it to. It is answered before a
 platform is loaded, which is also what lets it work on a machine with no
 downloader installed and no session — reading the tree is not archiving.
 
-It answers in JSON, because its reader is `SKILL.md` rather than a person: the
-skill words the listing for a user who has never seen this command line and may
-not be reading in English, and a block rendered in `listing.mjs` would be one
-fixed English layout for all of them.
+Its account entries are reported exactly as `listing.mjs` composes them. They
+answer a different question from a run's counts and have no counterpart there,
+so reshaping them to match would cost a rewrite of the largest section of
+`SKILL.md` to buy a symmetry nothing consumes.
 
 Every other flag beside it is refused rather than ignored, because `--list` and
 `--plan` ask for different things and letting one quietly win is how somebody
@@ -90,3 +91,27 @@ flag that is actually wrong.
 Every other tool check belongs to the platform that needs it, after its URL is
 found valid — a refusable URL should be refused on any machine, tools installed
 or not.
+
+Both refusals happen before node exists to compose one, so they write their
+envelope by hand. See [`shared/README.md`](./shared/README.md) for the contract
+they are writing.
+
+## Every command answers in one document
+
+Stdout carries exactly one JSON document, composed by `shared/output.mjs`;
+progress goes to stderr; `--help` and `setup.sh` are the documented exceptions
+and stay prose. The envelope, the refusal codes, the note codes and the streams
+rule are specified in [`shared/README.md`](./shared/README.md), and the schema is
+`shared/output.schema.json`.
+
+## Tests assert what a command returns
+
+`testing.mjs` runs a command's `main(argv, deps)` in-process, takes the one
+document off stdout, and validates it against that schema before handing it back.
+Every run-level test goes through it, so schema conformance is asserted on every
+document every test produces — there is no separate conformance test, and no way
+to add an emission path that skips validation by being forgotten.
+
+Assert on the document's fields, not on how it was assembled. A test reaching
+into an intermediate object is a test of an implementation detail; the document
+is the whole interface `SKILL.md` consumes.

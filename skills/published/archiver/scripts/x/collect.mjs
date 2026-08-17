@@ -92,7 +92,7 @@ export async function collect({ url, cookies, shouldStop, onAccount, bin = 'gall
       rows,
       account,
       stoppedEarly: false,
-      failure: 'unavailable',
+      failure: 'downloader-unavailable',
       stderr: spawnError?.message ?? 'could not start gallery-dl',
       code: -1,
     };
@@ -164,7 +164,7 @@ export async function collect({ url, cookies, shouldStop, onAccount, bin = 'gall
   child.stderr.destroy();
 
   // A non-zero exit we caused by killing it is not a failure.
-  const failure = stoppedEarly ? null : code === 0 ? null : (classifyFailure(stderr) ?? 'unknown');
+  const failure = stoppedEarly ? null : code === 0 ? null : (classifyFailure(stderr) ?? 'collect-failed');
   return { rows, account, stoppedEarly, failure, stderr, code };
 }
 

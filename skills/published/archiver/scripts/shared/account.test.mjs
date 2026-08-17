@@ -256,7 +256,8 @@ test('an alias that is another account id is refused, even while that folder is 
 
   const verdict = await checkAlias(ACCOUNT, dir, { id: '77', alias: '55' });
   assert.equal(verdict.ok, false);
-  assert.match(verdict.reason, /id/);
+  assert.equal(verdict.refusal.code, 'alias-is-other-id');
+  assert.equal(verdict.refusal.details.alias, '55');
 });
 
 test('an alias already taken by another account is refused, and names the account holding it', async () => {
@@ -266,7 +267,8 @@ test('an alias already taken by another account is refused, and names the accoun
 
   const verdict = await checkAlias(ACCOUNT, dir, { id: '77', alias: 'jia' });
   assert.equal(verdict.ok, false);
-  assert.match(verdict.reason, /55/);
+  assert.equal(verdict.refusal.code, 'alias-taken');
+  assert.equal(verdict.refusal.details.holder_id, '55');
 });
 
 test('re-passing the alias an account already has is not a collision with itself', async () => {
@@ -280,7 +282,7 @@ test('re-passing the alias an account already has is not a collision with itself
 test('a malformed alias is refused without the filesystem being consulted', async () => {
   const verdict = await checkAlias(ACCOUNT, '/no/such/root', { id: '55', alias: 'two words' });
   assert.equal(verdict.ok, false);
-  assert.match(verdict.reason, /alias/);
+  assert.equal(verdict.refusal.code, 'alias-invalid');
 });
 
 test('applyAlias names the folder for a brand new account', async () => {
