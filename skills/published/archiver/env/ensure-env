@@ -1,0 +1,383 @@
+#!/usr/bin/env bash
+#
+# ensure-env — builds the boxes the archiver runs its tools out of.
+#
+#   ensure-env runtime tools        build these boxes if they are not there
+#   ensure-env --print tools        print where a box is, building nothing
+#   ensure-env --refresh            rebuild `tools` at latest, and stick to it
+#   ensure-env --clean              delete every box, and the refresh with them
+#
+# Written in shell because the thing that builds the box cannot be written in the
+# runtime the box provides: on a machine with nothing but curl and a shell, this
+# is what puts the first binary on disk. Keep it small. If it outgrows what one
+# integration job can meaningfully validate, that is the signal that shell was
+# the wrong choice and the design needs revisiting.
+#
+# The floor is curl and a POSIX shell. Nothing else is assumed to exist, and
+# nothing here shells out to brew, pip or pipx.
+#
+# `uv` is the root of trust — the one download nothing but us verifies — so its
+# SHA-256 is pinned in the manifest and checked before it is ever executed.
+# Below that the tools verify themselves: uv.lock hashes the Python tree, Node's
+# tarball is checked against the SHASUMS256.txt beside it, and Playwright
+# verifies its own browser downloads.
+#
+# Every box is built into a temp sibling and renamed into place on success, so a
+# keyed path either exists complete or does not exist at all. Two builds racing
+# each build their own temp directory and one rename wins harmlessly — wasted
+# bandwidth, never a half-built box. Nothing is serialised with a lockfile;
+# stale-lock handling is its own source of bugs, and would buy only bandwidth.
+#
+# Prose goes to stderr. Stdout carries a path and nothing else, and only for
+# --print: everything here is invoked by scripts whose stdout is one JSON
+# document.
+
+set -euo pipefail
+
+ENV_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+MANIFEST="${ENV_DIR}/manifest"
+CACHE_ROOT="${XDG_CACHE_HOME:-$HOME/.cache}/archiver"
+CONSENT_FILE="${CACHE_ROOT}/consented"
+OVERRIDE_FILE="${CACHE_ROOT}/tools-override"
+
+say() { printf '  %s\n' "$*" >&2; }
+die() { printf 'ensure-env: %s\n' "$*" >&2; exit 1; }
+
+# Every cache these builds would otherwise scatter across the home directory,
+# gathered under the one directory `--clean` deletes. `UV_NO_CONFIG` so a
+# `uv.toml` somewhere above us cannot quietly change what gets built.
+export UV_CACHE_DIR="${CACHE_ROOT}/uv-cache"
+export UV_NO_CONFIG=1
+export UV_PYTHON_PREFERENCE=only-managed
+export npm_config_cache="${CACHE_ROOT}/npm-cache"
+
+# ---- the manifest ----------------------------------------------------------
+# Comments and blank lines are dropped and whitespace around `=` is collapsed
+# before anything is hashed, so a box key answers to the versions alone and
+# rewriting a comment never costs anybody a re-download. `paths.mjs` normalises
+# the same way; the two must agree, because one builds the box and the other
+# resolves the tools inside it.
+
+section_lines() {
+  awk -v want="[$1]" '
+    /^\[/ { inside = ($0 == want); next }
+    !inside { next }
+    /^[[:space:]]*#/ { next }
+    /^[[:space:]]*$/ { next }
+    {
+      i = index($0, "=")
+      if (i == 0) next
+      k = substr($0, 1, i - 1)
+      v = substr($0, i + 1)
+      gsub(/^[[:space:]]+|[[:space:]]+$/, "", k)
+      gsub(/^[[:space:]]+|[[:space:]]+$/, "", v)
+      print k "=" v
+    }
+  ' "$MANIFEST"
+}
+
+pin() {
+  section_lines "$1" | awk -v k="$2" 'index($0, k "=") == 1 { print substr($0, length(k) + 2); exit }'
+}
+
+sha256_of_stdin() {
+  if command -v sha256sum >/dev/null 2>&1; then sha256sum | cut -d' ' -f1
+  else shasum -a 256 | cut -d' ' -f1
+  fi
+}
+
+# What a box's key is computed over. Its own section always; for `tools` also
+# the interpreter it resolves against and the two files that pin the downloaders,
+# so a Python bump or a lock change invalidates it and a runtime or browser bump
+# does not.
+key_input() {
+  section_lines "$1"
+  if [[ "$1" == tools ]]; then
+    printf 'python=%s\n' "$(pin runtime python)"
+    cat "${ENV_DIR}/$(pin tools pinned-by)" "${ENV_DIR}/$(pin tools locked-by)"
+  fi
+}
+
+box_key() { key_input "$1" | sha256_of_stdin | cut -c1-12; }
+
+# Where a box is. `tools` answers to a refresh that is still current: the
+# override records the shipped key it was taken against, and stops applying by
+# itself the moment a shipped bump passes it.
+box_dir() {
+  local key
+  case "$1" in
+    runtime | tools | browser) ;;
+    *) die "no box called '$1' — try: runtime, tools, browser" ;;
+  esac
+  key="$(box_key "$1")"
+  if [[ "$1" == tools && -f "$OVERRIDE_FILE" ]] && [[ "$(cat "$OVERRIDE_FILE")" == "$key" ]]; then
+    printf '%s/tools-latest-%s' "$CACHE_ROOT" "$key"
+  else
+    printf '%s/%s-%s' "$CACHE_ROOT" "$1" "$key"
+  fi
+}
+
+# ---- this machine ----------------------------------------------------------
+
+uv_target() {
+  local os arch
+  case "$(uname -s)" in
+    Darwin) os=apple-darwin ;;
+    Linux) os=unknown-linux-gnu ;;
+    *) die "unsupported operating system: $(uname -s)" ;;
+  esac
+  case "$(uname -m)" in
+    arm64 | aarch64) arch=aarch64 ;;
+    x86_64 | amd64) arch=x86_64 ;;
+    *) die "unsupported architecture: $(uname -m)" ;;
+  esac
+  printf '%s-%s' "$arch" "$os"
+}
+
+node_target() {
+  local os arch
+  case "$(uname -s)" in
+    Darwin) os=darwin ;;
+    Linux) os=linux ;;
+    *) die "unsupported operating system: $(uname -s)" ;;
+  esac
+  case "$(uname -m)" in
+    arm64 | aarch64) arch=arm64 ;;
+    x86_64 | amd64) arch=x64 ;;
+    *) die "unsupported architecture: $(uname -m)" ;;
+  esac
+  printf '%s-%s' "$os" "$arch"
+}
+
+fetch() {
+  curl --fail --silent --show-error --location --retry 3 --output "$2" "$1" ||
+    die "could not download $1"
+}
+
+verify() {
+  local file="$1" expected="$2" actual
+  actual="$(sha256_of_stdin <"$file")"
+  [[ "$actual" == "$expected" ]] ||
+    die "checksum mismatch for $(basename "$file"): expected $expected, got $actual"
+}
+
+# ---- building --------------------------------------------------------------
+
+# The temp sibling every build happens in. Inside the cache root so the rename
+# that publishes it is a rename and not a copy across filesystems.
+new_workdir() {
+  mkdir -p "$CACHE_ROOT"
+  mktemp -d "${CACHE_ROOT}/.build-XXXXXX"
+}
+
+# Publishes a finished build. A box that appeared while we were working is
+# another process having finished the identical build first, and is left alone.
+publish() {
+  local work="$1" target="$2"
+  if [[ -d "$target" ]]; then
+    rm -rf "$work"
+    return 0
+  fi
+  mv "$work" "$target" 2>/dev/null || rm -rf "$work"
+  [[ -d "$target" ]] || die "could not publish $(basename "$target")"
+}
+
+build_runtime() {
+  local work uv_ver uv_tgt node_ver node_tgt tarball sums
+  work="$(new_workdir)"
+  # shellcheck disable=SC2064
+  trap "rm -rf '$work'" EXIT
+
+  uv_ver="$(pin runtime uv)"
+  uv_tgt="$(uv_target)"
+  say "downloading uv ${uv_ver} (${uv_tgt})"
+  fetch "https://github.com/astral-sh/uv/releases/download/${uv_ver}/uv-${uv_tgt}.tar.gz" "${work}/uv.tar.gz"
+  verify "${work}/uv.tar.gz" "$(pin runtime "uv-sha256-${uv_tgt}")"
+  mkdir -p "${work}/uv"
+  tar -xzf "${work}/uv.tar.gz" -C "${work}/uv" --strip-components 1
+  rm -f "${work}/uv.tar.gz"
+
+  say "installing CPython $(pin runtime python)"
+  UV_PYTHON_INSTALL_DIR="${work}/python" "${work}/uv/uv" python install --quiet "$(pin runtime python)" ||
+    die "uv could not install CPython $(pin runtime python)"
+
+  node_ver="$(pin runtime node)"
+  node_tgt="$(node_target)"
+  tarball="node-v${node_ver}-${node_tgt}.tar.gz"
+  say "downloading Node ${node_ver} (${node_tgt})"
+  fetch "https://nodejs.org/dist/v${node_ver}/${tarball}" "${work}/${tarball}"
+  fetch "https://nodejs.org/dist/v${node_ver}/SHASUMS256.txt" "${work}/SHASUMS256.txt"
+  sums="$(awk -v f="$tarball" '$2 == f { print $1; exit }' "${work}/SHASUMS256.txt")"
+  [[ -n "$sums" ]] || die "nodejs.org publishes no checksum for ${tarball}"
+  verify "${work}/${tarball}" "$sums"
+  mkdir -p "${work}/node"
+  tar -xzf "${work}/${tarball}" -C "${work}/node" --strip-components 1
+  rm -f "${work}/${tarball}" "${work}/SHASUMS256.txt"
+
+  cp "$MANIFEST" "${work}/manifest"
+  trap - EXIT
+  publish "$work" "$(box_dir runtime)"
+}
+
+# The venv is created relocatable before anything is installed into it, because
+# a console script carrying an absolute shebang would be broken by the rename
+# that publishes the box. The interpreter is named by its pinned version rather
+# than by the path it was installed to: uv writes the relative shebang only for
+# a venv it knows is on a Python it manages.
+build_tools() {
+  local work uv
+  ensure runtime
+  work="$(new_workdir)"
+  # shellcheck disable=SC2064
+  trap "rm -rf '$work'" EXIT
+
+  uv="$(box_dir runtime)/uv/uv"
+  export UV_PYTHON_INSTALL_DIR="$(box_dir runtime)/python"
+
+  say "installing the downloaders"
+  "$uv" venv --quiet --relocatable --python "$(pin runtime python)" "${work}/venv" ||
+    die "could not create the tools environment"
+  UV_PROJECT_ENVIRONMENT="${work}/venv" "$uv" sync --quiet --frozen --project "$ENV_DIR" ||
+    die "could not install the downloaders — pyproject.toml and uv.lock disagree, or the index is unreachable"
+
+  cp "$MANIFEST" "${work}/manifest"
+  cp "${ENV_DIR}/$(pin tools pinned-by)" "${ENV_DIR}/$(pin tools locked-by)" "${work}/"
+  trap - EXIT
+  publish "$work" "$(box_dir tools)"
+}
+
+build_browser() {
+  local work node browser
+  ensure runtime
+  work="$(new_workdir)"
+  # shellcheck disable=SC2064
+  trap "rm -rf '$work'" EXIT
+
+  node="$(box_dir runtime)/node/bin"
+  browser="$(pin browser playwright)"
+
+  # Written rather than committed, so the manifest stays the one place a version
+  # is pinned. `--no-package-lock` because Playwright pins its own dependencies
+  # exactly, which makes a lockfile here a second copy of the same fact.
+  cat >"${work}/package.json" <<JSON
+{
+  "name": "archiver-browser-box",
+  "private": true,
+  "dependencies": { "playwright": "${browser}" }
+}
+JSON
+
+  say "installing Playwright ${browser}"
+  (cd "$work" && PATH="${node}:$PATH" "${node}/npm" install --silent --no-package-lock --no-audit --no-fund) ||
+    die "could not install Playwright"
+
+  say "downloading Chromium"
+  (cd "$work" && PATH="${node}:$PATH" PLAYWRIGHT_BROWSERS_PATH="${work}/browsers" \
+    "${node}/node" node_modules/playwright/cli.js install chromium) ||
+    die "could not download Chromium"
+
+  cp "$MANIFEST" "${work}/manifest"
+  trap - EXIT
+  publish "$work" "$(box_dir browser)"
+}
+
+ensure() {
+  local dir
+  drop_overtaken_refresh
+  dir="$(box_dir "$1")"
+  [[ -d "$dir" ]] && return 0
+  say "building the ${1} box in ${CACHE_ROOT}"
+  case "$1" in
+    runtime) build_runtime ;;
+    tools) build_tools ;;
+    browser) build_browser ;;
+  esac
+}
+
+# A refresh the shipped pins have caught up with. It has already stopped applying
+# — the override records the key it was taken against — so this is only the
+# hundred megabytes it was still occupying.
+drop_overtaken_refresh() {
+  [[ -f "$OVERRIDE_FILE" ]] || return 0
+  local recorded
+  recorded="$(cat "$OVERRIDE_FILE")"
+  [[ "$recorded" == "$(box_key tools)" ]] && return 0
+  say "the shipped downloaders have overtaken a refresh — dropping it"
+  rm -rf "${CACHE_ROOT}/tools-latest-${recorded}" "$OVERRIDE_FILE"
+}
+
+# ---- refresh ---------------------------------------------------------------
+# For the user who meets a platform change before we ship a bump. It sticks:
+# the override records the shipped key it was taken against, so the refreshed
+# box stays in use until a shipped bump passes it and then stops applying by
+# itself. Nothing rewrites the manifest — the skill directory stays pure source.
+
+refresh_tools() {
+  local work uv key target
+  ensure runtime
+  key="$(box_key tools)"
+  target="${CACHE_ROOT}/tools-latest-${key}"
+  work="$(new_workdir)"
+  # shellcheck disable=SC2064
+  trap "rm -rf '$work'" EXIT
+
+  uv="$(box_dir runtime)/uv/uv"
+  export UV_PYTHON_INSTALL_DIR="$(box_dir runtime)/python"
+
+  say "installing the downloaders at their latest release"
+  "$uv" venv --quiet --relocatable --python "$(pin runtime python)" "${work}/venv" ||
+    die "could not create the tools environment"
+  "$uv" pip install --quiet --python "${work}/venv/bin/python" yt-dlp gallery-dl ||
+    die "could not install the downloaders"
+
+  cp "$MANIFEST" "${work}/manifest"
+  printf 'refreshed past the shipped pins; delete %s to go back\n' "$OVERRIDE_FILE" >"${work}/REFRESHED"
+
+  # Not `publish`: a refresh asked for again is a rebuild, so the box it
+  # replaces is stood aside first and deleted only once the new one is in place.
+  # A rename that fails puts the old one back rather than leaving the refreshed
+  # path naming nothing.
+  local stale="${CACHE_ROOT}/.stale-$$"
+  if [[ -d "$target" ]]; then mv "$target" "$stale"; fi
+  trap - EXIT
+  if ! mv "$work" "$target"; then
+    if [[ -d "$stale" ]]; then mv "$stale" "$target"; fi
+    rm -rf "$work"
+    die "could not publish the refreshed tools box"
+  fi
+  rm -rf "$stale"
+
+  printf '%s' "$key" >"$OVERRIDE_FILE"
+  say "refreshed — ${target}"
+}
+
+# ---- what was asked for ----------------------------------------------------
+
+case "${1:-}" in
+  '')
+    die "name a box, or --print, --refresh, --clean"
+    ;;
+  --print)
+    [[ -n "${2:-}" ]] || die "--print needs a box name"
+    box_dir "$2"
+    printf '\n'
+    ;;
+  --refresh)
+    refresh_tools
+    ;;
+  --clean)
+    rm -rf "$CACHE_ROOT"
+    say "removed ${CACHE_ROOT}"
+    ;;
+  -h | --help)
+    sed -n '3,9p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+    ;;
+  -*)
+    die "no option called '$1'"
+    ;;
+  *)
+    for box in "$@"; do ensure "$box"; done
+    mkdir -p "$CACHE_ROOT"
+    : >"$CONSENT_FILE"
+    ;;
+esac

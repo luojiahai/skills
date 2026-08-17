@@ -18,6 +18,7 @@ import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
 
 import { POSTS_DIR, isMissing } from '../shared/landed.mjs';
+import { toolPath } from '../shared/paths.mjs';
 import { classifyFailure, fetchArgs } from './gallerydl.mjs';
 import { postFolderName } from '../shared/naming.mjs';
 import { permalink } from './target.mjs';
@@ -32,9 +33,9 @@ export const FATAL = new Set([
   'downloader-unavailable',
 ]);
 
-function run(bin, args) {
+function run(bin, args, spawnImpl) {
   return new Promise((resolve) => {
-    const child = spawn(bin, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+    const child = spawnImpl(bin, args, { stdio: ['ignore', 'pipe', 'pipe'] });
     let output = '';
     const take = (chunk) => {
       output += chunk;
@@ -80,7 +81,8 @@ export async function fetchPosts({
   posts,
   handle,
   cookies,
-  bin = 'gallery-dl',
+  bin = toolPath('gallery-dl'),
+  spawnImpl = spawn,
   onPost,
 }) {
   const fetched = { posts: 0, files: 0 };
@@ -120,7 +122,7 @@ export async function fetchPosts({
       continue;
     }
 
-    const result = await run(bin, fetchArgs({ url, directory: dir, cookies }));
+    const result = await run(bin, fetchArgs({ url, directory: dir, cookies }), spawnImpl);
 
     const kind =
       result.code === 0

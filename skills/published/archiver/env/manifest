@@ -1,0 +1,45 @@
+# manifest — every version the archiver's tool environment is built from.
+#
+# Three boxes, one section each, partitioned by volatility and size rather than
+# by platform. Bumping a line here changes that box's key, which changes its
+# directory, which is what makes a stale box impossible to reuse by accident.
+#
+# `uv` is the root of trust: it is the one download nothing else verifies for
+# us, so its version and its archive's SHA-256 are both pinned and the hash is
+# checked before the binary is ever executed. Everything below it chains off
+# tooling that verifies itself — `uv.lock` carries hashes for the whole Python
+# tree, Node's tarball is checked against the SHASUMS256.txt published beside
+# it, and Playwright verifies its own browser downloads.
+#
+# Format: `[section]` headers, `key = value` lines, `#` comments. Read by
+# `ensure-env` in POSIX shell and by `scripts/shared/paths.mjs` in JavaScript,
+# so it stays this plain on purpose.
+
+[runtime]
+uv = 0.12.5
+uv-sha256-aarch64-apple-darwin = 5bb0e5fe008a773c3dbcb97ff79cd89e1241464fe9d2f986d52ad8f1b037bd62
+uv-sha256-x86_64-apple-darwin = b3b2137477cf96c9686ebfb71524614cec780c673fd73e59bce099aef02e70e8
+uv-sha256-aarch64-unknown-linux-gnu = 9bf43b4d1a07665bf64d4c4e710930b382321a785e0eb10aac07f46471f86a31
+uv-sha256-x86_64-unknown-linux-gnu = 68a509da24b06b4223a1c0175fb5eb5bc79342b76cbeff0cfe51ac3f5b17b6b2
+python = 3.13.14
+node = 24.19.0
+
+# yt-dlp and gallery-dl are pinned as ordinary Python dependencies, so this
+# section names the two files that hold them rather than repeating a version
+# that could then disagree with them. Both files are part of this section's key,
+# as is the `python` line above — uv resolves tools against the interpreter, so
+# a Python bump has to invalidate them.
+[tools]
+pinned-by = pyproject.toml
+locked-by = uv.lock
+
+[browser]
+playwright = 1.62.1
+
+# Roughly what a cold build of each box pulls down, in megabytes. Read only to
+# tell the user what they are about to spend before it is spent, so it is out of
+# every box key: a size that turned out to be wrong should not rebuild anything.
+[download]
+runtime = 100
+tools = 15
+browser = 250

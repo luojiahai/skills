@@ -1,10 +1,26 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, symlink } from 'node:fs/promises';
+import { execFileSync } from 'node:child_process';
+import { mkdtemp, mkdir, symlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
-import { archivesRoot, cookieFile, normalizeRoot, stateDir } from './paths.mjs';
+import {
+  BOXES,
+  ENV_DIR,
+  archivesRoot,
+  boxDir,
+  boxKey,
+  cacheRoot,
+  cookieFile,
+  downloadSize,
+  normalizeRoot,
+  parseManifest,
+  pin,
+  stateDir,
+  systemTools,
+  toolPath,
+} from './paths.mjs';
 
 test('each platform keeps its state under its own directory', () => {
   // Split per platform because signing in to one says nothing about the other,
@@ -77,4 +93,126 @@ test('the default root is archives/ at the git root, not the subdirectory', asyn
   // happened to be standing in.
   const { realpathSync } = await import('node:fs');
   assert.equal(archivesRoot(deep), path.join(realpathSync(repo), 'archives'));
+});
+
+// ---- the tool boxes --------------------------------------------------------
+
+const MANIFEST = `# a note
+[runtime]
+uv = 1.2.3
+python = 3.13.14
+
+# a note about tools
+[tools]
+pinned-by = pyproject.toml
+locked-by = uv.lock
+
+[browser]
+playwright = 9.9.9
+`;
+
+test('the manifest is read as key = value lines, comments and blanks dropped', () => {
+  const sections = parseManifest(MANIFEST);
+  assert.deepEqual(sections.get('runtime'), ['uv=1.2.3', 'python=3.13.14']);
+  assert.deepEqual(sections.get('browser'), ['playwright=9.9.9']);
+  assert.equal(pin('runtime', 'python', sections), '3.13.14');
+  assert.equal(pin('runtime', 'nothing', sections), null);
+});
+
+test('a box key answers to its versions and not to its comments', () => {
+  // Comments in the manifest exist to be rewritten. One costing a hundred
+  // megabytes of re-download is a comment nobody edits.
+  const sections = parseManifest(MANIFEST);
+  const reworded = parseManifest(MANIFEST.replace('# a note about tools', '# something else'));
+  const read = () => 'fixed';
+  for (const box of BOXES) {
+    assert.equal(boxKey(box, sections, read), boxKey(box, reworded, read), box);
+  }
+});
+
+test('a version bump changes exactly the box that pins it', () => {
+  const sections = parseManifest(MANIFEST);
+  const bumped = parseManifest(MANIFEST.replace('playwright = 9.9.9', 'playwright = 9.9.10'));
+  const read = () => 'fixed';
+  assert.notEqual(boxKey('browser', sections, read), boxKey('browser', bumped, read));
+  assert.equal(boxKey('runtime', sections, read), boxKey('runtime', bumped, read));
+  assert.equal(boxKey('tools', sections, read), boxKey('tools', bumped, read));
+});
+
+test('a Python bump invalidates the tools built against it', () => {
+  // uv resolves tools against the interpreter it was given, so a tools box left
+  // over from the previous Python is a box holding the wrong thing.
+  const sections = parseManifest(MANIFEST);
+  const bumped = parseManifest(MANIFEST.replace('python = 3.13.14', 'python = 3.14.0'));
+  const read = () => 'fixed';
+  assert.notEqual(boxKey('tools', sections, read), boxKey('tools', bumped, read));
+});
+
+test('a lock change invalidates the tools and nothing else', () => {
+  // The whole reason the partition follows volatility: a yt-dlp patch must not
+  // re-download an interpreter and a browser that did not change.
+  const sections = parseManifest(MANIFEST);
+  const before = () => 'one';
+  const after = (name) => (name === 'uv.lock' ? 'two' : 'one');
+  assert.notEqual(boxKey('tools', sections, before), boxKey('tools', sections, after));
+  assert.equal(boxKey('runtime', sections, before), boxKey('runtime', sections, after));
+  assert.equal(boxKey('browser', sections, before), boxKey('browser', sections, after));
+});
+
+test('ensure-env and paths.mjs agree on where every box is', () => {
+  // One of them builds the box and the other has to find the same box again, so
+  // the two implementations of the key are the same rule written twice. This is
+  // the test that keeps them the same rule. It computes only; nothing is built
+  // and no socket is touched.
+  for (const box of BOXES) {
+    const fromShell = execFileSync(path.join(ENV_DIR, 'ensure-env'), ['--print', box], {
+      encoding: 'utf8',
+    }).trim();
+    assert.equal(boxDir(box), fromShell, box);
+  }
+});
+
+test('a refresh sticks until a shipped bump passes it', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'archiver-cache-'));
+  assert.equal(boxDir('tools', root), path.join(root, `tools-${boxKey('tools')}`));
+
+  await writeFile(path.join(root, 'tools-override'), boxKey('tools'));
+  assert.equal(boxDir('tools', root), path.join(root, `tools-latest-${boxKey('tools')}`));
+
+  // Recorded against the shipped key it was taken over, so the day that key
+  // changes the override stops applying rather than pinning the user to a
+  // refresh they made months ago.
+  await writeFile(path.join(root, 'tools-override'), 'someolderkey');
+  assert.equal(boxDir('tools', root), path.join(root, `tools-${boxKey('tools')}`));
+});
+
+test('the boxes are cache, and sessions are not', () => {
+  // rm -rf on the cache root has to be unconditionally safe: no support answer
+  // should ever have to warn somebody they are about to lose a login.
+  assert.equal(path.basename(cacheRoot()), 'archiver');
+  assert.notEqual(cacheRoot(), stateDir('x'));
+  for (const platform of ['x', 'douyin']) {
+    assert.ok(!stateDir(platform).startsWith(cacheRoot() + path.sep), platform);
+  }
+});
+
+test('every box says roughly what it costs to build', () => {
+  // It is what the first-run refusal tells the user they are about to spend.
+  for (const box of BOXES) assert.ok(downloadSize(box) > 0, box);
+});
+
+test('tools resolve into the boxes, and to PATH only through the escape hatch', () => {
+  assert.ok(toolPath('yt-dlp').startsWith(cacheRoot()));
+  assert.ok(toolPath('gallery-dl').startsWith(cacheRoot()));
+  assert.throws(() => toolPath('curl'), /no box holds a tool/);
+
+  process.env.ARCHIVER_SYSTEM_TOOLS = '1';
+  try {
+    assert.equal(systemTools(), true);
+    assert.equal(toolPath('yt-dlp'), 'yt-dlp');
+    assert.equal(toolPath('gallery-dl'), 'gallery-dl');
+  } finally {
+    delete process.env.ARCHIVER_SYSTEM_TOOLS;
+  }
+  assert.equal(systemTools(), false);
 });

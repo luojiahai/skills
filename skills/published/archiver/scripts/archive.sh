@@ -13,8 +13,9 @@
 # somebody approves it.
 #
 # This script deliberately does almost nothing, and what little it does it does
-# because it must happen before node runs. Each platform preflights its own
-# tools once it has been dispatched to.
+# because it must happen before node runs — including working out which node
+# that is. Each platform builds and preflights its own tools once it has been
+# dispatched to.
 #
 # Every command answers with one JSON document on stdout. These two refusals
 # happen before node exists to compose one, so they are written out by hand —
@@ -52,7 +53,27 @@ JSON
   fi
 done
 
-if ! command -v node >/dev/null 2>&1; then
+# The Node this skill runs on comes out of the runtime box, so a machine with
+# none can still archive — the box is built by curl and a shell, and needs no
+# Node to exist first. Nothing is built here: `--help` and a mistyped flag must
+# go on answering without touching the network, so a box that is not there yet
+# falls through to whatever the machine has, and to a refusal if it has nothing.
+# Building is each platform's to do, once it knows it is going to download.
+NODE=""
+if [[ "${ARCHIVER_SYSTEM_TOOLS:-}" != "1" ]]; then
+  # `|| true` because errexit would kill an assignment whose substitution failed,
+  # and this script must never exit with nothing on stdout. A builder that cannot
+  # even say where the box would be simply means there is no box.
+  RUNTIME_BOX="$("${SCRIPT_DIR}/../env/ensure-env" --print runtime 2>/dev/null || true)"
+  if [[ -n "$RUNTIME_BOX" && -x "${RUNTIME_BOX}/node/bin/node" ]]; then
+    NODE="${RUNTIME_BOX}/node/bin/node"
+  fi
+fi
+if [[ -z "$NODE" ]] && command -v node >/dev/null 2>&1; then
+  NODE="node"
+fi
+
+if [[ -z "$NODE" ]]; then
   cat <<'JSON'
 {
   "schema": 1,
@@ -62,10 +83,9 @@ if ! command -v node >/dev/null 2>&1; then
   "exit": 4,
   "error": {
     "code": "node-missing",
-    "message": "node is not installed",
+    "message": "there is no node to run this on, and the skill has not built its own yet",
     "remedy": {
-      "message": "install Node from https://nodejs.org",
-      "command": "brew install node",
+      "message": "run the skill's setup.sh, which downloads a Node of its own with nothing but curl",
       "run_by": "user"
     }
   }
@@ -77,4 +97,4 @@ fi
 # Named so the refusal messages can print a command the user can actually run.
 export ARCHIVE_SELF="${SCRIPT_DIR}/archive.sh"
 
-exec node "${SCRIPT_DIR}/dispatch.mjs" "$@"
+exec "$NODE" "${SCRIPT_DIR}/dispatch.mjs" "$@"

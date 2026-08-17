@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict';
+import { EventEmitter } from 'node:events';
 import { chmod, mkdtemp, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { Readable } from 'node:stream';
 import test from 'node:test';
 
 import { DEFAULT_ABORT, collect, makeStopper } from './collect.mjs';
@@ -171,4 +173,26 @@ test('collect survives gallery-dl not being installed', async () => {
   const result = await collect({ url: 'u', bin: '/no/such/gallery-dl' });
   assert.equal(result.rows.length, 0);
   assert.ok(result.failure);
+});
+
+test('the listing pass spawns through the seam it was handed', async () => {
+  // What is spawned is a path into a box this skill built, and a test asserting
+  // it must not depend on anything being installed on the machine running it.
+  const calls = [];
+  const spawnImpl = (bin, args) => {
+    calls.push({ bin, args });
+    const child = new EventEmitter();
+    child.stdout = Readable.from([`${row('10')}\n`]);
+    child.stderr = Readable.from([]);
+    setImmediate(() => child.emit('spawn'));
+    child.stdout.on('end', () => setImmediate(() => child.emit('exit', 0)));
+    return child;
+  };
+
+  const result = await collect({ url: 'https://x.com/someone', bin: '/box/gallery-dl', spawnImpl });
+
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].bin, '/box/gallery-dl');
+  assert.equal(result.rows.length, 1);
+  assert.equal(result.failure, null);
 });

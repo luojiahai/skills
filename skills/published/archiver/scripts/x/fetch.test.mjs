@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { EventEmitter } from 'node:events';
 import test from 'node:test';
 
 import { chmod, mkdtemp, writeFile } from 'node:fs/promises';
@@ -132,4 +133,32 @@ test('a rate limit ends the run instead of grinding through every post', async (
   assert.equal(result.failed, 0);
   // The second post was never started, so nothing was written for it.
   assert.equal(await readPost(path.join(dir, 'posts', '2024-03-10_2')), null);
+});
+
+test('the download pass spawns through the seam it was handed', async () => {
+  // The downloader is a resolved path into a box, so what gets spawned is
+  // asserted through the seam rather than through a shell script written to
+  // disk — nothing about this test depends on the machine running it.
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'x-dl-seam-'));
+  const calls = [];
+  const spawnImpl = (bin, args) => {
+    calls.push({ bin, args });
+    const child = new EventEmitter();
+    child.stdout = new EventEmitter();
+    child.stderr = new EventEmitter();
+    setImmediate(() => child.emit('close', 0));
+    return child;
+  };
+
+  const result = await fetchPosts({
+    accountDir: dir,
+    posts: [{ tweetId: '1', count: 1, files: [file(1)] }],
+    handle: 'someone',
+    bin: '/box/gallery-dl',
+    spawnImpl,
+  });
+
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].bin, '/box/gallery-dl');
+  assert.equal(result.fetched.posts, 1);
 });

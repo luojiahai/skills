@@ -64,6 +64,8 @@ export const ERROR_EXITS = {
   'unsafe-account-id': EXIT.FAILED,
 
   // Tools
+  'env-consent': EXIT.REFUSED,
+  'env-build-failed': EXIT.FAILED,
   'tool-missing': EXIT.FAILED,
   'playwright-missing': EXIT.FAILED,
   'playwright-broken': EXIT.FAILED,
