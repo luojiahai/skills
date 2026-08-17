@@ -4,7 +4,7 @@
 
 Agent skills for the life admin nobody else is going to do for you. They don't act on your behalf. They read, reconcile, compute and show their working, and you check it and press the button yourself.
 
-What's here right now: a Douyin account archiver, and an X (Twitter) one.
+What's here right now: one archiver, for Douyin and X (Twitter) accounts.
 
 ## Quickstart
 
@@ -43,10 +43,9 @@ Two ways to install, two philosophies:
 
 Full entries, including what each one costs you, are in the [catalogue](./skills/README.md).
 
-- **[douyin-archiver](./skills/published/douyin-archiver/SKILL.md)** — archive every video from a Douyin account; re-runs fetch only what's new.
-- **[x-archiver](./skills/published/x-archiver/SKILL.md)** — archive the images, videos and GIFs an account has posted on X (formerly Twitter).
+- **[archiver](./skills/published/archiver/SKILL.md)** — archive a social account's posts to your own disk. It covers **Douyin** (every video an account has posted) and **X, formerly Twitter** (the images, videos and GIFs). You give it a profile URL; the URL says which platform, and you are never asked. Re-runs fetch only what's new.
 
-Both run on your own signed-in session and archive to your own disk — read the catalogue before you point them at anything.
+It runs on your own signed-in session and archives to your own disk — read the catalogue before you point it at anything.
 
 ## Maintenance
 
