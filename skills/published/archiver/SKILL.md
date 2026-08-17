@@ -52,10 +52,10 @@ found, how many you already have, and how many are new. It downloads nothing.
 Report that block and ask whether to go ahead. Then **give the turn back and
 wait**. Do not run `--go` until the user has answered.
 
-`--go` downloads exactly the posts that block described, and does not collect
-again. It refuses a plan that is missing, more than 24 hours old, or made for a
-different account or a different archives folder; each refusal prints the
-`--plan` command that fixes it.
+`--go` downloads from that plan, and does not collect again: it takes the posts
+the plan named and fetches the ones still missing from disk. It refuses a plan
+that is missing, more than 24 hours old, or made for a different account or a
+different archives root; each refusal prints the `--plan` command that fixes it.
 
 A `--go` that stops partway leaves the plan in place, so re-running `--go` picks
 up only what is missing — and needs no new question, because the user already
@@ -187,7 +187,9 @@ videos and GIFs — from its own posts and its replies to itself. Not retweets
 (someone else's upload), not quoted posts (likewise), and not posts carrying no
 media. Likes, bookmarks, lists and search are out of scope.
 
-`--full` enumerates the whole timeline even when a re-run could stop early.
+`--full` collects the whole timeline even when a re-run could stop early.
+`--cookies FILE` uses an exported `cookies.txt` instead of a browser or the
+cached session, for a machine where no signed-in browser is available.
 
 Its distinct hard stops: **rate-limited** stops cleanly and reports what landed —
 wait, then `--go` again; **session rejected** discards the cached cookies, so

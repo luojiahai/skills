@@ -4,7 +4,7 @@
 
 Agent skills for the life admin nobody else is going to do for you. They don't act on your behalf. They read, reconcile, compute and show their working, and you check it and press the button yourself.
 
-What's here right now: one archiver, for Douyin and X (Twitter) accounts.
+What's here right now: one archiver, for Douyin and X (formerly Twitter) accounts.
 
 ## Quickstart
 
@@ -18,7 +18,7 @@ Pick the skills you want and the agents to install them on, then type the skill'
 
 ## Install as a Claude Code plugin
 
-Prefer a plug-and-play install you don't maintain by hand? These skills also ship as a native [Claude Code plugin](https://code.claude.com/docs/en/plugins). Instead of copying editable files into your project, the plugin installs the whole set as a managed bundle that updates when I ship a new version — you subscribe rather than fork.
+These skills also ship as a native [Claude Code plugin](https://code.claude.com/docs/en/plugins). Instead of copying editable files into your project, the plugin installs the whole set as a managed bundle that updates when I ship a new version — you subscribe rather than fork.
 
 Inside Claude Code:
 
@@ -37,7 +37,7 @@ claude plugin install luojiahai-skills@luojiahai
 Two ways to install, two philosophies:
 
 - **[skills.sh](https://skills.sh/luojiahai/skills)** copies the skills into your project, so you can hack on them and make them your own.
-- **The plugin** keeps them as a read-only, always-current bundle you don't edit — best when you want the set to work and to follow along as it changes.
+- **The plugin** keeps them as a read-only bundle you don't edit, updated when I ship — best when you want the set to work as shipped rather than to own it.
 
 ## Skills
 

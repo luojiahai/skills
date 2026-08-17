@@ -47,8 +47,9 @@ export const POLICY = {
  * low: a 429 should surface as a clean stop that a later `--go` resumes, not as
  * a client hammering its way into a longer lockout.
  *
- * These numbers are a conservative starting point and want measuring against a
- * real account; see scripts/README.md.
+ * These numbers are a conservative starting point, unverified against a live
+ * account. README.md beside this file carries the reasoning, under "The pauses
+ * are what let a long run finish".
  */
 export const THROTTLE = ['--sleep-request', '2.0', '--sleep', '1.0-3.0', '--retries', '2'];
 

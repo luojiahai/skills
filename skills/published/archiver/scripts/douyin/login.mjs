@@ -7,9 +7,9 @@
  * anything is a separate question, asked afterwards.
  *
  * It waits by *observing* the session rather than by asking. A keypress is the
- * user asserting they are signed in; the cookie appearing is the fact. Trusting
- * the assertion is what made an Enter pressed a moment early indistinguishable
- * from an expired session: both produced a collection that found zero posts.
+ * user asserting they are signed in; the cookie appearing is the fact. Trust the
+ * assertion and an Enter pressed a moment early is indistinguishable from an
+ * expired session — both produce a collection that finds zero posts.
  *
  * Enter is still honoured, as the way out for somebody who has given up or who
  * hit a verification wall this cannot see past. It ends the wait; it does not

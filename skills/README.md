@@ -10,7 +10,7 @@ npx skills@latest add luojiahai/skills
 
 The [root README](../README.md) covers the Claude Code plugin install too.
 
-Skills live in one of two tiers. `published/` is what installs; `deprecated/` is what used to, and is listed at the bottom of this page for the record.
+Skills live in one of two tiers. `published/` is what installs; `deprecated/` holds the retired ones, listed at the bottom of this page for the record.
 
 ## archiver
 

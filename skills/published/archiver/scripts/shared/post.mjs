@@ -19,9 +19,9 @@
  * had to record the four.
  *
  * The shape is curated rather than dumped. The extractor's own output is
- * enormous and changes between versions, and two skills whose post.json held
- * two different blobs would be structurally incomparable — which is the whole
- * thing the shared layout exists to prevent.
+ * enormous and changes between versions, and a post.json holding one platform's
+ * blob would be structurally incomparable with the next — which is the whole
+ * thing this one shared builder exists to prevent.
  */
 import path from 'node:path';
 
@@ -46,7 +46,7 @@ export const POST_VERSION = 1;
  * upload. For a video there is no such thing exposed — the nearest candidate is
  * the basename of whichever variant had the highest bitrate, which changes if X
  * re-encodes — so it is left out rather than recorded as if it were stable.
- * Migrated posts have neither, because neither was ever on disk to recover.
+ * Both keys are absent from a Douyin entry, which has no equivalent to either.
  */
 export function mediaEntry({ file, num, ext, url, type, id } = {}) {
   // Either the name outright — yt-dlp prints the one it is about to write —
@@ -64,9 +64,9 @@ export function mediaEntry({ file, num, ext, url, type, id } = {}) {
 /**
  * The post, in a fixed order and holding nothing else.
  *
- * `text` goes in whole and is never truncated — this is now the only place a
- * post's words are kept, since the folder name carries none of them and
- * `text.txt` is gone.
+ * `text` goes in whole and is never truncated — this is the only place a post's
+ * words are kept, the folder name carrying none of them. Do not add a second
+ * file beside it holding the same words in another form.
  */
 export function buildPost({ id, permalink, timestamp, text, replyTo, media } = {}) {
   return {

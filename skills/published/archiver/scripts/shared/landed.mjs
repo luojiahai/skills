@@ -20,10 +20,10 @@
  * adds is the list to look for, which is why a post whose fourth image failed
  * now reads as incomplete instead of as done.
  *
- * The layout is shared with the Douyin platform, which holds the same rules in its
- * own landed.mjs and post.mjs. They are duplicated on purpose — a skill is a
- * self-contained folder under skills/, so there is nowhere a shared module could
- * live that is still a skill. Change a rule here and change it there.
+ * Both platforms write into one archives root, so this rule has one home and
+ * both import it from here. A per-platform copy is the thing to refuse: two
+ * definitions of "landed" drift, and the drift shows up as a block promising a
+ * number the download then disagrees with.
  */
 import { readdir } from 'node:fs/promises';
 import path from 'node:path';
@@ -48,16 +48,18 @@ export function isLanded(entry) {
 /**
  * Whether a post still needs fetching, given what is on disk.
  *
- * The one definition of "missing", shared by the plan's diff, the listing pass's
- * stopping rule and the fetch loop's outstanding list. Three copies of this rule
- * is how a block comes to promise a number the download then disagrees with.
+ * X's rule, used by its plan diff, its collection pass's stopping rule and its
+ * fetch loop's outstanding list — one definition across all three, because three
+ * copies is how a block comes to promise a number the download then disagrees
+ * with. It keys on `tweetId`, which only X's posts carry; Douyin asks the same
+ * question of `isLanded` directly.
  */
 export function isMissing(post, archive) {
   return !isLanded(archive.get(post.tweetId));
 }
 
 /**
- * Every post already in an account folder, by tweet id.
+ * Every post already in an account folder, by post id.
  *
  * A missing folder is not an error: an account nobody has downloaded yet has
  * nothing on disk, which is an ordinary answer and not a failure.

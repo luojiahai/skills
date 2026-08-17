@@ -1,9 +1,10 @@
 /**
  * cli.mjs — argument parsing, file reading and entry-point detection.
  *
- * run.mjs is the only entry point; every other module here is a library it
- * calls. This file is what those two facts are expressed through: one command
- * line parser, and one answer to "was I the file node was asked to run".
+ * node is handed dispatch.mjs, which resolves a platform and calls its run.mjs;
+ * every other module is a library one of those calls. This file is what that
+ * shape is expressed through: one command line parser, and one answer to "was I
+ * the file node was asked to run".
  */
 import { realpathSync } from 'node:fs';
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';

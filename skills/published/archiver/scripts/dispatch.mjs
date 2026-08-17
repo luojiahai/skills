@@ -3,8 +3,7 @@
  *
  * This is the only thing in the skill that knows more than one platform exists.
  * It resolves one and calls its `main(argv)` in the same process, so exit codes
- * and output need no plumbing and a platform is reached exactly as it would be
- * if it were still a skill of its own.
+ * and output need no plumbing and a platform owns its whole command line.
  *
  * It does not parse flags. Everything after the URL is the platform's own, and
  * an unknown one is the platform's usage error rather than a guess made up here —

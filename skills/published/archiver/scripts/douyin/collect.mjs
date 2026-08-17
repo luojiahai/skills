@@ -9,9 +9,8 @@
  * Two sources, and their roles are not interchangeable.
  *
  * **The DOM is authoritative for which posts exist.** Ids are harvested from the
- * rendered cards, exactly as they always have been. Nothing else may add a post
- * to the list, so no change here can make a collection find fewer posts than the
- * grid shows.
+ * rendered cards, and nothing else may add a post to the list — so no change
+ * here can make a collection find fewer posts than the grid shows.
  *
  * **The feed responses supply what each post *is*.** The same requests the page
  * makes to render those cards carry the caption and the timestamp, so they are
