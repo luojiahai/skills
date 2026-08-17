@@ -224,36 +224,56 @@ function decodeJson(value) {
 }
 
 /**
- * What a gallery-dl failure was, as far as its output admits.
+ * What a gallery-dl failure was, as far as its output admits, as the refusal
+ * code that names it.
  *
  * Each of these needs a decided answer, because the alternative is an agent
  * inventing one. The distinction that matters most is the first: an account you
- * are not allowed to see reports zero posts, and zero posts rendered as "up to
- * date" would be a lie the user acts on.
+ * are not allowed to see reports zero posts, and zero posts reported as "up to
+ * date" would be a lie the user acts on. A rate limit and a rejected session are
+ * two codes for the same reason — one says wait, the other says sign in again.
  */
 export function classifyFailure(output) {
   const text = String(output || '');
   if (/\b429\b|Rate.?limit|too many requests/i.test(text)) return 'rate-limited';
-  if (/401|Unauthorized|login required|requires authentication|Auth.*fail/i.test(text)) return 'unauthorized';
+  if (/401|Unauthorized|login required|requires authentication|Auth.*fail/i.test(text)) return 'session-rejected';
   if (/suspended/i.test(text)) return 'suspended';
   if (/protected|not authorized to view|private account/i.test(text)) return 'protected';
-  if (/does not exist|User not found|No user matches/i.test(text)) return 'missing';
-  if (/\b404\b|Not Found/i.test(text)) return 'gone';
+  if (/does not exist|User not found|No user matches/i.test(text)) return 'no-such-account';
+  if (/\b404\b|Not Found/i.test(text)) return 'post-gone';
   return null;
 }
 
-/** The remedy for each, so the skill relays rather than improvises. */
-export const REMEDIES = {
-  'rate-limited':
-    'X rate-limited this run. Nothing is broken and nothing is lost — wait a while, then\n' +
-    'run the same command with --go again; it resumes at the first post still missing.',
-  unauthorized:
-    'X rejected the saved session. The cached cookies have been discarded; re-run and the\n' +
-    'browser will be read again. If it fails a second time, sign in to X in that browser first.',
-  suspended: 'This account is suspended on X. There is nothing to download.',
-  protected:
-    'This account is protected — its posts are visible only to accounts it has approved.\n' +
-    'Signing in as an approved follower is the only way to archive it.',
-  missing: 'No such account on X. Check the handle in the URL.',
-  gone: 'That post no longer exists on X.',
+/**
+ * The fallback sentence for each code, and how it is put right.
+ *
+ * The sentence is what a refusal carries as `message`, which is not what the
+ * user is told — `SKILL.md` branches on the code and words the outcome itself.
+ * The remedy is the part with teeth: whether it is the agent's to run or the
+ * user's.
+ */
+export const FAILURES = {
+  'rate-limited': {
+    message: 'X rate-limited this run — nothing is broken and nothing is lost',
+    remedy: {
+      message: 'wait a while, then run the download again; it resumes at the first post still missing',
+      run_by: 'agent',
+    },
+  },
+  'session-rejected': {
+    message: 'X rejected the saved session, and the cached cookies have been discarded',
+    remedy: {
+      message: 'sign in to X in a browser, then run again naming that browser as the session source',
+      run_by: 'user',
+    },
+  },
+  suspended: { message: 'this account is suspended on X, so there is nothing to download' },
+  protected: {
+    message: 'this account is protected — its posts are visible only to accounts it has approved',
+    remedy: { message: 'archiving it needs a session signed in as an approved follower', run_by: 'user' },
+  },
+  'no-such-account': { message: 'no such account on X' },
+  'post-gone': { message: 'that post no longer exists on X' },
+  'downloader-unavailable': { message: 'gallery-dl could not be started' },
+  'collect-failed': { message: 'the listing pass failed, and its output does not say why' },
 };

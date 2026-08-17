@@ -1,3 +1,11 @@
+/**
+ * Tests for dispatch.mjs — which platform a command line reaches, and what is
+ * answered before one is loaded.
+ *
+ * Every run goes through `emitted`, which parses the one document off stdout and
+ * validates it against `shared/output.schema.json`. The help is the documented
+ * exception and is asserted on stdout directly.
+ */
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import { realpathSync } from 'node:fs';
@@ -10,6 +18,7 @@ import { promisify } from 'node:util';
 
 import { main } from './dispatch.mjs';
 import { EXIT } from './shared/exit.mjs';
+import { capture, emitted } from './testing.mjs';
 
 const run = promisify(execFile);
 const SKILL_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -24,20 +33,7 @@ function spy(code = EXIT.OK) {
   return { load, seen };
 }
 
-function capture() {
-  const lines = [];
-  const out = console.log;
-  const err = console.error;
-  console.log = (line) => lines.push(String(line));
-  console.error = (line) => lines.push(String(line));
-  return {
-    lines,
-    restore() {
-      console.log = out;
-      console.error = err;
-    },
-  };
-}
+const dispatched = (argv, load) => emitted(main, argv, { load });
 
 test('a URL reaches the platform it names', async () => {
   const { load, seen } = spy();
@@ -63,15 +59,18 @@ test('the platform decides the exit code', async () => {
 
 test('a URL from a platform this skill does not archive is refused by name', async () => {
   const { load, seen } = spy();
-  const io = capture();
-  try {
-    assert.equal(await main(['https://www.instagram.com/someone'], { load }), EXIT.USAGE);
-  } finally {
-    io.restore();
-  }
+  const { document } = await dispatched(['https://www.instagram.com/someone'], load);
+
   assert.equal(seen.length, 0, 'nothing should be loaded');
-  assert.match(io.lines.join('\n'), /no URL here names a platform/);
-  assert.match(io.lines.join('\n'), /Douyin.*X, formerly Twitter/s);
+  assert.equal(document.error.code, 'unsupported-platform');
+  assert.equal(document.exit, EXIT.USAGE);
+  // Nothing was dispatched, so nothing has a command or a platform to name.
+  assert.equal(document.command, null);
+  assert.equal(document.platform, null);
+  assert.deepEqual(
+    document.error.details.supported.map((platform) => platform.name).sort(),
+    ['douyin', 'x'],
+  );
 });
 
 test('there is no generic fallback to try it anyway', async () => {
@@ -79,40 +78,31 @@ test('there is no generic fallback to try it anyway', async () => {
   // the re-run that fetches only what is new — comes from platform code. A
   // generic downloader would satisfy none of it while looking like it worked.
   const { load, seen } = spy();
-  const io = capture();
-  try {
-    await main(['https://youtube.com/@someone', '--yes'], { load });
-  } finally {
-    io.restore();
-  }
+  await dispatched(['https://youtube.com/@someone', '--yes'], load);
   assert.equal(seen.length, 0);
 });
 
-test('two platforms in one command is refused, and nothing runs', async () => {
+test('two platforms in one command is refused, and names both URLs', async () => {
   const { load, seen } = spy();
-  const io = capture();
-  try {
-    const code = await main(['https://x.com/jack', 'https://www.douyin.com/user/MS4w'], { load });
-    assert.equal(code, EXIT.USAGE);
-  } finally {
-    io.restore();
-  }
+  const urls = ['https://x.com/jack', 'https://www.douyin.com/user/MS4w'];
+  const { document } = await dispatched(urls, load);
+
   assert.equal(seen.length, 0);
-  assert.match(io.lines.join('\n'), /one account at a time/);
+  assert.equal(document.error.code, 'multiple-platforms');
+  assert.deepEqual(document.error.details.urls, urls);
 });
 
 test('--help without a URL describes every platform', async () => {
+  // Prose on stdout, and the one documented exception to the one-document rule:
+  // it exists for a person typing this by hand, and nobody parses it.
   const { load } = spy();
-  const io = capture();
-  try {
-    assert.equal(await main(['--help'], { load }), EXIT.OK);
-  } finally {
-    io.restore();
-  }
-  const help = io.lines.join('\n');
-  assert.match(help, /Common to every platform/);
-  assert.match(help, /--login/, 'the Douyin section');
-  assert.match(help, /--browser/, 'the X section');
+  const help = await capture(() => main(['--help'], { load }));
+
+  assert.equal(help.code, EXIT.OK);
+  assert.match(help.stdout, /Common to every platform/);
+  assert.match(help.stdout, /--login/, 'the Douyin section');
+  assert.match(help.stdout, /--browser/, 'the X section');
+  assert.match(help.stdout, /--list/);
 });
 
 test('--help with a URL is the platform, not this', async () => {
@@ -121,15 +111,16 @@ test('--help with a URL is the platform, not this', async () => {
   assert.equal(seen[0], 'x');
 });
 
-test('no arguments at all prints the help, and says so with its exit code', async () => {
+test('no arguments at all is a refusal with a code, and the usage on stderr', async () => {
+  // The prose still reaches somebody who typed nothing; it goes to stderr so
+  // that stdout carries the document and nothing else.
   const { load } = spy();
-  const io = capture();
-  try {
-    assert.equal(await main([], { load }), EXIT.USAGE);
-  } finally {
-    io.restore();
-  }
-  assert.match(io.lines.join('\n'), /Usage:/);
+  const { document, stdout, stderr } = await dispatched([], load);
+
+  assert.equal(document.error.code, 'no-arguments');
+  assert.equal(document.exit, EXIT.USAGE);
+  assert.match(stderr, /Usage:/);
+  assert.deepEqual(JSON.parse(stdout), document, 'stdout holds the document and nothing else');
 });
 
 /** An archives root holding one X account, for the --list tests. */
@@ -149,117 +140,97 @@ test('--list reports the accounts under the root, without loading a platform', a
   // reading the tree is not archiving, so nothing is loaded and nothing is
   // preflighted.
   const { load, seen } = spy();
-  const io = capture();
   const root = await archived();
-  try {
-    assert.equal(await main(['--list', '--archives', root], { load }), EXIT.OK);
-  } finally {
-    io.restore();
-  }
-  assert.equal(seen.length, 0, 'no platform should be loaded');
+  const { document } = await dispatched(['--list', '--archives', root], load);
 
-  const reported = JSON.parse(io.lines.join('\n'));
-  assert.equal(reported.root, root);
-  assert.equal(reported.accounts.length, 1);
-  assert.equal(reported.accounts[0].folder, 'jia');
-  assert.equal(reported.accounts[0].url, 'https://x.com/jia');
+  assert.equal(seen.length, 0, 'no platform should be loaded');
+  assert.equal(document.command, 'list');
+  assert.equal(document.platform, null, '--list belongs to no platform');
+  assert.equal(document.exit, EXIT.OK);
+  assert.equal(document.result.root, root);
+  assert.equal(document.result.accounts.length, 1);
+  assert.equal(document.result.accounts[0].folder, 'jia');
+  assert.equal(document.result.accounts[0].url, 'https://x.com/jia');
 });
 
-test('--list writes JSON, because the skill is what does the talking', async () => {
+test('--list is under the same envelope as everything else', async () => {
+  // One contract to read, rather than one plus an exception.
   const { load } = spy();
-  const io = capture();
-  try {
-    await main(['--list', '--archives', await archived()], { load });
-  } finally {
-    io.restore();
-  }
-  assert.doesNotThrow(() => JSON.parse(io.lines.join('\n')));
+  const { document } = await dispatched(['--list', '--archives', await archived()], load);
+  assert.equal(document.schema, 1);
+  assert.equal(document.ok, true);
 });
 
 test('--list on a root with nothing in it still says where it looked, and succeeds', async () => {
   const { load } = spy();
-  const io = capture();
   const empty = realpathSync(await mkdtemp(path.join(os.tmpdir(), 'archiver-empty-')));
-  try {
-    assert.equal(await main(['--list', '--archives', empty], { load }), EXIT.OK);
-  } finally {
-    io.restore();
-  }
-  assert.deepEqual(JSON.parse(io.lines.join('\n')), { root: empty, accounts: [] });
+  const { document } = await dispatched(['--list', '--archives', empty], load);
+
+  assert.equal(document.exit, EXIT.OK);
+  assert.deepEqual(document.result, { root: empty, accounts: [] });
 });
 
 test('--list with a URL is refused, because they ask different questions', async () => {
   const { load, seen } = spy();
-  const io = capture();
-  try {
-    assert.equal(await main(['--list', 'https://x.com/jack'], { load }), EXIT.USAGE);
-  } finally {
-    io.restore();
-  }
+  const { document } = await dispatched(['--list', 'https://x.com/jack'], load);
+
   assert.equal(seen.length, 0);
-  assert.match(io.lines.join('\n'), /a URL asks about one account/);
+  assert.equal(document.error.code, 'list-with-url');
+  assert.equal(document.exit, EXIT.USAGE);
 });
 
 test('--list alongside a flag that acts is refused, and names it', async () => {
   for (const flag of ['--plan', '--go', '--yes', '-y', '--unalias', '--alias']) {
     const { load, seen } = spy();
-    const io = capture();
-    try {
-      assert.equal(await main(['--list', flag], { load }), EXIT.USAGE, flag);
-    } finally {
-      io.restore();
-    }
+    const { document } = await dispatched(['--list', flag], load);
+
     assert.equal(seen.length, 0, flag);
-    assert.match(io.lines.join('\n'), new RegExp(`takes only --archives DIR, not ${flag}`), flag);
+    assert.equal(document.error.code, 'list-unknown-flag', flag);
+    assert.equal(document.error.details.flag, flag);
   }
 });
 
-test('--list with a stray positional is refused', async () => {
+test('--list with a stray positional is refused, and names it', async () => {
   const { load } = spy();
-  const io = capture();
-  try {
-    assert.equal(await main(['--list', 'jia'], { load }), EXIT.USAGE);
-  } finally {
-    io.restore();
-  }
-  assert.match(io.lines.join('\n'), /takes only --archives DIR, not "jia"/);
+  const { document } = await dispatched(['--list', 'jia'], load);
+
+  assert.equal(document.error.code, 'list-unexpected-argument');
+  assert.equal(document.error.details.argument, 'jia');
 });
 
 test('--list --help is the help, not a conflict', async () => {
   // Asking what a command does is always answerable, and answering it is not
   // the action --list would conflict with.
   const { load } = spy();
-  const io = capture();
-  try {
-    assert.equal(await main(['--list', '--help'], { load }), EXIT.OK);
-  } finally {
-    io.restore();
-  }
-  assert.match(io.lines.join('\n'), /Usage:/);
+  const help = await capture(() => main(['--list', '--help'], { load }));
+
+  assert.equal(help.code, EXIT.OK);
+  assert.match(help.stdout, /Usage:/);
 });
 
-test('a root this build cannot read refuses the listing, and says why', async () => {
+test('a root this build cannot read refuses the listing, and says which schema', async () => {
   const { load } = spy();
-  const io = capture();
-  try {
-    const root = await archived();
-    await writeFile(path.join(root, 'archiver.json'), JSON.stringify({ schema: 99 }));
-    assert.equal(await main(['--list', '--archives', root], { load }), EXIT.USAGE);
-  } finally {
-    io.restore();
-  }
-  assert.match(io.lines.join('\n'), /newer version of this skill/);
+  const root = await archived();
+  await writeFile(path.join(root, 'archiver.json'), JSON.stringify({ schema: 99 }));
+
+  const { document } = await dispatched(['--list', '--archives', root], load);
+
+  assert.equal(document.error.code, 'archive-schema-unsupported');
+  assert.equal(document.error.details.found, 99);
+  assert.equal(document.error.details.writes, 3);
+  assert.equal(document.error.remedy.run_by, 'user');
 });
 
-test('the help names --list', async () => {
-  const { load } = spy();
-  const io = capture();
-  try {
-    await main(['--help'], { load });
-  } finally {
-    io.restore();
-  }
-  assert.match(io.lines.join('\n'), /--list/);
+test('a crash still produces a document', async () => {
+  // The case where the agent knows least must not be the case that tells it
+  // nothing: an empty stdout is indistinguishable from a command with nothing
+  // to say.
+  const load = () => Promise.reject(new Error('the platform module is broken'));
+  const { document } = await dispatched(['https://x.com/jack', '--plan'], load);
+
+  assert.equal(document.error.code, 'internal-error');
+  assert.equal(document.exit, EXIT.FAILED);
+  assert.match(document.error.details.stack, /the platform module is broken/);
 });
 
 test('the skill runs when it is reached through a symlink', async () => {

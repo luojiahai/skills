@@ -157,10 +157,13 @@ test('parseRow rejects a row whose id is not an id', () => {
 });
 
 test('classifyFailure never lets an unreadable account look like zero posts', () => {
-  assert.equal(classifyFailure('HttpError: 401 Unauthorized'), 'unauthorized');
+  // Each is the refusal code the run answers with, so a rejected session and a
+  // rate limit lead to different things being said.
+  assert.equal(classifyFailure('HttpError: 401 Unauthorized'), 'session-rejected');
   assert.equal(classifyFailure('Account is suspended'), 'suspended');
   assert.equal(classifyFailure('This account is protected'), 'protected');
-  assert.equal(classifyFailure('User not found'), 'missing');
+  assert.equal(classifyFailure('User not found'), 'no-such-account');
+  assert.equal(classifyFailure('HttpError: 404 Not Found'), 'post-gone');
 });
 
 test('classifyFailure spots a rate limit', () => {

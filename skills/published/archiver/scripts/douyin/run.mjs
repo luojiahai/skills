@@ -1,5 +1,5 @@
 /**
- * run.mjs — the whole Douyin run: what the user asked for, in, and a block out.
+ * run.mjs — the whole Douyin run: what the user asked for, in, and one document out.
  *
  *   --login  sign in once, in a browser, and stop.
  *   --plan   collect, diff, report. Downloads nothing.
@@ -10,11 +10,31 @@
  * shell function called under `||` runs with errexit off for its whole body, so
  * a refused plan prints its refusal and then keeps going — through the state
  * write and a summary telling the user to re-run the command that just failed.
+ *
+ * Every command answers with a single JSON document on stdout, composed by
+ * `shared/output.mjs`. The scrolling chatter of a long collection goes to
+ * stderr, where it cannot land in the middle of what is being parsed.
  */
 import path from 'node:path';
 
 import { EXIT } from '../shared/exit.mjs';
-import { fail, pickMode, self } from '../shared/run.mjs';
+import { Refusal, refusalFields } from '../shared/errors.mjs';
+import {
+  accountFields,
+  answer,
+  archiveCounts,
+  archiveResult,
+  commandFor,
+  nothingFetched,
+  planWindow,
+  progress,
+  quote,
+  refuse,
+  runCounts,
+  self,
+  sharedNotes,
+} from '../shared/output.mjs';
+import { pickMode } from '../shared/run.mjs';
 import { missingTool, onPath } from '../shared/tools.mjs';
 import {
   COMMON_BOOLEAN_FLAGS,
@@ -49,15 +69,15 @@ import { descriptorFor } from '../shared/platforms.mjs';
 const ACCOUNT = descriptorFor(PLATFORM);
 const COOKIE_FILE = cookieFile(PLATFORM);
 import {
+  DEFAULT_TTL_HOURS,
   approved,
   buildPlan,
   listedIds,
-  renderPlanBlock,
-  renderSummaryBlock,
+  planRefusal,
   unlistedCountFromPlan,
   validatePlan,
 } from '../shared/plan.mjs';
-import { foundDetail, headline, notes } from './blocks.mjs';
+import { notes } from './notes.mjs';
 import { mintCookies, profileHasSession } from './session.mjs';
 import { clearPlan, loadPlan, previousRoot, recordRun, savePlan } from '../shared/sync.mjs';
 import { parseTarget } from './target.mjs';
@@ -84,6 +104,9 @@ const USAGE = `Usage: archive.sh <url> [--archives DIR] [--alias NAME] [--plan|-
       --unalias         Put this account's folder back under its sec_uid.
       --profile DIR     Browser profile holding the Douyin session.
   -h, --help            Show this help
+
+Every command but this one answers with a single JSON document on stdout;
+progress goes to stderr.
 
 Image posts (图文) are counted and reported, but not yet downloaded:
 https://github.com/luojiahai/skills/issues/48`;
@@ -115,29 +138,34 @@ export async function main(argv, deps = {}) {
     return EXIT.OK;
   }
 
+  // What the command line asked for, settled before the first refusal so every
+  // document says which command was being run when it stopped.
+  const command = opts.login === true ? 'login' : pickMode(opts);
+  const refuseHere = (fields) => refuse({ command, platform: PLATFORM, ...fields });
+
   // Named rather than left to the unknown-flag path below. The old flag is the
   // one thing likely to still be sitting in a shell history, and "unknown
   // option" would be true while sending the user to --help to work out why.
   if (unknown.includes('--downloads')) {
-    console.error(
-      'error: --downloads was renamed to --archives (and the default root is now archives/)',
-    );
-    console.error(
-      '  the old root is not read: rename downloads/ to archives/, or pass --archives DIR',
-    );
-    return EXIT.USAGE;
+    return refuseHere({
+      code: 'downloads-renamed',
+      message: '--downloads was renamed to --archives, and the default root is now archives/',
+      remedy: { message: 'the old root is not read: rename downloads/ to archives/, or name the root explicitly', run_by: 'user' },
+    });
   }
 
   if (unknown.length) {
-    console.error(`error: unknown option '${unknown[0]}' (try --help)`);
-    return EXIT.USAGE;
+    return refuseHere({
+      code: 'unknown-flag',
+      message: `unknown option '${unknown[0]}'`,
+      details: { flag: unknown[0] },
+    });
   }
 
   const url = positional[0];
   if (!url) {
     console.error(USAGE);
-    console.error('\nerror: no URL given');
-    return EXIT.USAGE;
+    return refuseHere({ code: 'no-url', message: 'no URL given' });
   }
 
   // Settled before the archives root, before the preflight, before anything is
@@ -146,7 +174,7 @@ export async function main(argv, deps = {}) {
   try {
     target = parseTarget(url);
   } catch (error) {
-    return fail(error.message, EXIT.USAGE);
+    return refuseHere(refusalFields(error));
   }
 
   const profileDir = optString(opts, 'profile') || PROFILE_DIR;
@@ -157,45 +185,55 @@ export async function main(argv, deps = {}) {
   try {
     ({ chromium } = await playwrightImpl());
   } catch (error) {
-    return fail(error.message);
+    return refuseHere(refusalFields(error));
   }
 
-  if (opts.login === true) {
-    const result = await loginImpl({ url: target.url, profileDir, launch: chromium });
-    if (result.ok) return EXIT.OK;
-    return fail(`${result.reason}.\n  Nothing was archived. Run --login again when you are ready.`, EXIT.UNAUTHORIZED);
+  if (command === 'login') {
+    const outcome = await loginImpl({ url: target.url, profileDir, launch: chromium });
+    if (outcome.ok) return answer({ command, platform: PLATFORM, result: { profile_dir: profileDir } });
+    return refuseHere({
+      code: outcome.code,
+      message: `${outcome.reason} — nothing was archived`,
+      details: outcome.details ?? null,
+      remedy: { message: 'sign in to Douyin in the browser this opens, and say when it is done', run_by: 'user' },
+    });
   }
 
   // yt-dlp is what downloads, so nothing past here works without it. Checked
   // after the URL, because a refusable URL should be refused on any machine.
   if (!(await onPathImpl(YT_DLP))) {
-    console.error(
-      missingTool(YT_DLP, {
-        brew: 'brew install yt-dlp',
-        otherwise: 'pipx install yt-dlp\n      or see https://github.com/yt-dlp/yt-dlp#installation',
-        hasBrew: await onPathImpl('brew'),
-      }),
+    return refuseHere(
+      refusalFields(
+        missingTool(YT_DLP, {
+          brew: 'brew install yt-dlp',
+          otherwise: 'pipx install yt-dlp',
+          docs: 'https://github.com/yt-dlp/yt-dlp#installation',
+          hasBrew: await onPathImpl('brew'),
+        }),
+      ),
     );
-    return EXIT.FAILED;
   }
 
   const alias = optString(opts, 'alias');
   const unalias = opts.unalias === true;
 
   if (alias && unalias) {
-    return fail('--alias and --unalias ask for opposite things. Pass one or the other.', EXIT.USAGE);
+    return refuseHere({
+      code: 'alias-and-unalias',
+      message: '--alias and --unalias ask for opposite things',
+    });
   }
 
   // The shape of an alias needs no filesystem and no browser, so a typo is
   // refused here rather than after a full profile scroll.
-  if (alias && !isSafeAlias(alias)) return fail(aliasShapeRefusal(alias), EXIT.USAGE);
+  if (alias && !isSafeAlias(alias)) return refuseHere(refusalFields(aliasShapeRefusal(alias)));
 
   let root;
   try {
     const given = optString(opts, 'archives');
     root = given ? normalizeRoot(given) : archivesRoot();
   } catch (error) {
-    return fail(error.message, EXIT.USAGE);
+    return refuseHere(refusalFields(error));
   }
 
   // Before the session, before the first request, before anything is written:
@@ -205,7 +243,7 @@ export async function main(argv, deps = {}) {
   try {
     await checkRoot(root);
   } catch (error) {
-    return fail(error.message, EXIT.USAGE);
+    return refuseHere(refusalFields(error));
   }
 
   // Everything an alias can be refused for except "it is already yours" needs
@@ -217,51 +255,81 @@ export async function main(argv, deps = {}) {
       id: existing ? ((await readAccount(existing))?.account?.id ?? null) : target.secUid,
       alias,
     });
-    if (!verdict.ok) return fail(verdict.reason, EXIT.USAGE);
+    if (!verdict.ok) return refuseHere(refusalFields(verdict.refusal));
   }
 
   // A cookie in the profile proves a sign-in happened. It does not prove Douyin
   // still accepts it — an expired-but-present session is caught later, by a grid
   // that renders nothing — but its absence is knowable now, and turns a
-  // confusing half-minute into an instant, correct message.
+  // confusing half-minute into an instant, correct answer.
   if (!(await hasSessionImpl(profileDir, { launch: chromium }))) {
-    return fail(
-      `no Douyin session in ${profileDir}.\n` +
-        `  Only a human can pass Douyin's login. Sign in once with:\n` +
-        `    ${self()} '${url}' --login`,
-      EXIT.UNAUTHORIZED,
-    );
+    return refuseHere({
+      code: 'session-missing',
+      message: `no Douyin session in ${profileDir}`,
+      details: { profile_dir: profileDir },
+      remedy: loginRemedy(url),
+    });
   }
 
-  const mode = pickMode(opts);
-  const planHint = `${self()} '${url}'${
-    optString(opts, 'archives') ? ` --archives '${optString(opts, 'archives')}'` : ''
-  }${alias ? ` --alias '${alias}'` : ''} --plan`;
+  const planCommand = commandFor(argv, 'plan');
 
-  if (mode === 'go') {
-    return await doGo({ root, target, alias, unalias, profileDir, chromium, planHint, fetchImpl, mintImpl });
+  if (command === 'go') {
+    return await doGo({
+      command, root, target, alias, unalias, profileDir, chromium, planCommand, fetchImpl, mintImpl,
+    });
   }
 
-  const planned = await doPlan({ root, target, alias, unalias, profileDir, chromium, collectImpl });
-  if (planned.exit !== undefined) return planned.exit;
-
-  console.log(planned.block);
-
-  if (planned.pending === 0) return EXIT.OK;
-
-  if (mode === 'plan') {
-    console.log('\nNothing has been downloaded. To fetch the posts above:');
-    console.log(`  ${planHint.replace(/ --plan$/, ' --go')}`);
-    return EXIT.OK;
+  let planned;
+  try {
+    planned = await doPlan({ root, target, alias, unalias, profileDir, chromium, collectImpl });
+  } catch (error) {
+    return refuseHere(refusalFields(error));
   }
 
-  console.log('');
-  return await doGo({ root, target, alias, unalias, profileDir, chromium, planHint, fetchImpl, mintImpl });
+  const described = (extra) =>
+    archiveResult({
+      account: accountFields(ACCOUNT, planned.plan.account, target.url),
+      dir: planned.accountDir,
+      root,
+      counts: planned.plan.counts,
+      notes: planned.notes,
+      plan: planWindow({ createdAt: planned.plan.created_at, ttlHours: DEFAULT_TTL_HOURS }),
+      ...extra,
+    });
+
+  if (command === 'plan') {
+    return answer({ command, platform: PLATFORM, result: described({ nextFor: argv }) });
+  }
+
+  if (planned.plan.counts.to_fetch === 0) {
+    return answer({
+      command,
+      platform: PLATFORM,
+      result: described({ run: nothingFetched(planned.plan.counts) }),
+    });
+  }
+
+  return await doGo({
+    command, root, target, alias, unalias, profileDir, chromium, planCommand, fetchImpl, mintImpl,
+    // A --yes has just announced a rename or a moved root; it must still say so
+    // now the user is past being asked.
+    announced: planned.announced,
+    plan: planned.plan,
+  });
 }
 
-/** Collect the account, diff it against disk, park the plan, render the block. */
+/** The one handoff in this skill only a person can complete. */
+function loginRemedy(url) {
+  return {
+    message: "only a human can pass Douyin's login — sign in once in the browser this opens",
+    command: `${self()} ${quote(url)} --login`,
+    run_by: 'user',
+  };
+}
+
+/** Collect the account, diff it against disk, park the plan. */
 async function doPlan({ root, target, alias, unalias, profileDir, chromium, collectImpl }) {
-  console.log('[douyin] collecting post IDs…');
+  progress('[douyin] collecting post IDs…');
   const listing = await collectImpl({
     url: target.url,
     secUid: target.secUid,
@@ -272,35 +340,36 @@ async function doPlan({ root, target, alias, unalias, profileDir, chromium, coll
   });
 
   if (listing.failure === 'empty-grid') {
-    return {
-      exit: fail(
-        'found 0 posts in the profile grid.\n' +
-          (listing.reported
-            ? `  The profile reports ${listing.reported} post(s), so the grid exists but did\n` +
-              '  not render — almost certainly an expired session.\n'
-            : '  An account can genuinely have none. It also looks like this when the\n' +
-              '  saved session has expired without saying so.\n') +
-          `  Sign in again with:  ${self()} '${target.url}' --login`,
-        listing.reported ? EXIT.UNAUTHORIZED : EXIT.EMPTY,
-      ),
-    };
+    // A grid that renders nothing while the header still counts posts is not an
+    // empty account: it is a session Douyin has stopped accepting. The two are
+    // separate codes because only one of them is a handoff to the user.
+    if (listing.reported) {
+      throw new Refusal(
+        'session-expired-grid',
+        `the profile reports ${listing.reported} post(s), so the grid exists but did not render — ` +
+          'almost certainly an expired session',
+        { details: { reported: listing.reported }, remedy: loginRemedy(target.url) },
+      );
+    }
+    throw new Refusal(
+      'empty-grid',
+      'found 0 posts in the profile grid — an account can genuinely have none, and it also ' +
+        'looks like this when the saved session has expired without saying so',
+    );
   }
 
   if (!listing.account?.douyin_id) {
-    return {
-      exit: fail(
-        'the profile was readable but never showed its 抖音号, so there is no\n' +
-          '  identity to file this archive under. Try again; if it persists, the\n' +
-          '  saved session may be partly rejected.',
-      ),
-    };
+    throw new Refusal(
+      'no-douyin-id',
+      'the profile was readable but never showed its 抖音号, so there is no identity to file this archive under',
+    );
   }
 
   // Asked again now the 抖音号 is known: the first check could not tell an
   // account's own alias apart from a collision with someone else's.
   if (alias) {
     const verdict = await checkAlias(ACCOUNT, root, { id: target.secUid, alias });
-    if (!verdict.ok) return { exit: fail(verdict.reason, EXIT.USAGE) };
+    if (!verdict.ok) throw verdict.refusal;
   }
 
   // Resolved through the alias map first: an account already archived under an
@@ -318,19 +387,18 @@ async function doPlan({ root, target, alias, unalias, profileDir, chromium, coll
 
   await stampRoot(root);
 
+  const account = {
+    id: target.secUid,
+    douyin_id: listing.account.douyin_id,
+    nickname: listing.account.nickname,
+  };
+
   // Written at the one point every run passes through once its folder is known,
   // so a folder that exists always says whose it is — before anything has been
   // downloaded into it. The alias is not passed: recordIdentity reads it off the
   // folder's own name, which is what keeps account.json and the directory from
   // disagreeing.
-  await recordIdentity(ACCOUNT, root, accountDir, {
-    account: {
-      id: target.secUid,
-      douyin_id: listing.account.douyin_id,
-      nickname: listing.account.nickname,
-    },
-    url: target.url,
-  });
+  await recordIdentity(ACCOUNT, root, accountDir, { account, url: target.url });
 
   const archive = await readArchive(accountDir);
   const onDisk = await onDiskIds(accountDir);
@@ -340,25 +408,23 @@ async function doPlan({ root, target, alias, unalias, profileDir, chromium, coll
   const unlisted = [...onDisk].filter((id) => !listed.has(id)).length;
 
   const plan = buildPlan({
-    account: {
-      id: target.secUid,
-      douyin_id: listing.account.douyin_id,
-      nickname: listing.account.nickname,
-    },
+    account,
     root,
     collected: listing.posts,
     pending,
-    counts: {
+    counts: archiveCounts({
       found: listing.posts.length,
-      foundDetail: foundDetail(listing.reported),
       onDisk: onDisk.size,
       toFetch: pending.length,
-      // Kept because the summary makes its own notes from them. Carrying the
-      // rendered notes alone would leave the finished run picking its own
-      // sentences back out of the plan by matching on their wording.
-      reported: listing.reported,
-      skipped: listing.skippedImagePosts,
-    },
+      // Carried into the plan because the finished run reports them too, and
+      // recomputing them there would mean a --go describing an account it never
+      // listed.
+      platform: {
+        reported: listing.reported ?? null,
+        skipped_image_posts: listing.skippedImagePosts ?? 0,
+        unlisted,
+      },
+    }),
     notes: notes({
       collected: listing.posts.length,
       reported: listing.reported,
@@ -373,22 +439,26 @@ async function doPlan({ root, target, alias, unalias, profileDir, chromium, coll
   // described, and --go would happily download it.
   else await clearPlan(accountDir);
 
-  return {
-    pending: pending.length,
-    block: renderPlanBlock({
-      headline: headline(plan.account),
-      folder: accountDir,
-      movingTo: aliasTarget(ACCOUNT, root, { id: target.secUid, alias, unalias }),
-      previousRoot: lastRoot,
-      root,
-      counts: plan.counts,
-      notes: plan.notes,
-    }),
-  };
+  // Facts about this run rather than about the profile, so they are worked out
+  // the same way on both platforms and kept apart from the plan's own notes —
+  // which a --go recomposes from the numbers, and these cannot be.
+  const announced = sharedNotes({
+    dir: accountDir,
+    movingTo: aliasTarget(ACCOUNT, root, { id: target.secUid, alias, unalias }),
+    root,
+    previousRoot: lastRoot,
+  });
+
+  return { plan, accountDir, announced, notes: [...announced, ...plan.notes] };
 }
 
 /** Download the plan that was approved. No collection, no browser. */
-async function doGo({ root, target, alias, unalias, profileDir, chromium, planHint, fetchImpl, mintImpl }) {
+async function doGo({
+  command, root, target, alias, unalias, profileDir, chromium, planCommand, fetchImpl, mintImpl,
+  announced = [], plan: made = null,
+}) {
+  const refuseHere = (fields) => refuse({ command, platform: PLATFORM, ...fields });
+
   // resolveAccountDir returns a folder only once account.json there names this
   // sec_uid, so a non-null answer *is* the identity check. Falling back to the
   // bare sec_uid path would be the one case that matters: a folder of that name
@@ -396,25 +466,33 @@ async function doGo({ root, target, alias, unalias, profileDir, chromium, planHi
   let accountDir = await resolveAccountDir(ACCOUNT, root, { id: target.secUid });
 
   if (!accountDir) {
-    return fail(
-      `no folder for this account under ${root}, so there is no plan to run.\n  make one with:\n    ${planHint}`,
-      EXIT.REFUSED,
-    );
+    return refuseHere({
+      code: 'no-archive',
+      message: `no folder for this account under ${root}, so there is no plan to run`,
+      details: { root },
+      remedy: { message: 'collect the account first', command: planCommand, run_by: 'agent' },
+    });
   }
 
   const plan = await loadPlan(accountDir);
   const verdict = validatePlan(plan, { accountId: target.secUid, root });
 
   if (!verdict.ok) {
-    console.error(`error: ${verdict.reason}`);
-    console.error(`  make one with:\n    ${planHint}`);
-    return EXIT.REFUSED;
+    const refusal = planRefusal(verdict);
+    return refuseHere({
+      ...refusalFields(refusal),
+      remedy: { message: 'collect the account again', command: planCommand, run_by: 'agent' },
+    });
   }
 
   // The move happens before the download, so what is fetched goes straight into
   // its final home. A rename between --plan and --go invalidates nothing,
   // because a plan records the archives root and the account, never the folder.
-  accountDir = await moveIfAsked({ root, alias, unalias, secUid: target.secUid, accountDir });
+  try {
+    accountDir = await moveIfAsked({ root, alias, unalias, secUid: target.secUid, accountDir });
+  } catch (error) {
+    return refuseHere(refusalFields(error));
+  }
 
   const archive = await readArchive(accountDir);
   const before = (await onDiskIds(accountDir)).size;
@@ -427,9 +505,9 @@ async function doGo({ root, target, alias, unalias, profileDir, chromium, planHi
   let fetched = 0;
   let failed = 0;
   if (!pending.length) {
-    console.log('[douyin] every post in the plan is already downloaded');
+    progress('[douyin] every post in the plan is already downloaded');
   } else {
-    console.log(`[douyin] downloading ${pending.length} post(s) to ${path.join(accountDir, 'posts')}…`);
+    progress(`[douyin] downloading ${pending.length} post(s) to ${path.join(accountDir, 'posts')}…`);
     const cookies = await mintImpl(profileDir, COOKIE_FILE, { launch: chromium });
     ({ fetched, failed } = await fetchImpl({
       accountDir,
@@ -455,44 +533,53 @@ async function doGo({ root, target, alias, unalias, profileDir, chromium, planHi
     failed,
   });
 
-  console.log('');
-  console.log(
-    renderSummaryBlock({
-      headline: headline(plan.account),
-      folder: accountDir,
-      counts: plan.counts,
-      // Made afresh from the numbers the plan recorded, with the unlisted count
-      // recomputed against what is on disk now. The rest describe the listing
-      // pass and are as true as when it ran.
-      notes: notes({
-        collected: plan.counts?.found ?? 0,
-        reported: plan.counts?.reported ?? null,
-        skipped: plan.counts?.skipped ?? null,
-        unlisted: unlistedCountFromPlan(plan, landed),
-      }),
-      downloaded: total - before,
-      total,
-      failed,
-    }),
-  );
-
   // Kept after a partial run, so a retry re-fetches only what is missing without
   // paying for another collection; retired once it has all landed.
   if (remaining === 0) await clearPlan(accountDir);
 
-  return failed ? EXIT.FAILED : EXIT.OK;
+  const unlisted = unlistedCountFromPlan(plan, landed);
+
+  return answer({
+    command,
+    platform: PLATFORM,
+    result: archiveResult({
+      account: accountFields(ACCOUNT, plan.account, target.url),
+      dir: accountDir,
+      root,
+      counts: {
+        ...plan.counts,
+        // The unlisted count is recomputed against what is on disk now; the rest
+        // describe the listing pass and are as true as when it ran.
+        platform: { ...plan.counts?.platform, unlisted },
+      },
+      notes: [
+        // A --yes announced a rename or a moved root before it started, and must
+        // still say so now the user is past being asked. A bare --go announced
+        // nothing, because it is acting on a list that already did.
+        ...announced,
+        ...notes({
+          collected: plan.counts?.found ?? 0,
+          reported: plan.counts?.platform?.reported ?? null,
+          skipped: plan.counts?.platform?.skipped_image_posts ?? null,
+          unlisted,
+        }),
+      ],
+      // Carried by the run that made this plan, and by that run only. A --go is
+      // acting on a list already approved, and its window has done its work.
+      plan: made ? planWindow({ createdAt: made.created_at, ttlHours: DEFAULT_TTL_HOURS }) : null,
+      run: runCounts({ downloaded: total - before, total, failed, remaining }),
+    }),
+    // A run that lost posts to the downloader still finished as asked, and its
+    // exit code is what shell callers have always seen. The posts it lost are in
+    // run.failed, and the plan it kept is what makes the retry cheap.
+    exit: failed ? EXIT.FAILED : EXIT.OK,
+  });
 }
 
 async function moveIfAsked({ root, alias, unalias, secUid, accountDir }) {
   if (unalias) return (await clearAlias(ACCOUNT, root, { id: secUid })) ?? accountDir;
   if (alias) return (await applyAlias(ACCOUNT, root, { id: secUid, alias })) ?? accountDir;
   return accountDir;
-}
-
-/** Progress lines rewrite one line rather than scrolling a wall of them. */
-function progress(message, { progress: inPlace } = {}) {
-  if (inPlace && process.stdout.isTTY) process.stdout.write(`\r${message}`);
-  else console.log(message);
 }
 
 if (isMainModule(import.meta.url)) {

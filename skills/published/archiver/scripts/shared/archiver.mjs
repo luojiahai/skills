@@ -41,6 +41,7 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import { readJson, writeJson } from './cli.mjs';
+import { Refusal } from './errors.mjs';
 
 export const ARCHIVER_FILE = 'archiver.json';
 
@@ -114,32 +115,33 @@ export async function readSchema(root) {
 }
 
 /**
- * Whether this build may write into an archive that said `schema`.
+ * Whether this build may write into an archive that said `schema`, as
+ * `{ ok: true }` or `{ ok: false, code, reason, details }`.
  *
  * A file that is present but does not carry an integer is refused rather than
  * ignored. Ignoring it would treat a corrupt or half-written root file as an
  * absent one, and absent means "carry on" — which is the one answer that must
- * not be reachable by accident.
+ * not be reachable by accident. It gets its own code, because a file to repair
+ * and a version to migrate are two different things to be told.
  */
-export function checkSchema({ present, schema }) {
+export function checkSchema({ present, schema }, root = null) {
   if (!present) return { ok: true };
   if (READABLE_SCHEMAS.has(schema)) return { ok: true };
 
   if (!Number.isInteger(schema)) {
     return {
       ok: false,
-      reason:
-        `${ARCHIVER_FILE} does not say which schema this archive uses.\n` +
-        `  This build writes schema ${SCHEMA_VERSION}. Repair or remove that file before running again.`,
+      code: 'archive-schema-unreadable',
+      reason: `${ARCHIVER_FILE} does not say which schema this archive uses`,
+      details: { file: root ? path.join(root, ARCHIVER_FILE) : ARCHIVER_FILE },
     };
   }
 
   return {
     ok: false,
-    reason:
-      `this archive is schema ${schema}, and this build writes schema ${SCHEMA_VERSION}.\n` +
-      `  ${schema > SCHEMA_VERSION ? 'It was written by a newer version of this skill — update it.' : 'It was written by an older version of this skill.'}\n` +
-      `  Nothing has been read or written. Point --archives at a different root, or migrate this one.`,
+    code: 'archive-schema-unsupported',
+    reason: `this archive is schema ${schema}, and this build writes schema ${SCHEMA_VERSION}`,
+    details: { found: schema, writes: SCHEMA_VERSION },
   };
 }
 
@@ -156,9 +158,19 @@ export function checkSchema({ present, schema }) {
  * directory behind on a run that then went nowhere.
  */
 export async function checkRoot(root) {
-  const verdict = checkSchema(await readSchema(root));
-  if (!verdict.ok) throw new Error(verdict.reason);
-  return SCHEMA_VERSION;
+  const verdict = checkSchema(await readSchema(root), root);
+  if (verdict.ok) return SCHEMA_VERSION;
+
+  throw new Refusal(verdict.code, verdict.reason, {
+    details: verdict.details,
+    remedy: {
+      message:
+        verdict.code === 'archive-schema-unreadable'
+          ? 'repair or remove that file, or keep this archive somewhere else'
+          : 'update the skill, keep this archive somewhere else, or migrate this root',
+      run_by: 'user',
+    },
+  });
 }
 
 /**

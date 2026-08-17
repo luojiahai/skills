@@ -10,6 +10,7 @@
  * the same position a profile URL does, so anything that stopped reading after
  * the handle would answer "download this post" by archiving the whole account.
  */
+import { Refusal } from '../shared/errors.mjs';
 
 const HOST = /^(?:https?:\/\/)?(?:www\.|mobile\.)?(?:twitter|x)\.com\//i;
 
@@ -30,23 +31,33 @@ const RESERVED = new Set(['i', 'home', 'explore', 'notifications', 'messages', '
 export function parseTarget(input) {
   const raw = String(input ?? '').trim();
   if (!HOST.test(raw)) {
-    throw new Error('that is not an x.com or twitter.com URL');
+    throw new Refusal('url-not-platform', 'that is not an x.com or twitter.com URL', {
+      details: { url: raw },
+    });
   }
 
   const path = raw.replace(HOST, '').split(/[?#]/)[0].replace(/\/+$/, '');
   const parts = path.split('/').filter(Boolean);
   if (parts.length === 0) {
-    throw new Error('that URL names no account');
+    throw new Refusal('url-no-account', 'that URL names no account', { details: { url: raw } });
   }
 
   const [handle, section] = parts;
 
   if (RESERVED.has(handle.toLowerCase())) {
-    throw new Error(`x.com/${handle} is not an account this skill can archive`);
+    throw new Refusal(
+      'url-reserved-handle',
+      `x.com/${handle} is not an account this skill can archive`,
+      { details: { handle } },
+    );
   }
 
   if (section && section !== 'media' && section !== 'tweets') {
-    throw new Error(`x.com/<handle>/${section} is out of scope — this skill archives an account's own media`);
+    throw new Refusal(
+      'url-out-of-scope',
+      `x.com/<handle>/${section} is out of scope — this skill archives an account's own media`,
+      { details: { section } },
+    );
   }
 
   return { handle, url: `https://x.com/${handle}` };

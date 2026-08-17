@@ -11,6 +11,7 @@
 import { writeFile, mkdir } from 'node:fs/promises';
 import path from 'node:path';
 
+import { Refusal } from '../shared/errors.mjs';
 import { loadPlaywright } from './playwright.mjs';
 
 /**
@@ -87,9 +88,10 @@ export async function mintCookies(profileDir, cookieFile, { launch } = {}) {
   const cookies = douyinCookies(await readProfileCookies(profileDir, { launch }));
 
   if (!cookies.length) {
-    throw new Error(
-      'no douyin.com cookies in the browser profile — the session is empty.\n' +
-        '  Sign in with:  archive.sh <profile-url> --login',
+    throw new Refusal(
+      'session-empty',
+      'no douyin.com cookies in the browser profile — the session is empty',
+      { details: { profile_dir: profileDir } },
     );
   }
 

@@ -6,7 +6,7 @@ import { mkdtemp, readFile, readdir } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
-import { classifyFailure, fetchArgs, fetchPosts, metadataArgs, outstanding, postDir } from './fetch.mjs';
+import { fetchArgs, fetchPosts, metadataArgs, outstanding, postDir, saysSessionStale } from './fetch.mjs';
 
 const root = () => mkdtemp(path.join(os.tmpdir(), 'douyin-fetch-'));
 
@@ -61,11 +61,11 @@ test('cookies are passed only when there are cookies', () => {
   assert.ok(!fetchArgs({ url: 'u', dir: '/a', cookies: null }).includes('--cookies'));
 });
 
-test('a rejected session is told apart from an unavailable post', () => {
+test('a stale session is told apart from an unavailable post', () => {
   // Only one of these is worth re-minting cookies and retrying for.
-  assert.equal(classifyFailure('ERROR: ... Fresh cookies (not necessarily logged in) are needed'), 'unauthorized');
-  assert.equal(classifyFailure('ERROR: Video unavailable'), null);
-  assert.equal(classifyFailure(null), null);
+  assert.equal(saysSessionStale('ERROR: ... Fresh cookies (not necessarily logged in) are needed'), true);
+  assert.equal(saysSessionStale('ERROR: Video unavailable'), false);
+  assert.equal(saysSessionStale(null), false);
 });
 
 test('the folder is named from the timestamp the listing pass carried', () => {

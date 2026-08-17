@@ -37,6 +37,7 @@ import path from 'node:path';
 
 import { readJson, writeJson } from './cli.mjs';
 import { readAliases, writeAlias } from './archiver.mjs';
+import { Refusal } from './errors.mjs';
 
 export const ACCOUNT_FILE = 'account.json';
 export const ACCOUNT_VERSION = 1;
@@ -97,30 +98,34 @@ export function isSafeAlias(alias) {
 /**
  * Why an alias was refused for its shape, in one place.
  *
- * The entry point says this before the archives root is even resolved and
- * checkAlias says it again afterwards; two copies of a sentence like this is
+ * The entry point raises this before the archives root is even resolved and
+ * checkAlias reaches it again afterwards; two copies of a refusal like this is
  * how the two come to describe different rules.
  */
 export function aliasShapeRefusal(alias) {
-  return (
-    `${JSON.stringify(String(alias ?? ''))} cannot be an alias.\n` +
-    '  Letters, digits, dots, dashes and underscores; no spaces, no slashes, and not starting with a dot.'
+  return new Refusal(
+    'alias-invalid',
+    `${JSON.stringify(String(alias ?? ''))} cannot be an alias — letters, digits, dots, dashes ` +
+      'and underscores; no spaces, no slashes, and not starting with a dot',
+    { details: { alias: String(alias ?? '') } },
   );
 }
 
 /** Where this account's folder is if it has no alias, whether or not it exists. */
 export function accountDirFor(descriptor, root, accountId) {
   if (!isSafeId(accountId)) {
-    throw new Error(`refusing to use ${JSON.stringify(String(accountId ?? ''))} as an account folder name`);
+    throw new Refusal(
+      'unsafe-account-id',
+      `refusing to use ${JSON.stringify(String(accountId ?? ''))} as an account folder name`,
+      { details: { id: String(accountId ?? '') } },
+    );
   }
   return path.join(platformDir(descriptor, root), String(accountId));
 }
 
 /** Where an aliased folder is, whether or not it exists yet. */
 export function aliasDirFor(descriptor, root, alias) {
-  if (!isSafeAlias(alias)) {
-    throw new Error(`refusing to use ${JSON.stringify(String(alias ?? ''))} as an account folder name`);
-  }
+  if (!isSafeAlias(alias)) throw aliasShapeRefusal(alias);
   return path.join(platformDir(descriptor, root), String(alias));
 }
 
@@ -377,7 +382,8 @@ export async function existingIds(descriptor, root) {
 }
 
 /**
- * Whether `alias` may be given to `id`, as `{ ok, reason }`.
+ * Whether `alias` may be given to `id`, as `{ ok: true }` or
+ * `{ ok: false, refusal }`.
  *
  * Shape is decided first and without touching the filesystem, so a typo is
  * refused by argument parsing rather than after a full timeline crawl. The rest
@@ -388,32 +394,45 @@ export async function existingIds(descriptor, root) {
  * taken is then taken by definition, because it cannot be taken by us.
  */
 export async function checkAlias(descriptor, root, { id = null, alias } = {}) {
-  if (!isSafeAlias(alias)) return { ok: false, reason: aliasShapeRefusal(alias) };
+  if (!isSafeAlias(alias)) return { ok: false, refusal: aliasShapeRefusal(alias) };
 
   const mine = id === null ? null : String(id);
 
   for (const [other, name] of Object.entries(await readAliases(root, descriptor.platform))) {
-    if (name === alias && other !== mine) {
-      return { ok: false, reason: `the alias ${JSON.stringify(alias)} already belongs to the account with id ${other}` };
-    }
+    if (name === alias && other !== mine) return { ok: false, refusal: aliasTaken(alias, other) };
   }
 
   const occupant = await identityAt(aliasDirFor(descriptor, root, alias));
   const occupantId = String(occupant?.account?.id ?? '');
-  if (occupantId && occupantId !== mine) {
-    return { ok: false, reason: `the alias ${JSON.stringify(alias)} already belongs to the account with id ${occupantId}` };
-  }
+  if (occupantId && occupantId !== mine) return { ok: false, refusal: aliasTaken(alias, occupantId) };
 
   if ((await existingIds(descriptor, root)).has(alias) && alias !== mine) {
     return {
       ok: false,
-      reason:
-        `${JSON.stringify(alias)} is another account's id on this platform, so it cannot be an alias.\n` +
-        '  An un-aliased account is filed under its id, and this alias would one day want that folder.',
+      refusal: new Refusal(
+        'alias-is-other-id',
+        `${JSON.stringify(alias)} is another account's id on this platform, so it cannot be an alias — ` +
+          'an un-aliased account is filed under its id, and this alias would one day want that folder',
+        {
+          details: { alias },
+          remedy: { message: 'choose a different name for this folder', run_by: 'user' },
+        },
+      ),
     };
   }
 
   return { ok: true };
+}
+
+function aliasTaken(alias, holderId) {
+  return new Refusal(
+    'alias-taken',
+    `the alias ${JSON.stringify(alias)} already belongs to the account with id ${holderId}`,
+    {
+      details: { alias, holder_id: String(holderId) },
+      remedy: { message: 'choose a different name for this folder', run_by: 'user' },
+    },
+  );
 }
 
 /**
@@ -441,17 +460,27 @@ export async function applyAlias(descriptor, root, { id, alias }) {
     const occupantId = String((await identityAt(target))?.account?.id ?? '');
 
     if (occupantId !== wanted) {
-      throw new Error(
-        `${target} already exists, and it is not this account's.\n` +
-          `  ${occupantId ? `It belongs to the account with id ${occupantId}.` : 'It holds no account.json this build can read.'}\n` +
-          '  Nothing has been moved. Choose another alias, or move that folder aside yourself.',
+      throw new Refusal(
+        'alias-target-occupied',
+        `${target} already exists, and it is not this account's — ` +
+          `${occupantId ? `it belongs to the account with id ${occupantId}` : 'it holds no account.json this build can read'}. ` +
+          'Nothing has been moved',
+        {
+          details: { target, occupant_id: occupantId || null },
+          remedy: { message: 'choose another name, or move that folder aside first', run_by: 'user' },
+        },
       );
     }
 
     if (current) {
-      throw new Error(
-        `this account is in two folders at once — ${current} and ${target}.\n` +
-          '  Nothing has been moved, and nothing here will merge them. Keep the one you want and remove the other.',
+      throw new Refusal(
+        'account-in-two-folders',
+        `this account is in two folders at once — ${current} and ${target}. ` +
+          'Nothing has been moved, and nothing here will merge them',
+        {
+          details: { dirs: [current, target] },
+          remedy: { message: 'keep the folder you want and remove the other', run_by: 'user' },
+        },
       );
     }
 
@@ -482,9 +511,14 @@ export async function clearAlias(descriptor, root, { id }) {
 
   if (current && current !== target) {
     if (await exists(target)) {
-      throw new Error(
-        `${target} already exists, so this account cannot be filed under its id again.\n` +
-          '  Nothing has been moved. Move that folder aside yourself, then try again.',
+      throw new Refusal(
+        'unalias-target-occupied',
+        `${target} already exists, so this account cannot be filed under its id again. ` +
+          'Nothing has been moved',
+        {
+          details: { target },
+          remedy: { message: 'move that folder aside, then try again', run_by: 'user' },
+        },
       );
     }
     await rename(current, target);

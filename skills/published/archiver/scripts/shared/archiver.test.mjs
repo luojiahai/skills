@@ -46,16 +46,20 @@ test('the current schema is allowed', () => {
   assert.equal(checkSchema({ present: true, schema: SCHEMA_VERSION }).ok, true);
 });
 
-test('a newer schema is refused, and says so', () => {
+test('a newer schema is refused, and says which one it found', () => {
   const verdict = checkSchema({ present: true, schema: SCHEMA_VERSION + 1 });
   assert.equal(verdict.ok, false);
-  assert.match(verdict.reason, /newer version/);
+  assert.equal(verdict.code, 'archive-schema-unsupported');
+  assert.deepEqual(verdict.details, { found: SCHEMA_VERSION + 1, writes: SCHEMA_VERSION });
 });
 
-test('an older schema is refused too', () => {
+test('an older schema is refused too, under the same code', () => {
+  // Newer and older need the same answer — this build cannot write here — and
+  // which of the two it is falls out of the numbers rather than the wording.
   const verdict = checkSchema({ present: true, schema: 1 });
   assert.equal(verdict.ok, false);
-  assert.match(verdict.reason, /older version/);
+  assert.equal(verdict.code, 'archive-schema-unsupported');
+  assert.equal(verdict.details.found, 1);
 });
 
 test('schema 2 is readable, because every schema-2 folder is a legal schema-3 one', () => {

@@ -21,6 +21,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { Refusal } from './errors.mjs';
+
 /** Where one platform keeps what it must not lose when the skill is replaced. */
 export function stateDir(platform) {
   return path.join(
@@ -64,10 +66,17 @@ export function archivesRoot(cwd = process.cwd()) {
   if (here === SKILL_DIR || here.startsWith(SKILL_DIR + path.sep)) {
     const project = projectFromInstall();
     if (project) return path.join(project, 'archives');
-    throw new Error(
+    throw new Refusal(
+      'root-in-skill',
       `cannot tell which project this archive belongs to — the working ` +
-        `directory is inside the skill (${cwd}), which the next update replaces.\n` +
-        `  run from the project directory, or pass --archives DIR`,
+        `directory is inside the skill (${cwd}), which the next update replaces`,
+      {
+        details: { cwd: String(cwd) },
+        remedy: {
+          message: 'run this from the project directory, or name the archives root explicitly',
+          run_by: 'agent',
+        },
+      },
     );
   }
 

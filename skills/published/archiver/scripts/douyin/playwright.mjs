@@ -11,6 +11,7 @@ import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
+import { Refusal } from '../shared/errors.mjs';
 import { stateDir } from '../shared/paths.mjs';
 
 export const PLATFORM = 'douyin';
@@ -33,10 +34,11 @@ export async function loadPlaywright() {
     try {
       mod = await import('playwright');
     } catch {
-      throw new Error(
-        "playwright not installed — run the skill's setup.sh douyin\n" +
-          `  expected at: ${path.join(STATE_DIR, 'node_modules', 'playwright')}`,
-      );
+      const expected = path.join(STATE_DIR, 'node_modules', 'playwright');
+      throw new Refusal('playwright-missing', 'playwright is not installed', {
+        details: { expected_at: expected },
+        remedy: { message: "run the skill's setup.sh for Douyin", command: 'setup.sh douyin', run_by: 'user' },
+      });
     }
   }
 
@@ -44,7 +46,9 @@ export async function loadPlaywright() {
   // rather than as named exports, so `mod.chromium` alone is undefined.
   const api = mod?.chromium ? mod : mod?.default;
   if (!api?.chromium) {
-    throw new Error('playwright loaded but exposes no chromium export');
+    throw new Refusal('playwright-broken', 'playwright loaded but exposes no chromium export', {
+      remedy: { message: "re-run the skill's setup.sh for Douyin", command: 'setup.sh douyin', run_by: 'user' },
+    });
   }
   return api;
 }

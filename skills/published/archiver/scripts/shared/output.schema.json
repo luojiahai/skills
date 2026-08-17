@@ -1,0 +1,276 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/luojiahai/skills/archiver/output.schema.json",
+  "title": "archiver command output",
+  "description": "The one JSON document every archiver command writes to stdout. Its reader is SKILL.md, which words the outcome for a user. Changing this file is changing the contract.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "ok", "command", "platform", "exit"],
+  "properties": {
+    "schema": { "const": 1 },
+    "ok": { "type": "boolean" },
+    "command": { "enum": ["plan", "go", "yes", "list", "login", null] },
+    "platform": { "enum": ["x", "douyin", null] },
+    "exit": { "enum": [0, 2, 3, 4, 5, 6] },
+    "result": {
+      "anyOf": [
+        { "$ref": "#/$defs/archiveResult" },
+        { "$ref": "#/$defs/listResult" },
+        { "$ref": "#/$defs/loginResult" }
+      ]
+    },
+    "error": { "$ref": "#/$defs/error" }
+  },
+  "$defs": {
+    "archiveResult": {
+      "description": "What --plan, --go and --yes report about one account.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["account", "dir", "root", "counts", "notes"],
+      "properties": {
+        "account": { "$ref": "#/$defs/account" },
+        "dir": { "type": "string" },
+        "root": { "type": "string" },
+        "counts": { "$ref": "#/$defs/counts" },
+        "notes": { "type": "array", "items": { "$ref": "#/$defs/note" } },
+        "plan": { "$ref": "#/$defs/planWindow" },
+        "next": { "$ref": "#/$defs/nextStep" },
+        "run": { "$ref": "#/$defs/run" }
+      }
+    },
+    "account": {
+      "description": "Identity as fields, so the account can be named the way the user's language names people.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "nickname", "url"],
+      "properties": {
+        "id": { "type": ["string", "null"] },
+        "handle": { "type": ["string", "null"] },
+        "douyin_id": { "type": ["string", "null"] },
+        "nickname": { "type": ["string", "null"] },
+        "url": { "type": ["string", "null"] }
+      }
+    },
+    "counts": {
+      "description": "Raw integers. to_fetch of 0 is the whole of 'already up to date'; there is no second field that could disagree with it.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["found", "on_disk", "to_fetch", "platform"],
+      "properties": {
+        "found": { "type": "integer", "minimum": 0 },
+        "on_disk": { "type": "integer", "minimum": 0 },
+        "to_fetch": { "type": "integer", "minimum": 0 },
+        "platform": {
+          "description": "What only one platform knows, as counts.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "found_files": { "type": "integer", "minimum": 0 },
+            "fetch_files": { "type": "integer", "minimum": 0 },
+            "images": { "type": "integer", "minimum": 0 },
+            "videos": { "type": "integer", "minimum": 0 },
+            "reported": { "type": ["integer", "null"] },
+            "skipped_image_posts": { "type": "integer", "minimum": 0 },
+            "unlisted": { "type": ["integer", "null"] }
+          }
+        }
+      }
+    },
+    "planWindow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["created_at", "expires_at"],
+      "properties": {
+        "created_at": { "type": "string" },
+        "expires_at": { "type": "string" }
+      }
+    },
+    "nextStep": {
+      "description": "The exact invocation that fetches what a plan just described, carrying the user's own flags.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["command", "run_by"],
+      "properties": {
+        "command": { "type": "string" },
+        "run_by": { "const": "agent" }
+      }
+    },
+    "run": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["downloaded", "total", "failed", "remaining"],
+      "properties": {
+        "downloaded": { "type": "integer", "minimum": 0 },
+        "total": { "type": "integer", "minimum": 0 },
+        "failed": { "type": "integer", "minimum": 0 },
+        "remaining": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "note": {
+      "description": "A fact with its numbers beside it, so a conditional rule keys off a number rather than off a sentence.",
+      "anyOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["code", "dir"],
+          "properties": { "code": { "const": "moving-to" }, "dir": { "type": "string" } }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["code", "previous"],
+          "properties": { "code": { "const": "root-changed" }, "previous": { "type": "string" } }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["code", "mode", "stopped_early", "threshold"],
+          "properties": {
+            "code": { "const": "sweep" },
+            "mode": { "enum": ["full", "incremental"] },
+            "stopped_early": { "type": "boolean" },
+            "threshold": { "type": ["integer", "null"] }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["code", "count"],
+          "properties": { "code": { "const": "hidden-posts" }, "count": { "type": "integer", "minimum": 1 } }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["code", "count", "issue"],
+          "properties": {
+            "code": { "const": "image-posts-skipped" },
+            "count": { "type": "integer", "minimum": 1 },
+            "issue": { "type": "string" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["code", "count"],
+          "properties": { "code": { "const": "unlisted-posts" }, "count": { "type": "integer", "minimum": 1 } }
+        }
+      ]
+    },
+    "listResult": {
+      "description": "--list, unchanged in substance: it answers a different question from the archive commands and has no counterpart there.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["root", "accounts"],
+      "properties": {
+        "root": { "type": "string" },
+        "accounts": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["platform", "folder", "dir", "nickname", "url", "posts", "last_run", "to_fetch"],
+            "properties": {
+              "platform": { "enum": ["x", "douyin"] },
+              "folder": { "type": "string" },
+              "dir": { "type": "string" },
+              "nickname": { "type": ["string", "null"] },
+              "url": { "type": ["string", "null"] },
+              "posts": { "type": "integer", "minimum": 0 },
+              "last_run": { "type": ["string", "null"] },
+              "to_fetch": { "type": ["integer", "null"] }
+            }
+          }
+        }
+      }
+    },
+    "loginResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["profile_dir"],
+      "properties": { "profile_dir": { "type": "string" } }
+    },
+    "error": {
+      "description": "A refusal. Branch on code; message is a fallback for a code this SKILL.md has not heard of, and is reworded before anybody reads it.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "message"],
+      "properties": {
+        "code": {
+          "enum": [
+            "no-arguments",
+            "unsupported-platform",
+            "multiple-platforms",
+            "list-with-url",
+            "list-unknown-flag",
+            "list-unexpected-argument",
+            "unknown-flag",
+            "no-url",
+            "downloads-renamed",
+            "node-missing",
+            "root-in-skill",
+            "archive-schema-unreadable",
+            "archive-schema-unsupported",
+            "url-share-link",
+            "url-not-profile",
+            "url-not-platform",
+            "url-no-account",
+            "url-reserved-handle",
+            "url-out-of-scope",
+            "alias-and-unalias",
+            "alias-invalid",
+            "alias-taken",
+            "alias-is-other-id",
+            "alias-target-occupied",
+            "account-in-two-folders",
+            "unalias-target-occupied",
+            "unsafe-account-id",
+            "tool-missing",
+            "playwright-missing",
+            "playwright-broken",
+            "session-missing",
+            "session-empty",
+            "session-expired-grid",
+            "login-abandoned",
+            "login-timed-out",
+            "session-rejected",
+            "no-session-source",
+            "session-unreadable",
+            "no-archive",
+            "plan-missing",
+            "plan-unreadable",
+            "plan-no-timestamp",
+            "plan-stale",
+            "plan-foreign-account",
+            "plan-foreign-root",
+            "plan-empty",
+            "empty",
+            "empty-grid",
+            "unidentified-account",
+            "no-douyin-id",
+            "bad-account-id",
+            "rate-limited",
+            "protected",
+            "suspended",
+            "no-such-account",
+            "post-gone",
+            "downloader-unavailable",
+            "collect-failed",
+            "internal-error"
+          ]
+        },
+        "message": { "type": "string" },
+        "details": { "type": "object" },
+        "remedy": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["message", "run_by"],
+          "properties": {
+            "message": { "type": "string" },
+            "command": { "type": "string" },
+            "run_by": { "enum": ["agent", "user"] }
+          }
+        }
+      }
+    }
+  }
+}

@@ -11,6 +11,8 @@ import { access, constants } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
+import { Refusal } from './errors.mjs';
+
 /**
  * Whether `bin` can be executed, searching PATH the way a shell would.
  *
@@ -44,16 +46,30 @@ async function defaultCanExecute(candidate) {
 }
 
 /**
- * The refusal for a tool that is not installed, as lines ready to print.
+ * The command that installs a tool on *this* machine, or null.
  *
  * The brew form is offered only where brew can actually run it: a `brew install`
  * suggested to someone without brew is not a remedy, it is a second thing to go
  * and install first.
  */
-export function missingTool(bin, { brew, otherwise, darwin, hasBrew } = {}) {
+export function installCommand(bin, { brew, otherwise, darwin, hasBrew } = {}) {
   const onMac = darwin ?? os.platform() === 'darwin';
-  const lines = [`error: ${bin} is not installed`];
-  if (brew && onMac && hasBrew) lines.push(`  Install it with:  ${brew}`);
-  else if (otherwise) lines.push(`  Install it with:  ${otherwise}`);
-  return lines.join('\n');
+  if (brew && onMac && hasBrew) return brew;
+  return otherwise ?? null;
+}
+
+/**
+ * The refusal for a tool that is not installed, as a code, its facts, and a
+ * remedy that is the user's to run — nothing here installs anything for anyone.
+ */
+export function missingTool(bin, { brew, otherwise, docs, darwin, hasBrew } = {}) {
+  const install = installCommand(bin, { brew, otherwise, darwin, hasBrew });
+  return new Refusal('tool-missing', `${bin} is not installed`, {
+    details: { tool: bin, install },
+    remedy: {
+      message: docs ? `install ${bin} — see ${docs}` : `install ${bin}`,
+      ...(install ? { command: install } : {}),
+      run_by: 'user',
+    },
+  });
 }

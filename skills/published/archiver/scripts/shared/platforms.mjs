@@ -11,6 +11,7 @@
  * name once dispatched. Refusing them here would answer "unsupported platform",
  * which is both wrong and unhelpful.
  */
+import { Refusal } from './errors.mjs';
 
 /**
  * Host patterns are anchored at the start of the argument and must end at a
@@ -88,20 +89,29 @@ export function descriptorFor(name) {
  */
 export function detect(argv) {
   const named = new Set();
+  const urls = [];
   let found = null;
   for (const arg of argv) {
     const platform = PLATFORMS.find((candidate) => candidate.match(String(arg)));
     if (!platform) continue;
     named.add(platform.name);
+    urls.push(String(arg));
     found = found ?? platform;
   }
 
   if (named.size > 1) {
-    throw new Error(
+    throw new Refusal(
+      'multiple-platforms',
       `that names ${[...named].join(' and ')} — this archives one account at a time`,
+      { details: { urls } },
     );
   }
   return found;
+}
+
+/** Every platform this skill archives, for a refusal that has to list them. */
+export function supportedPlatforms() {
+  return PLATFORMS.map(({ name, label, hosts }) => ({ name, label, hosts }));
 }
 
 /** The supported platforms, as prose a refusal message can end a sentence with. */

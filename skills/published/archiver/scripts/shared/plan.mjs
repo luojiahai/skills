@@ -1,5 +1,5 @@
 /**
- * plan.mjs — the confirm step, and every block this skill prints.
+ * plan.mjs — the confirm step: what a plan is, and when it may be acted on.
  *
  * Nothing about an account can be reported before it has been listed: not the
  * display name, not how many posts there are, and certainly not how many are
@@ -11,28 +11,12 @@
  * This module owns what a plan *means*; sync.mjs owns where it lives and how
  * long it lives for. A plan carries no version of its own — sync.json's does the
  * job, and a file it cannot read reads as no plan at all.
- *
- * **One renderer, for every platform.** The block a user approves and the block
- * a finished run reports have to agree, and they only reliably agree by being
- * the same code — so the same is true across platforms sharing one archives
- * root. Nothing here branches on which platform is running. What genuinely
- * differs arrives as text the platform wrote: the `headline` naming the account
- * the way that site names accounts, a `detail` beside a count, and `notes` for
- * anything one platform has to say and the other does not — Douyin's
- * unfetchable image posts, X's sweep that stopped early.
  */
+import { Refusal } from './errors.mjs';
 
 /** A plan describes a list the user approved. A day later it describes the past. */
 export const DEFAULT_TTL_HOURS = 24;
 export const MAX_PLAN_AGE_MS = DEFAULT_TTL_HOURS * 60 * 60 * 1000;
-
-const RULE = '──────────────────────────────────────────';
-const LABEL_WIDTH = 11;
-
-const n = (value) => Number(value || 0).toLocaleString('en-US');
-const row = (label, value) => ` ${label.padEnd(LABEL_WIDTH)} ${value}`;
-const continuation = (value) => ` ${''.padEnd(LABEL_WIDTH)} ${value}`;
-const box = (lines) => [RULE, ...lines, RULE].join('\n');
 
 /**
  * The parked plan.
@@ -40,16 +24,12 @@ const box = (lines) => [RULE, ...lines, RULE].join('\n');
  * `collected` and `pending` hold each post whole rather than its id, because
  * `--go` writes every `post.json` from the plan and must not have to list the
  * account again to do it.
+ *
+ * `counts` and `notes` are carried in the shape the finished run will report
+ * them in, so a `--go` describes its account without listing it a second time
+ * and without either half of the run composing numbers the other did not.
  */
-export function buildPlan({
-  account,
-  collected,
-  pending,
-  root,
-  counts,
-  notes = [],
-  now,
-}) {
+export function buildPlan({ account, collected, pending, root, counts, notes = [], now }) {
   return {
     created_at: now.toISOString(),
     root,
@@ -62,13 +42,13 @@ export function buildPlan({
 }
 
 /**
- * The posts `--go` fetches: what the approved block counted as new, never more.
+ * The posts `--go` fetches: what the approved report counted as new, never more.
  *
  * `pending` is that list. `collected` is everything the listing pass saw, and is
  * kept for one other job — telling a finished run how many archived posts the
  * account no longer lists. Fetching from `collected` would let a run exceed the
- * number the user said yes to: a post that left the disk after the block was
- * rendered was never counted as new, and the next `--plan` is what offers it.
+ * number the user said yes to: a post that left the disk after the report was
+ * made was never counted as new, and the next `--plan` is what offers it.
  *
  * Every platform's `--go` reads its list through here, so the field is named in
  * one place and two platforms cannot come to answer this differently.
@@ -78,28 +58,38 @@ export function approved(plan) {
 }
 
 /**
- * Whether a plan may be acted on: `{ ok }`, or `{ ok: false, reason }`.
+ * Whether a plan may be acted on: `{ ok: true }`, or `{ ok: false, code, reason,
+ * details }`.
  *
  * A plan is refused rather than repaired. The alternative to refusing is
  * downloading a list the user never approved — a different account, a different
  * archive, or one listed before the account posted another fifty things.
+ *
+ * Each refusal carries its own code, because "the plan is stale" and "the plan
+ * is for somebody else" lead the agent to say different things while sharing one
+ * exit code.
  */
 export function validatePlan(plan, { accountId, root, now = Date.now(), ttlHours = DEFAULT_TTL_HOURS } = {}) {
-  if (!plan) return { ok: false, reason: 'no plan has been made for this account yet' };
+  if (!plan) {
+    return refusal('plan-missing', 'no plan has been made for this account yet');
+  }
 
   // A plan this build cannot read is no plan at all. It is refused rather than
   // interpreted, because a half-understood plan is a list nobody approved.
   if (!Array.isArray(plan.pending)) {
-    return { ok: false, reason: 'the plan is not in a shape this build can read' };
+    return refusal('plan-unreadable', 'the plan is not in a shape this build can read');
   }
 
   const age = now - Date.parse(plan.created_at || '');
-  if (!Number.isFinite(age)) return { ok: false, reason: 'the plan has no usable timestamp' };
+  if (!Number.isFinite(age)) {
+    return refusal('plan-no-timestamp', 'the plan has no usable timestamp');
+  }
   if (age > ttlHours * 60 * 60 * 1000) {
-    return {
-      ok: false,
-      reason: `the plan is ${describeAge(age)} old — the account may have posted since it was made`,
-    };
+    return refusal(
+      'plan-stale',
+      `the plan is ${describeAge(age)} old — the account may have posted since it was made`,
+      { created_at: plan.created_at, age_hours: Math.round(age / 360_000) / 10, ttl_hours: ttlHours },
+    );
   }
 
   // The only identity check, and it compares ids rather than the URL the plan
@@ -107,19 +97,34 @@ export function validatePlan(plan, { accountId, root, now = Date.now(), ttlHours
   // account.json in that folder has the id. A plan whose url names something
   // other than the account is still that account's plan.
   if (accountId && plan.account?.id && String(plan.account.id) !== String(accountId)) {
-    return { ok: false, reason: 'the plan at this folder was made for a different account' };
+    return refusal('plan-foreign-account', 'the plan at this folder was made for a different account');
   }
 
   if (root && plan.root !== root) {
-    return { ok: false, reason: `the plan was made for a different archives root (${plan.root})` };
+    return refusal(
+      'plan-foreign-root',
+      `the plan was made for a different archives root (${plan.root})`,
+      { plan_root: plan.root ?? null },
+    );
   }
 
   // There is no folder check, and none is needed: a plan is read out of the
   // account folder it was written into, so "a plan for another folder" is not a
   // state that can be reached.
-  if (plan.pending.length === 0) return { ok: false, reason: 'the plan has nothing left to download' };
+  if (plan.pending.length === 0) {
+    return refusal('plan-empty', 'the plan has nothing left to download');
+  }
 
   return { ok: true };
+}
+
+function refusal(code, reason, details = null) {
+  return { ok: false, code, reason, details };
+}
+
+/** The verdict as something a run can hand straight to the serialiser. */
+export function planRefusal(verdict) {
+  return new Refusal(verdict.code, verdict.reason, { details: verdict.details });
 }
 
 /** The ids a collected list names, for diffing against what is on disk. */
@@ -137,8 +142,8 @@ export function listedIds(posts) {
  *
  * A plan carrying counts but no `collected` list cannot have this reconstructed
  * from the numbers: an account that had simply posted since would come out
- * looking like a deletion. Unknown is null and renders as nothing — reporting 0
- * would assert the archive is fully listed, which is precisely what is not known.
+ * looking like a deletion. Unknown is null and says nothing — reporting 0 would
+ * assert the archive is fully listed, which is precisely what is not known.
  */
 export function unlistedCountFromPlan(plan, onDisk) {
   if (!Array.isArray(plan?.collected)) return null;
@@ -146,6 +151,13 @@ export function unlistedCountFromPlan(plan, onDisk) {
   return [...onDisk].filter((id) => !listed.has(id)).length;
 }
 
+/**
+ * An age in the largest unit that is still honest.
+ *
+ * The only prose left in this module, and it is a fallback: the refusal it lands
+ * in carries `age_hours` and `ttl_hours` beside it, so the agent says how old a
+ * plan is without reading it back out of a sentence.
+ */
 export function describeAge(ms) {
   const mins = Math.floor(ms / 60000);
   if (mins < 1) return 'less than a minute';
@@ -153,90 +165,4 @@ export function describeAge(ms) {
   const hours = Math.floor(mins / 60);
   if (hours < 48) return `${hours} hour${hours === 1 ? '' : 's'}`;
   return `${Math.floor(hours / 24)} days`;
-}
-
-/**
- * Notes, as `[label, …continuations]` — a first line beside the `note` label and
- * any further lines indented under it, so a citation or a parenthetical does not
- * have to be squeezed onto one line.
- */
-function noteRows(notes) {
-  return (notes ?? []).flatMap((note) => {
-    const [first, ...rest] = Array.isArray(note) ? note : [note];
-    return [row('note', first), ...rest.map(continuation)];
-  });
-}
-
-/**
- * The block the user answers yes or no to.
- *
- * `folder` is passed in rather than recomputed from the id. It has to be: the
- * folder may be named for an alias, and a block that derived the path itself
- * would print a different one from the one the run is writing into — which is
- * exactly the sort of second answer this file exists to avoid.
- *
- * `movingTo` is set when `--alias` names somewhere this folder is not yet. A
- * plan performs no move, so it says what a `--go` would do and stops there: a
- * preview that silently reorganised the archive would be a preview that lied.
- *
- * `previousRoot` is the root sync.json recorded for the *previous* run — the
- * caller reads it before this run stamps its own, because by the time this
- * renders the file may already say the new one. Left unsaid, a run against a
- * different root starts a second archive in silence, and its `on disk 0` reads
- * as an account that has lost its files.
- */
-export function renderPlanBlock({
-  headline,
-  folder,
-  movingTo = null,
-  previousRoot = null,
-  root = null,
-  counts,
-  notes = [],
-}) {
-  const lines = [` ${headline}`, row('folder', folder)];
-
-  if (movingTo && movingTo !== folder) {
-    lines.push(row('moves to', `${movingTo} — on --go`));
-  }
-  if (previousRoot && root && previousRoot !== root) {
-    lines.push(row('note', `last run used ${previousRoot}`));
-  }
-
-  lines.push(row('found', detailed(counts.found, counts.foundDetail)));
-  lines.push(...noteRows(notes));
-  lines.push(row('on disk', n(counts.onDisk)));
-  lines.push(
-    row(
-      'to fetch',
-      counts.toFetch === 0
-        ? '0 — already up to date'
-        : detailed(counts.toFetch, counts.toFetchDetail, 'new'),
-    ),
-  );
-
-  return box(lines);
-}
-
-/** What a finished run delivered, in the columns it was approved in. */
-export function renderSummaryBlock({ headline, folder, counts, notes = [], downloaded, total, failed }) {
-  const lines = [
-    ` ${headline}`,
-    row('folder', folder),
-    row('found', detailed(counts.found, counts.foundDetail)),
-    ...noteRows(notes),
-    row('downloaded', `${n(downloaded)} new, ${n(total)} total`),
-  ];
-
-  if (failed) {
-    lines.push(row('warning', `${n(failed)} post${failed === 1 ? '' : 's'} could not be fetched`));
-    lines.push(continuation('re-run --go to retry only those'));
-  }
-
-  return box(lines);
-}
-
-function detailed(count, detail, suffix = '') {
-  const head = `${n(count)}${suffix ? ` ${suffix}` : ''}`;
-  return detail ? `${head} ${detail}` : head;
 }

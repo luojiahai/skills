@@ -164,7 +164,7 @@ test('collect reports a non-zero exit as a classified failure', async () => {
 test('collect reports an unrecognised failure rather than silence', async () => {
   const bin = await fakeGalleryDl('echo "something went wrong" >&2\nexit 1');
   const result = await collect({ url: 'u', bin });
-  assert.equal(result.failure, 'unknown');
+  assert.equal(result.failure, 'collect-failed');
 });
 
 test('collect survives gallery-dl not being installed', async () => {

@@ -14,13 +14,19 @@
  * `--archives` it takes, and `--help` when there is no platform to answer it.
  * `--list` is the one command that belongs to no platform, because "which
  * accounts are archived" is a question about the root that both of them share.
+ *
+ * It is also where an uncaught exception stops. A command the skill invokes must
+ * never leave stdout empty: from the agent's side that is indistinguishable from
+ * a command with nothing to say, and the case where it knows least is the one
+ * case that must still produce a document.
  */
-import { detect, platformHelp, supported } from './shared/platforms.mjs';
+import { detect, platformHelp, supported, supportedPlatforms } from './shared/platforms.mjs';
 import { EXIT } from './shared/exit.mjs';
 import { isMainModule, optString, parseCommandLine } from './shared/cli.mjs';
 import { listArchive } from './shared/listing.mjs';
 import { archivesRoot, normalizeRoot } from './shared/paths.mjs';
-import { fail } from './shared/run.mjs';
+import { refusalFields } from './shared/errors.mjs';
+import { answer, refuse } from './shared/output.mjs';
 
 const SELF = process.env.ARCHIVE_SELF || 'archive.sh';
 
@@ -37,9 +43,9 @@ The URL says which platform this is. ${supported()}.
       --archives DIR    Root the archives live in. DIR/<platform>/<account>.
       --alias NAME      Name this account's folder NAME instead of its id.
       --unalias         Put this account's folder back under its id.
-      --list            Report the accounts already archived under the root as
-                        JSON, and stop. Takes no URL, downloads nothing, and
-                        needs no downloader installed.
+      --list            Report the accounts already archived under the root, and
+                        stop. Takes no URL, downloads nothing, and needs no
+                        downloader installed.
   -h, --help            Show this help. With a URL, the platform's own help.
 
 ${platformHelp()}`;
@@ -59,6 +65,11 @@ const wantsHelp = (argv) => argv.includes('-h') || argv.includes('--help');
  * machine with no yt-dlp, no gallery-dl and no session. Reading the tree is not
  * archiving.
  *
+ * Its account entries are reported exactly as `listing.mjs` composes them. They
+ * answer a different question from a run's counts and have no counterpart there,
+ * so reshaping them to match would cost a rewrite of the largest section of
+ * `SKILL.md` to buy a symmetry nothing consumes.
+ *
  * Every other flag is refused rather than ignored. `--list` and `--plan` ask for
  * different things, and letting one quietly win is how somebody who asked to
  * archive an account ends up looking at a listing instead.
@@ -70,23 +81,39 @@ async function runListing(argv, platform) {
   });
 
   if (platform) {
-    return fail('a URL asks about one account, and --list asks which accounts are archived', EXIT.USAGE);
+    return refuse({
+      command: 'list',
+      code: 'list-with-url',
+      message: 'a URL asks about one account, and --list asks which accounts are archived',
+    });
   }
-  if (unknown.length) return fail(`--list takes only --archives DIR, not ${unknown[0]}`, EXIT.USAGE);
+  if (unknown.length) {
+    return refuse({
+      command: 'list',
+      code: 'list-unknown-flag',
+      message: `--list takes only --archives DIR, not ${unknown[0]}`,
+      details: { flag: unknown[0] },
+    });
+  }
   if (positional.length) {
-    return fail(`--list takes only --archives DIR, not ${JSON.stringify(positional[0])}`, EXIT.USAGE);
+    return refuse({
+      command: 'list',
+      code: 'list-unexpected-argument',
+      message: `--list takes only --archives DIR, not ${JSON.stringify(positional[0])}`,
+      details: { argument: positional[0] },
+    });
   }
 
   const given = optString(opts, 'archives');
   try {
-    // JSON, because its reader is the skill rather than a person.
-    console.log(JSON.stringify(await listArchive(given ? normalizeRoot(given) : archivesRoot()), null, 2));
-    return EXIT.OK;
+    return answer({
+      command: 'list',
+      result: await listArchive(given ? normalizeRoot(given) : archivesRoot()),
+    });
   } catch (error) {
     // An archives root this build cannot read, and a working directory inside
-    // the skill, are both answerable before anything is enumerated — which is
-    // what EXIT.USAGE means.
-    return fail(error.message, EXIT.USAGE);
+    // the skill, are both answerable before anything is enumerated.
+    return refuse({ command: 'list', ...refusalFields(error) });
   }
 }
 
@@ -96,12 +123,27 @@ async function runListing(argv, platform) {
  * being installed.
  */
 export async function main(argv, { load = loadPlatform } = {}) {
+  try {
+    return await dispatch(argv, load);
+  } catch (error) {
+    // Everything below is expected to answer for itself, so reaching here is a
+    // bug rather than a refusal — and a bug the agent still has to be able to
+    // report. The stack goes in the document because nobody can act on this
+    // without it.
+    return refuse({
+      code: 'internal-error',
+      message: `the archiver crashed: ${error?.message ?? error}`,
+      details: { stack: String(error?.stack ?? error) },
+    });
+  }
+}
+
+async function dispatch(argv, load) {
   let platform;
   try {
     platform = detect(argv);
   } catch (error) {
-    console.error(`error: ${error.message}`);
-    return EXIT.USAGE;
+    return refuse(refusalFields(error));
   }
 
   const wantsListing = argv.includes('--list');
@@ -111,6 +153,9 @@ export async function main(argv, { load = loadPlatform } = {}) {
   // refusals, because someone who ran this with no arguments is asking what it
   // does, and being told their absent URL is unsupported answers a question
   // they did not ask.
+  //
+  // The help is the one documented exception to the one-document rule: it is
+  // prose, on stdout, for a person typing this by hand.
   if (wantsHelp(argv) && (wantsListing || !platform)) {
     console.log(USAGE);
     return EXIT.OK;
@@ -121,16 +166,18 @@ export async function main(argv, { load = loadPlatform } = {}) {
   if (wantsListing) return await runListing(argv, platform);
 
   if (!platform) {
-    // Asked for, the usage is output and goes to stdout; arrived at by typing
-    // nothing, it is a usage error and goes to stderr. Printing a usage error to
-    // stdout would put it in the pipe of anything reading this command.
     if (argv.length === 0) {
+      // The usage goes to stderr rather than stdout, because stdout carries the
+      // document and nothing else. Somebody who typed nothing still gets the
+      // prose; whoever is parsing this still gets one parseable stream.
       console.error(USAGE);
-      return EXIT.USAGE;
+      return refuse({ code: 'no-arguments', message: 'no arguments given' });
     }
-    console.error('error: no URL here names a platform this skill archives');
-    console.error(`  it archives ${supported()}`);
-    return EXIT.USAGE;
+    return refuse({
+      code: 'unsupported-platform',
+      message: 'no URL here names a platform this skill archives',
+      details: { supported: supportedPlatforms() },
+    });
   }
 
   const { main: run } = await load(platform);

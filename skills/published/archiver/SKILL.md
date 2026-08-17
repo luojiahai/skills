@@ -43,6 +43,63 @@ below — the post folder, the `post.json`, the re-run that fetches only what is
 new — comes from platform code, and a generic downloader would satisfy none of
 it while looking like it had worked.
 
+## Every command answers in one JSON document
+
+Whatever you run, stdout holds one document and nothing else. Parse the whole
+stream. Progress chatter goes to stderr and is not for the user.
+
+```json
+{ "schema": 1, "ok": true, "command": "plan", "platform": "x",
+  "exit": 0, "result": { … }, "error": { … } }
+```
+
+`ok` is how you tell a run that did what you asked from one that was refused or
+stopped. `error` is there exactly when `ok` is false. `result` is there whenever
+the run got somewhere — **including when `ok` is false**: a download that was
+rate-limited after two hundred posts carries both, and you report both.
+
+**The words are yours.** Nothing that comes back is written for the user. Say it
+in **their language**, and in their vocabulary — sync, approve, download. Never
+speak a flag, a command, a code or raw JSON to them: `--plan`, `--go`, `--yes`,
+`--list` and `--archives` are yours to run and mean nothing to someone who typed
+`/archiver`.
+
+### When something is refused
+
+```json
+{ "code": "plan-stale", "message": "…", "details": { … },
+  "remedy": { "message": "…", "command": "…", "run_by": "agent" } }
+```
+
+**Branch on `code`, never on `message`.** The codes are stable; the wording is
+not. `message` is a fallback for a code this file has not heard of — if you meet
+one, reword the message for the user rather than falling silent, and never read
+it out verbatim.
+
+`details` carries the facts, typed. Say "the list is nine hours old" from
+`details.age_hours`, not by parsing a sentence.
+
+`remedy.run_by` says whose it is to run. **`agent`** is yours — re-collecting an
+account, for instance — and `remedy.command` is the exact invocation. **`user`**
+is theirs: installing a downloader, signing in to a browser, choosing a different
+folder name. Tell them what to do in your own words; do not show them the
+command, and do not run it for them.
+
+The codes worth knowing:
+
+| | |
+| --- | --- |
+| `rate-limited` | Wait and come back later. **Do not re-run now.** Report what landed. |
+| `session-rejected` | The saved session was refused and thrown away. They sign in again. |
+| `protected`, `suspended`, `no-such-account` | Three different things. Say which. **Never** "up to date". |
+| `empty`, `empty-grid` | The account has nothing this skill can fetch. Also never "up to date". |
+| `session-expired-grid` | Douyin only: the profile counts posts but the grid is blank. That is the sign-in handoff below. |
+| `session-missing`, `session-empty` | Douyin only: no session yet. Same handoff. |
+| `login-abandoned`, `login-timed-out` | The sign-in did not finish. Offer it again. |
+| `tool-missing`, `playwright-missing` | They install it — `details.install` names the command. |
+| `plan-*`, `no-archive` | The prepared list is gone, stale, or for something else. Re-collect with `remedy.command`, then **ask again** before downloading. |
+| `internal-error` | The scripts crashed. Say so and stop; `details.stack` is for a bug report, not for the user. |
+
 ## Invoked with no URL
 
 Typed bare, this asks what is already archived rather than doing nothing:
@@ -52,8 +109,8 @@ Typed bare, this asks what is already archived rather than doing nothing:
 ```
 
 It reads the tree and downloads nothing, so it needs no downloader installed and
-no session. It answers in JSON — `{ "root": …, "accounts": [ … ] }` — because
-**the words are yours, not its**. Each account carries:
+no session. Its `result` is `{ "root": …, "accounts": [ … ] }`, and each account
+carries:
 
 | | |
 | --- | --- |
@@ -72,11 +129,8 @@ much is on disk, and whichever of `to_fetch` / `last_run` applies. Add one line,
 once, saying that a profile URL archives an account not on the list — without it
 the listing reads as a closed menu.
 
-Write it in **the user's language**, and in their vocabulary: sync, approve,
-download. Never `--plan`, `--go`, `--list` or `--archives` — those are yours to
-run and mean nothing to someone who typed `/archiver`. `posts` is what is on
-disk, so do not report it as what has been archived successfully; a run that
-stopped partway leaves folders behind too.
+`posts` is what is on disk, so do not report it as what has been archived
+successfully; a run that stopped partway leaves folders behind too.
 
 Two fields decide what happens when an account is picked. **`url`** is what
 `--plan` needs — use it exactly as given, and never rebuild one from a handle,
@@ -116,26 +170,56 @@ are yours to run, and `--yes` skips the confirmation this skill is built around.
 ## The two steps
 
 `--plan` collects the account's post list, diffs it against what is already
-downloaded, and prints a block: the account, the folder, how many posts it
-found, how many you already have, and how many are new. It downloads nothing.
+downloaded, and reports it. It downloads nothing. Its `result`:
 
-Report that block and ask whether to go ahead. Then **give the turn back and
-wait**. Do not run `--go` until the user has answered.
+| | |
+| --- | --- |
+| `account` | `id`, `nickname`, `url`, and the readable handle — `handle` on X, `douyin_id` on Douyin. Name the account the way their language names people. |
+| `dir` | where the archive is |
+| `root` | the archives root this run used |
+| `counts` | `found`, `on_disk`, `to_fetch` — **raw integers**, so group the digits the way their language groups them |
+| `counts.platform` | what only one platform knows — see each platform's section |
+| `notes` | `{ code, … }` objects; the ones that matter are below |
+| `plan` | `created_at` and `expires_at`, so you never do the 24-hour arithmetic yourself |
+| `next` | present only when there is something to fetch: `next.command` is the exact invocation, `run_by: "agent"` |
 
-`--go` downloads from that plan, and does not collect again: it fetches the posts
-the block counted as new and never more than those, skipping any that have landed
-since. It refuses a plan that is missing, more than 24 hours old, or made for a
-different account or a different archives root; each refusal prints the `--plan`
-command that fixes it.
+Tell the user who the account is, how much they already have, and how many are
+new. Then ask whether to go ahead, **give the turn back and wait**. Do not run
+`next.command` until they have answered.
 
-A `--go` that stops partway leaves the plan in place, so re-running `--go` picks
-up only what is missing — and needs no new question, because the user already
-approved that list.
+Run `next.command` **exactly as given**. It already carries the archives root and
+every other flag the user chose; rebuilding it yourself is how their archives
+root gets silently dropped.
 
-One case needs no question: **`to fetch 0`** — there is nothing to approve.
-Report that the account is up to date and stop. No `--go`.
+`--go` downloads from that list and does not collect again: it fetches the posts
+the plan counted as new and never more than those, skipping any that landed
+since. Its `result` adds:
 
-The summary block `--go` prints is the run's whole result. Report that and stop.
+| | |
+| --- | --- |
+| `run.downloaded` | posts this run fetched |
+| `run.total` | posts on disk now |
+| `run.failed` | posts that could not be fetched. Say the number when it is not zero — the list is kept, so a retry costs nothing and needs no new question. |
+| `run.remaining` | posts still to fetch from the approved list |
+
+A run that stops partway keeps the list, so running it again picks up only what
+is missing — and needs no new question, because the user already approved it.
+
+One case needs no question: **`counts.to_fetch` is `0`**. There is nothing to
+approve; there will be no `next` either. Say the account is up to date and stop.
+
+The `--go` document is the run's whole result. Report it and stop.
+
+### The notes
+
+| `code` | |
+| --- | --- |
+| `image-posts-skipped` | Douyin. **Say `count` out loud whenever it is there** — their archive is short by that many. |
+| `hidden-posts` | Douyin. `count` posts the profile counts but never shows: private, deleted, region-locked. |
+| `unlisted-posts` | Douyin. `count` archived posts the profile no longer lists. |
+| `sweep` | X. `mode: "incremental"` with `stopped_early: true` means it stopped after `threshold` known posts rather than reaching the end — so "nothing new" is not proven. Say so. |
+| `moving-to` | `--alias` will rename the folder to `dir` on the download step. Say it before they say yes; nothing has moved yet. |
+| `root-changed` | The last run archived into `previous`. Say it — otherwise an `on_disk` of zero reads as an archive that lost its files. |
 
 ## Where the posts go
 
@@ -154,9 +238,10 @@ archive.
 
 `--alias NAME` overrides that, because `MS4wLjABAAAAEKnfa654JAJ_N5lgZDQluwsxmY0`
 is unreadable to the person whose archive it is. It **names the folder**: an
-account already archived is renamed on the next `--go`, and one that is new is
-created with that name straight away. `--plan` reports the move and performs it
-on `--go`, never before — so a preview never reorganises the archive.
+account already archived is renamed on the download step, and one that is new is
+created with that name straight away. The plan reports the move as a `moving-to`
+note and performs it only once the user has said yes — so a preview never
+reorganises the archive. Say it before they answer.
 
 What keeps that safe is `archiver.json`, which records the account's id against
 its alias, per platform. A known id is one lookup from its folder, and because
@@ -219,14 +304,19 @@ feed API refuses unsigned requests, so the list of an account's posts can only b
 read out of a real page. The downloading itself is yt-dlp's.
 
 **Image posts (图文) are not downloaded.** Neither yt-dlp nor gallery-dl can
-fetch them. They are counted during collection and reported as skipped in every
-block, so an account's archive is never quietly short without saying so — say
-that number out loud when it is not zero. Tracked in
-[issue #48](https://github.com/luojiahai/skills/issues/48).
+fetch them. They are counted during collection and reported as
+`image-posts-skipped` on every run, so an account's archive is never quietly
+short without saying so — **say that count out loud whenever the note is there**.
+Tracked in [issue #48](https://github.com/luojiahai/skills/issues/48).
 
-The one failure that needs a human is an expired session: the collector reports
-0 posts in the grid while the header still shows a post count. That is the
-handoff above, again.
+Douyin's `counts.platform` is `reported` (what the profile header claims),
+`skipped_image_posts` and `unlisted`. `reported` may be `null` when the header
+never rendered — that is unknown, not zero.
+
+The one failure that needs a human is an expired session: `session-expired-grid`,
+which means the grid rendered nothing while the header still counted posts. That
+is the handoff above, again. A genuinely empty account is `empty-grid` instead,
+and is not a sign-in problem.
 
 Videos the account has published publicly, for personal archival. The pauses
 between requests are deliberate: a run with them removed gets cut off partway.
@@ -262,11 +352,21 @@ media. Likes, bookmarks, lists and search are out of scope.
 `--cookies FILE` uses an exported `cookies.txt` instead of a browser or the
 cached session, for a machine where no signed-in browser is available.
 
-Its distinct hard stops: **rate-limited** stops cleanly and reports what landed —
-wait, then `--go` again; **session rejected** discards the cached cookies, so
-re-run with `--browser NAME`; **protected / suspended / no such account** are
-each named, and none is ever reported as "up to date". A post whose media is gone
-is logged, skipped, counted in the summary, and the run carries on.
+X's `counts.platform` is `found_files`, `fetch_files`, `images` and `videos` —
+posts are the headline number, files are what is actually downloaded.
+
+Every run carries a `sweep` note. `mode: "incremental"` with
+`stopped_early: true` means the collection stopped after `threshold` consecutive
+posts it already had, rather than reaching the end of the timeline — so
+`to_fetch: 0` there means "nothing new before the cut", not "nothing new at all".
+Say which.
+
+Its distinct hard stops, each its own code: `rate-limited` stops cleanly and
+carries a `result` with what landed — report that, tell the user to come back
+later, and **do not re-run**; `session-rejected` has already discarded the cached
+cookies, so they sign in again; `protected`, `suspended` and `no-such-account`
+are three different things, and none is ever reported as "up to date". A post
+whose media is gone is skipped, counted in `run.failed`, and the run carries on.
 
 ## What it fetches, and whose judgement that is
 
@@ -277,8 +377,10 @@ running it, not to you.
 
 ## When it fails
 
-Each platform preflights its own tools and each failure prints its own remedy —
-relay that rather than improvising.
+Each platform preflights its own tools, and every refusal carries a `code`, its
+facts in `details`, and — where there is one — a `remedy`. Branch on the code,
+say it in the user's words, and respect `remedy.run_by`: run it yourself only
+when it says `agent`.
 
 ## Changing the scripts
 
@@ -317,9 +419,9 @@ Read it before modifying anything in `scripts/`.
   it was archived from. Written as soon as the folder is resolved, before
   anything is downloaded. It is **authoritative for identity** and **never for
   progress**: what has been downloaded is answered by `posts/` alone.
-- `sync.json` — the list awaiting approval between `--plan` and `--go`, plus what
-  the last run did. **Deleting it loses no archive content**; the plan expires
-  after 24 hours anyway.
+- `sync.json` — the list awaiting approval between the two steps, plus what the
+  last run did. **Deleting it loses no archive content**; the list expires after
+  24 hours anyway.
 - `assets/` — the account's current avatar and banner, overwritten each run. A
   history of them is not kept. X only: nothing reads Douyin's out of the profile
   page yet, so the directory is simply absent there.

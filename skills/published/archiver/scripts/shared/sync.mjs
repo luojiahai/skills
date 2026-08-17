@@ -1,7 +1,7 @@
 /**
  * sync.mjs — the account folder's working file.
  *
- *   { "version": 1,
+ *   { "version": 2,
  *     "plan": { … } | null,        the list awaiting approval, or nothing
  *     "last_run": { … } }          what the previous run did
  *
@@ -32,7 +32,15 @@ import path from 'node:path';
 import { readJson, writeJson } from './cli.mjs';
 
 export const SYNC_FILE = 'sync.json';
-export const SYNC_VERSION = 1;
+
+/**
+ * 2, because the parked plan carries the counts and notes the run will report,
+ * and those are named differently from what version 1 held. A file this build
+ * cannot read reads as no plan at all, which costs one `--plan` and is the whole
+ * remedy — the file is a cache, and its own specification is that deleting it
+ * loses nothing.
+ */
+export const SYNC_VERSION = 2;
 
 const syncPath = (accountDir) => path.join(accountDir, SYNC_FILE);
 

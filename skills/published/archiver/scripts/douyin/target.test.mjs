@@ -29,8 +29,12 @@ test('a post URL is refused rather than read as the account that posted it', () 
   assert.throws(() => parseTarget('https://www.douyin.com/note/7412345'), /profile URL/);
 });
 
-test('a share link says how to expand it, because it cannot be resolved here', () => {
-  assert.throws(() => parseTarget('https://v.douyin.com/iRNBho6G/'), /open the link in a browser/);
+test('a share link is its own code, because expanding it is the user’s to do', () => {
+  assert.throws(() => parseTarget('https://v.douyin.com/iRNBho6G/'), (error) => {
+    assert.equal(error.code, 'url-share-link');
+    assert.equal(error.remedy.run_by, 'user');
+    return true;
+  });
 });
 
 test('a URL naming no account is refused', () => {

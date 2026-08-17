@@ -24,7 +24,13 @@ import { permalink } from './target.mjs';
 import { buildPost, toTimestamp, writePost } from '../shared/post.mjs';
 
 /** Failures that end the run rather than the post. */
-export const FATAL = new Set(['rate-limited', 'unauthorized', 'suspended', 'protected', 'unavailable']);
+export const FATAL = new Set([
+  'rate-limited',
+  'session-rejected',
+  'suspended',
+  'protected',
+  'downloader-unavailable',
+]);
 
 function run(bin, args) {
   return new Promise((resolve) => {
@@ -37,7 +43,7 @@ function run(bin, args) {
     child.stdout.on('data', take);
     child.stderr.on('data', take);
     child.on('close', (code) => resolve({ code, output }));
-    child.on('error', (error) => resolve({ code: -1, output: `unavailable: ${error.message}` }));
+    child.on('error', (error) => resolve({ code: -1, output: `could not start: ${error.message}` }));
   });
 }
 
@@ -116,7 +122,10 @@ export async function fetchPosts({
 
     const result = await run(bin, fetchArgs({ url, directory: dir, cookies }));
 
-    const kind = result.code === 0 ? null : (classifyFailure(result.output) ?? (result.code === -1 ? 'unavailable' : null));
+    const kind =
+      result.code === 0
+        ? null
+        : (classifyFailure(result.output) ?? (result.code === -1 ? 'downloader-unavailable' : null));
     if (kind && FATAL.has(kind)) {
       stopped = kind;
       break;
