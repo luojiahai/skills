@@ -4,14 +4,23 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
-import { COOKIE_FILE, STATE_DIR, archivesRoot, normalizeRoot } from './paths.mjs';
+import { archivesRoot, cookieFile, normalizeRoot, stateDir } from './paths.mjs';
 
-test('the session is cached under the state directory, not the skill', () => {
-  assert.ok(STATE_DIR.endsWith(path.join('archiver', 'x')));
-  assert.equal(COOKIE_FILE, path.join(STATE_DIR, 'cookies.txt'));
-  // Nothing mutable may hang off the skill directory: it can be installed
-  // read-only, and a plugin update replaces it wholesale.
-  assert.ok(!STATE_DIR.includes(path.join('skills', 'archiver')));
+test('each platform keeps its state under its own directory', () => {
+  // Split per platform because signing in to one says nothing about the other,
+  // and because a run that discarded a rejected session must not take the
+  // other platform's with it.
+  assert.ok(stateDir('x').endsWith(path.join('archiver', 'x')));
+  assert.ok(stateDir('douyin').endsWith(path.join('archiver', 'douyin')));
+  assert.notEqual(stateDir('x'), stateDir('douyin'));
+  assert.equal(cookieFile('x'), path.join(stateDir('x'), 'cookies.txt'));
+});
+
+test('nothing mutable hangs off the skill directory', () => {
+  // It can be installed read-only, and a plugin update replaces it wholesale.
+  for (const platform of ['x', 'douyin']) {
+    assert.ok(!stateDir(platform).includes(path.join('skills', 'archiver')), platform);
+  }
 });
 
 test('normalizeRoot makes a relative path absolute', async () => {

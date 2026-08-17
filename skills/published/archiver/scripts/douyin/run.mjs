@@ -15,7 +15,7 @@ import path from 'node:path';
 
 import { EXIT } from '../shared/exit.mjs';
 import { missingTool, onPath } from '../shared/tools.mjs';
-import { isMainModule, optString, parseCommandLine } from './cli.mjs';
+import { isMainModule, optString, parseCommandLine } from '../shared/cli.mjs';
 import {
   accountDirFor,
   aliasDirFor,
@@ -28,13 +28,18 @@ import {
   readAccount,
   recordIdentity,
   resolveAccountDir,
-} from './account.mjs';
-import { checkRoot, stampRoot } from './archiver.mjs';
+} from '../shared/account.mjs';
+import { checkRoot, stampRoot } from '../shared/archiver.mjs';
 import { collect } from './collect.mjs';
 import { YT_DLP, fetchPosts, outstanding } from './fetch.mjs';
-import { onDiskIds, readArchive } from './landed.mjs';
+import { onDiskIds, readArchive } from '../shared/landed.mjs';
 import { login } from './login.mjs';
-import { COOKIE_FILE, PROFILE_DIR, archivesRoot, loadPlaywright, normalizeRoot } from './paths.mjs';
+import { archivesRoot, cookieFile, normalizeRoot } from '../shared/paths.mjs';
+import { PLATFORM, PROFILE_DIR, loadPlaywright } from './playwright.mjs';
+import { descriptorFor } from '../shared/platforms.mjs';
+
+const ACCOUNT = descriptorFor(PLATFORM);
+const COOKIE_FILE = cookieFile(PLATFORM);
 import {
   DEFAULT_TTL_HOURS,
   buildPlan,
@@ -45,7 +50,7 @@ import {
   validatePlan,
 } from './plan.mjs';
 import { mintCookies, profileHasSession } from './session.mjs';
-import { clearPlan, loadPlan, previousRoot, recordRun, savePlan } from './sync.mjs';
+import { clearPlan, loadPlan, previousRoot, recordRun, savePlan } from '../shared/sync.mjs';
 import { parseTarget } from './target.mjs';
 
 const BOOLEAN_FLAGS = new Set(['plan', 'go', 'yes', 'y', 'unalias', 'login', 'help', 'h']);
@@ -197,8 +202,8 @@ export async function main(argv, deps = {}) {
   // only the archives root, so it is decided before the browser opens. The
   // sec_uid is in the URL, so this run always knows whose account it is.
   if (alias) {
-    const existing = await findAccountDir(root, { url: target.url, alias, douyinId: null });
-    const verdict = await checkAlias(root, {
+    const existing = await findAccountDir(ACCOUNT, root, { url: target.url, alias, douyinId: null });
+    const verdict = await checkAlias(ACCOUNT, root, {
       id: existing ? ((await readAccount(existing))?.account?.id ?? null) : target.secUid,
       alias,
     });
@@ -284,7 +289,7 @@ async function doPlan({ root, target, alias, unalias, profileDir, chromium, coll
   // Asked again now the 抖音号 is known: the first check could not tell an
   // account's own alias apart from a collision with someone else's.
   if (alias) {
-    const verdict = await checkAlias(root, { id: target.secUid, alias });
+    const verdict = await checkAlias(ACCOUNT, root, { id: target.secUid, alias });
     if (!verdict.ok) return { exit: fail(verdict.reason, EXIT.USAGE) };
   }
 
@@ -294,8 +299,8 @@ async function doPlan({ root, target, alias, unalias, profileDir, chromium, coll
   // on every aliased account. Nothing resolves for an account never archived,
   // and that is where the folder gets invented.
   const accountDir =
-    (await resolveAccountDir(root, { id: target.secUid })) ??
-    (alias ? aliasDirFor(root, alias) : accountDirFor(root, target.secUid));
+    (await resolveAccountDir(ACCOUNT, root, { id: target.secUid })) ??
+    (alias ? aliasDirFor(ACCOUNT, root, alias) : accountDirFor(ACCOUNT, root, target.secUid));
 
   // Read before anything is written: the "last run used …" note compares the
   // root this run was given against the one the previous run recorded.
@@ -308,7 +313,7 @@ async function doPlan({ root, target, alias, unalias, profileDir, chromium, coll
   // downloaded into it. The alias is not passed: recordIdentity reads it off the
   // folder's own name, which is what keeps account.json and the directory from
   // disagreeing.
-  await recordIdentity(root, accountDir, {
+  await recordIdentity(ACCOUNT, root, accountDir, {
     account: {
       id: target.secUid,
       douyin_id: listing.account.douyin_id,
@@ -365,7 +370,7 @@ async function doGo({ root, target, alias, unalias, profileDir, chromium, planHi
   // sec_uid, so a non-null answer *is* the identity check. Falling back to the
   // bare sec_uid path would be the one case that matters: a folder of that name
   // belonging to somebody else, handed to --go to run a plan against.
-  let accountDir = await resolveAccountDir(root, { id: target.secUid });
+  let accountDir = await resolveAccountDir(ACCOUNT, root, { id: target.secUid });
 
   if (!accountDir) {
     return fail(
@@ -452,8 +457,8 @@ async function doGo({ root, target, alias, unalias, profileDir, chromium, planHi
 }
 
 async function moveIfAsked({ root, alias, unalias, secUid, accountDir }) {
-  if (unalias) return (await clearAlias(root, { id: secUid })) ?? accountDir;
-  if (alias) return (await applyAlias(root, { id: secUid, alias })) ?? accountDir;
+  if (unalias) return (await clearAlias(ACCOUNT, root, { id: secUid })) ?? accountDir;
+  if (alias) return (await applyAlias(ACCOUNT, root, { id: secUid, alias })) ?? accountDir;
   return accountDir;
 }
 
@@ -464,8 +469,8 @@ async function moveIfAsked({ root, alias, unalias, secUid, accountDir }) {
  */
 function aliasTarget({ root, alias, unalias, secUid, accountDir }) {
   try {
-    if (unalias) return secUid ? accountDirFor(root, secUid) : null;
-    return alias ? aliasDirFor(root, alias) : null;
+    if (unalias) return secUid ? accountDirFor(ACCOUNT, root, secUid) : null;
+    return alias ? aliasDirFor(ACCOUNT, root, alias) : null;
   } catch {
     return null;
   }

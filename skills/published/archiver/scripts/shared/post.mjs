@@ -26,24 +26,12 @@
 import path from 'node:path';
 
 import { readJson, writeJson } from './cli.mjs';
+import { toTimestamp } from './naming.mjs';
+
+export { toTimestamp };
 
 export const POST_FILE = 'post.json';
 export const POST_VERSION = 1;
-
-/**
- * `2024-03-11 07:22:19` — gallery-dl's format — as `2024-03-11T07:22:19Z`.
- *
- * ISO 8601 so that both skills' post.json say the moment the same way; gallery-dl
- * and yt-dlp both report UTC, so the `Z` is a fact rather than an assumption.
- * A date that is not in the expected shape becomes null rather than a guess:
- * `undated` is a real answer here, and half a timestamp would be worse than none.
- */
-export function toTimestamp(date) {
-  const m = /^(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2}:\d{2})/.exec(String(date ?? ''));
-  if (m) return `${m[1]}T${m[2]}Z`;
-  const dayOnly = /^(\d{4}-\d{2}-\d{2})$/.exec(String(date ?? ''));
-  return dayOnly ? `${dayOnly[1]}T00:00:00Z` : null;
-}
 
 /**
  * One media file, named as it is on disk and as far as it can be identified.
@@ -60,8 +48,13 @@ export function toTimestamp(date) {
  * re-encodes — so it is left out rather than recorded as if it were stable.
  * Migrated posts have neither, because neither was ever on disk to recover.
  */
-export function mediaEntry({ num, ext, url, type, id } = {}) {
-  const entry = { file: `${num}.${ext ?? ''}` };
+export function mediaEntry({ file, num, ext, url, type, id } = {}) {
+  // Either the name outright — yt-dlp prints the one it is about to write —
+  // or the parts gallery-dl reports, assembled the same way `--filename
+  // {num}.{extension}` assembles it. This list is compared against a directory
+  // listing, so a name built by a different rule than the one that wrote the
+  // file would report every post as incomplete forever.
+  const entry = { file: file === undefined || file === null ? `${num}.${ext ?? ''}` : String(file) };
   if (url) entry.url = String(url);
   if (type) entry.type = String(type);
   if (id) entry.id = String(id);

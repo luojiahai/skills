@@ -44,3 +44,8 @@ export function parseTarget(input) {
   const secUid = match[1];
   return { secUid, url: `https://www.douyin.com/user/${secUid}` };
 }
+
+/** The canonical permalink for a post, which is also how `--go` re-fetches it. */
+export function permalink(postId) {
+  return `https://www.douyin.com/video/${postId}`;
+}

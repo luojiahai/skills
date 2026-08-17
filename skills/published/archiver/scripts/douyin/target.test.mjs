@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { parseTarget } from './target.mjs';
+import { parseTarget, permalink } from './target.mjs';
 
 test('a profile URL is an account', () => {
   const target = parseTarget('https://www.douyin.com/user/MS4wLjABAAAAEKnfa654');
@@ -46,4 +46,8 @@ test('every refusal says what was expected', () => {
   for (const bad of ['https://www.douyin.com/video/1', 'https://x.com/jack', '']) {
     assert.throws(() => parseTarget(bad), /MS4wLjABAAAA/, bad);
   }
+});
+
+test('permalink is the canonical form --go re-fetches by', () => {
+  assert.equal(permalink('7412'), 'https://www.douyin.com/video/7412');
 });

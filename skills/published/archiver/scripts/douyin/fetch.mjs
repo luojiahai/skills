@@ -23,9 +23,10 @@ import { spawn } from 'node:child_process';
 import path from 'node:path';
 import readline from 'node:readline';
 
-import { POSTS_DIR, isLanded } from './landed.mjs';
-import { buildPost, writePost } from './post.mjs';
-import { permalink, postFolderName, toTimestamp } from './naming.mjs';
+import { POSTS_DIR, isLanded } from '../shared/landed.mjs';
+import { buildPost, writePost } from '../shared/post.mjs';
+import { postFolderName, toTimestamp } from '../shared/naming.mjs';
+import { permalink } from './target.mjs';
 
 export const YT_DLP = 'yt-dlp';
 

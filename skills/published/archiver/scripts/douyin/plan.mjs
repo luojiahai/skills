@@ -30,7 +30,7 @@
  * counting what is on disk — and they only reliably agree by being the same
  * code. Do not hand-align a second copy of it anywhere.
  */
-import { unlistedIds } from './landed.mjs';
+import { unlistedIds } from '../shared/landed.mjs';
 
 export const DEFAULT_TTL_HOURS = 24;
 

@@ -16,7 +16,7 @@
  * place. Hand-aligned copies of "how many are there" across two languages is
  * how a run comes to contradict the number the user approved.
  */
-import { isMissing } from './landed.mjs';
+import { isMissing } from '../shared/landed.mjs';
 
 /** A plan describes a list the user approved. A day later it describes the past. */
 export const MAX_PLAN_AGE_MS = 24 * 60 * 60 * 1000;

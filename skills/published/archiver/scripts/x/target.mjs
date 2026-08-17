@@ -51,3 +51,8 @@ export function parseTarget(input) {
 
   return { handle, url: `https://x.com/${handle}` };
 }
+
+/** The canonical permalink for a post, which is also how `--go` re-fetches it. */
+export function permalink(handle, tweetId) {
+  return `https://x.com/${handle || 'i/web'}/status/${tweetId}`;
+}

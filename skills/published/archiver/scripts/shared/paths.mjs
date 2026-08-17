@@ -5,13 +5,15 @@
  * plugin directory that updates replace, or moved anywhere on disk. So nothing
  * mutable is stored relative to it.
  *
- *   cached cookies → ${XDG_STATE_HOME:-~/.local/state}/archiver/x/cookies.txt
- *   archives       → --archives DIR, else <git root of cwd, else cwd>/archives/
+ *   sessions, cookies, deps → ${XDG_STATE_HOME:-~/.local/state}/archiver/<platform>/
+ *   archives                → --archives DIR, else <git root of cwd, else cwd>/archives/
  *
- * Cookies are user-level so a session is extracted once rather than once per
- * project; archives are project-level so an archive lives beside the work it
- * belongs to. The archives root is computed *here and only here* — two answers
- * to it would put one account in two folders and re-download everything.
+ * State is user-level so a session is established once rather than once per
+ * project, and split per platform because signing in to one says nothing about
+ * the other. Archives are project-level so an archive lives beside the work it
+ * belongs to, and one root holds every platform — which is why the root is
+ * computed *here and only here*: two answers to it would put one account in two
+ * folders and re-download everything.
  */
 import { execFileSync } from 'node:child_process';
 import { realpathSync } from 'node:fs';
@@ -19,13 +21,19 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-export const STATE_DIR = path.join(
-  process.env.XDG_STATE_HOME || path.join(os.homedir(), '.local', 'state'),
-  'archiver', 'x',
-);
+/** Where one platform keeps what it must not lose when the skill is replaced. */
+export function stateDir(platform) {
+  return path.join(
+    process.env.XDG_STATE_HOME || path.join(os.homedir(), '.local', 'state'),
+    'archiver',
+    platform,
+  );
+}
 
-/** The cached session, exported from the browser once and reused until X rejects it. */
-export const COOKIE_FILE = path.join(STATE_DIR, 'cookies.txt');
+/** The cached session, minted once and reused until the platform rejects it. */
+export function cookieFile(platform) {
+  return path.join(stateDir(platform), 'cookies.txt');
+}
 
 /** Symlinks resolved, so a symlinked install still compares equal to a cwd inside it. */
 const SKILL_DIR = realpathSync(path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..'));

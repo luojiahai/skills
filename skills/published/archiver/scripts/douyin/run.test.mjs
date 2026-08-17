@@ -14,7 +14,7 @@ import path from 'node:path';
 
 import { main } from './run.mjs';
 import { EXIT } from '../shared/exit.mjs';
-import { savePlan } from './sync.mjs';
+import { savePlan } from '../shared/sync.mjs';
 
 // Realpath'd, because normalizeRoot does: on macOS /var is a symlink to
 // /private/var, and a plan made one way would be refused the other.

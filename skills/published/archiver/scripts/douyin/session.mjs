@@ -11,7 +11,7 @@
 import { writeFile, mkdir } from 'node:fs/promises';
 import path from 'node:path';
 
-import { loadPlaywright } from './paths.mjs';
+import { loadPlaywright } from './playwright.mjs';
 
 /**
  * The cookies that mean somebody signed in, as opposed to merely having visited.

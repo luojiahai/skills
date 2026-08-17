@@ -17,10 +17,11 @@ import { spawn } from 'node:child_process';
 import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
 
-import { POSTS_DIR, isMissing } from './landed.mjs';
+import { POSTS_DIR, isMissing } from '../shared/landed.mjs';
 import { classifyFailure, fetchArgs } from './gallerydl.mjs';
-import { permalink, postFolderName } from './naming.mjs';
-import { buildPost, toTimestamp, writePost } from './post.mjs';
+import { postFolderName } from '../shared/naming.mjs';
+import { permalink } from './target.mjs';
+import { buildPost, toTimestamp, writePost } from '../shared/post.mjs';
 
 /** Failures that end the run rather than the post. */
 export const FATAL = new Set(['rate-limited', 'unauthorized', 'suspended', 'protected', 'unavailable']);
@@ -56,7 +57,7 @@ export function postDir(accountDir, post) {
   return path.join(
     accountDir,
     POSTS_DIR,
-    postFolderName({ date: post.date, tweetId: post.tweetId }),
+    postFolderName({ date: post.date, postId: post.tweetId }),
   );
 }
 

@@ -269,69 +269,14 @@ It wants a run against a live account: the print format's field names, the
 policy keys, the throttling numbers, and every string `classifyFailure` matches
 on.
 
-## Shared with the Douyin platform, on purpose
+## The archive this shares with the other platform
 
-`landed.mjs`, `post.mjs`, `account.mjs`, `sync.mjs` and `archiver.mjs` here have
-counterparts of the same name in **the Douyin platform**, holding the same rules
-written twice. The layout both produce:
+`account.json`, `post.json`, `sync.json`, `archiver.json` and the
+`posts/<date>_<id>/` layout are written by `../shared/`, and specified in
+[`../shared/README.md`](../shared/README.md). Both platforms write into one
+archives root, so those rules are not this platform's to change alone.
 
-```
-<archives root>/
-  archiver.json                 {"schema": 3, "accounts": {…}}
-  x/<alias, else user id>/      douyin/<alias, else sec_uid>/
-    account.json
-    sync.json
-    assets/                     (x only — see below)
-    posts/<YYYY-MM-DD|undated>_<id>/
-      post.json
-      1.jpg, 2.mp4, …
-```
-
-- `posts/<YYYY-MM-DD|undated>_<id>/`, one folder per post, `undated` a literal
-- media numbered by position — `1.jpg`, `2.mp4`
-- `post.json`: `version`, `id`, `permalink`, `timestamp`, `text`, `reply_to`,
-  `media`, in that order and holding nothing else. Written **before** the media.
-  `media[].url` and `media[].id` are optional and often absent.
-- a post counts as downloaded when every file its `post.json` lists is present
-- the account folder is the account's `--alias` if it has one and its immutable
-  id if it does not, under a platform folder — because both skills default to the
-  same `<git root>/archives` root, and an alias chosen on one platform must not
-  be able to collide with one chosen on the other.
-- an alias is refused if it is another account's id on that platform, or already
-  another account's alias. Letters (`\p{L}`, so CJK), digits, `.`, `_`, `-`;
-  no spaces, no separators, no leading dot, 128 chars.
-- `account.json`'s `alias` is always `basename(dir)`, written from the folder
-  rather than from the flag. That is the whole of "the folder's location wins":
-  a directory renamed by hand is adopted by the next write, and the two cannot
-  drift. An empty `--alias` is silence; `--unalias` is the removal.
-- a rename is three writes in one order — the folder, then `account.json` inside
-  it, then `archiver.json` — because the tree is the truth and the root file is
-  a cache. A crash before the last one is repaired by the next scan. `--plan`
-  never moves anything; `--go` does.
-- `account.json` beside `posts/`, holding `version`, `platform`, `account` and
-  `url` and nothing else — authoritative for identity, never for progress. The
-  alias is a key *inside* `account`, beside the id, so the file stays four keys
-  wide. Both
-  write it when the folder is resolved, both merge into what is already there,
-  and both treat a blank as silence rather than an erasure.
-- `sync.json` beside it, holding `version`, `plan` and `last_run`. Deleting it
-  loses no archive content.
-- `archiver.json` at the root, holding the schema version and `accounts`, an
-  id → alias map nested per platform. Absent reads as current; unknown stops the
-  run; **schema 2 is readable and upgraded in place**, since every schema-2
-  folder is a legal un-aliased schema-3 one. An account with no alias has no
-  entry. A mapping entry pointing at a folder that is not there is a stale cache
-  line and self-heals; a file that cannot be *parsed* stops the run, because it
-  may be a schema from the future and rebuilding it would clobber it.
-
-They are still duplicated rather than shared, and `scripts/shared/` is where
-they belong: both platforms write into one archives root, so a rule that drifts
-between these copies corrupts an archive both of them read. Until they move,
-**change a rule here and change it there** — the two archives are meant to be readable with one mental model, and
-the duplication is only worth its cost while they agree. The specification lives
-in the issue tracker; these two blocks are what ships.
-
-Three deliberate differences:
+What is particular to this one:
 
 - **`assets/` is x-only.** gallery-dl puts the avatar and banner URLs on every
   row the listing pass already reads, so they cost nothing here. Nothing reads

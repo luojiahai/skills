@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { parseTarget } from './target.mjs';
+import { parseTarget, permalink } from './target.mjs';
 
 test('a profile URL is an account', () => {
   assert.deepEqual(parseTarget('https://x.com/someone'), {
@@ -66,4 +66,9 @@ test('every refusal says why', () => {
   for (const url of ['https://example.com', 'https://x.com/someone/likes', 'https://x.com/']) {
     assert.throws(() => parseTarget(url), (error) => error.message.length > 0, url);
   }
+});
+
+test('permalink is the canonical form --go re-fetches by', () => {
+  assert.equal(permalink('someone', '123'), 'https://x.com/someone/status/123');
+  assert.equal(permalink('', '123'), 'https://x.com/i/web/status/123');
 });

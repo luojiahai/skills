@@ -16,7 +16,7 @@
 import { spawn } from 'node:child_process';
 import readline from 'node:readline';
 
-import { isLanded } from './landed.mjs';
+import { isLanded } from '../shared/landed.mjs';
 import { classifyFailure, listArgs, parseRow } from './gallerydl.mjs';
 
 /**

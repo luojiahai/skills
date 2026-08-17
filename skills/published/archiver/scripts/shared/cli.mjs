@@ -27,15 +27,12 @@ export function isMainModule(importMetaUrl) {
 }
 
 /** Flags that are on or off. Everything else takes the argument after it. */
-export const BOOLEAN_FLAGS = new Set(['plan', 'go', 'yes', 'y', 'login', 'unalias', 'help', 'h']);
-
-/** Every flag this entry point accepts. Anything else is a usage error. */
-export const KNOWN_FLAGS = new Set([
-  ...BOOLEAN_FLAGS,
-  'archives',
-  'alias',
-  'profile',
-]);
+/**
+ * The flags every platform shares. Each declares its own on top, because what
+ * is a usage error is a question only the platform being run can answer.
+ */
+export const COMMON_BOOLEAN_FLAGS = new Set(['plan', 'go', 'yes', 'y', 'unalias', 'help', 'h']);
+export const COMMON_FLAGS = new Set([...COMMON_BOOLEAN_FLAGS, 'archives', 'alias']);
 
 /**
  * A command line into `{ opts, positional, unknown }`.
@@ -44,7 +41,7 @@ export const KNOWN_FLAGS = new Set([
  * must not read DIR as the value of --full, and `--alias --plan` must not
  * silently name a folder "--plan".
  */
-export function parseCommandLine(argv, { booleans = BOOLEAN_FLAGS, known = KNOWN_FLAGS } = {}) {
+export function parseCommandLine(argv, { booleans = COMMON_BOOLEAN_FLAGS, known = COMMON_FLAGS } = {}) {
   const opts = {};
   const positional = [];
   const unknown = [];

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { optString, parseCommandLine } from './cli.mjs';
+import { COMMON_BOOLEAN_FLAGS, COMMON_FLAGS, optString, parseCommandLine } from './cli.mjs';
 
 test('a URL is positional and flags are flags', () => {
   const { opts, positional } = parseCommandLine(['https://x.com/someone', '--plan']);
@@ -10,9 +10,25 @@ test('a URL is positional and flags are flags', () => {
 });
 
 test('a boolean flag does not swallow the argument after it', () => {
-  const { opts } = parseCommandLine(['--full', '--archives', '/data']);
-  assert.equal(opts.full, true);
+  const { opts } = parseCommandLine(['--go', '--archives', '/data']);
+  assert.equal(opts.go, true);
   assert.equal(opts.archives, '/data');
+});
+
+test("a platform's own flags are declared, and unknown without that", () => {
+  // What counts as a usage error is a question only the platform being run can
+  // answer: --browser is X's and --profile is Douyin's, and neither should be
+  // silently accepted by the other.
+  const declared = {
+    booleans: new Set([...COMMON_BOOLEAN_FLAGS, 'full']),
+    known: new Set([...COMMON_FLAGS, 'full', 'browser']),
+  };
+  const mine = parseCommandLine(['--full', '--browser', 'chrome'], declared);
+  assert.equal(mine.opts.full, true);
+  assert.equal(mine.opts.browser, 'chrome');
+  assert.deepEqual(mine.unknown, []);
+
+  assert.deepEqual(parseCommandLine(['--browser', 'chrome']).unknown, ['--browser']);
 });
 
 test('a value flag followed by another flag neither eats nor loses it', () => {
@@ -46,11 +62,11 @@ test('an unknown flag is reported rather than guessed at', () => {
   assert.deepEqual(unknown, ['--retweets']);
 });
 
-test('the accepted flags are exactly the documented ones', () => {
+test('the flags every platform shares are accepted without being declared', () => {
   // Anything admitted here but absent from USAGE is a surface nobody can find
   // and nobody maintains.
   for (const flag of [
-    '--archives', '--alias', '--unalias', '--browser', '--cookies', '--full', '--plan', '--go', '--yes',
+    '--archives', '--alias', '--unalias', '--plan', '--go', '--yes',
   ]) {
     assert.deepEqual(parseCommandLine([flag, 'v']).unknown, [], flag);
   }

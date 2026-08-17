@@ -27,7 +27,7 @@
  * which Chrome 136+ refuses to expose to automation). The profile persists, so
  * the session established at sign-in is reused afterwards.
  */
-import { loadPlaywright } from './paths.mjs';
+import { loadPlaywright } from './playwright.mjs';
 
 const SCROLL_DELAY_MS = 1200;
 const STABLE_ROUNDS = 6; // consecutive no-new-ID rounds before we call it done

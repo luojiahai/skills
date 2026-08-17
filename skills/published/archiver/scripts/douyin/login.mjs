@@ -17,7 +17,7 @@
  */
 import { createInterface } from 'node:readline';
 
-import { loadPlaywright } from './paths.mjs';
+import { loadPlaywright } from './playwright.mjs';
 import { hasSession } from './session.mjs';
 
 const POLL_MS = 1000;

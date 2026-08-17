@@ -15,8 +15,8 @@ import { access, constants, chmod, mkdir, rm } from 'node:fs/promises';
 import { spawn } from 'node:child_process';
 import path from 'node:path';
 
-import { readArchive } from './landed.mjs';
-import { isMainModule, optString, parseCommandLine } from './cli.mjs';
+import { readArchive } from '../shared/landed.mjs';
+import { isMainModule, optString, parseCommandLine } from '../shared/cli.mjs';
 import { DEFAULT_ABORT, collect, makeStopper } from './collect.mjs';
 import {
   accountDirFor,
@@ -31,12 +31,18 @@ import {
   readAccount,
   recordIdentity,
   resolveAccountDir,
-} from './account.mjs';
-import { checkRoot, stampRoot } from './archiver.mjs';
+} from '../shared/account.mjs';
+import { checkRoot, stampRoot } from '../shared/archiver.mjs';
 import { saveProfileAssets } from './assets.mjs';
 import { REMEDIES, cookieExportArgs } from './gallerydl.mjs';
 import { fetchPosts, outstanding } from './fetch.mjs';
-import { COOKIE_FILE, STATE_DIR, archivesRoot, normalizeRoot } from './paths.mjs';
+import { archivesRoot, cookieFile, normalizeRoot, stateDir } from '../shared/paths.mjs';
+import { descriptorFor } from '../shared/platforms.mjs';
+
+const PLATFORM = 'x';
+const ACCOUNT = descriptorFor(PLATFORM);
+const STATE_DIR = stateDir(PLATFORM);
+const COOKIE_FILE = cookieFile(PLATFORM);
 import {
   diff,
   groupFiles,
@@ -44,7 +50,7 @@ import {
   renderSummaryBlock,
   validatePlan,
 } from './plan.mjs';
-import { clearPlan, loadPlan, previousRoot, recordRun, savePlan } from './sync.mjs';
+import { clearPlan, loadPlan, previousRoot, recordRun, savePlan } from '../shared/sync.mjs';
 import { parseTarget } from './target.mjs';
 import { EXIT } from '../shared/exit.mjs';
 import { missingTool, onPath } from '../shared/tools.mjs';
@@ -152,8 +158,8 @@ async function discardCookies() {
  * and the account — never the folder it is sitting in.
  */
 function aliasTarget(root, { id, alias, unalias }) {
-  if (unalias) return accountDirFor(root, id);
-  return alias ? aliasDirFor(root, alias) : null;
+  if (unalias) return accountDirFor(ACCOUNT, root, id);
+  return alias ? aliasDirFor(ACCOUNT, root, alias) : null;
 }
 
 /**
@@ -193,8 +199,8 @@ async function doPlan({ target, root, alias, unalias, cookies, full, threshold, 
       // going straight to the id would quietly start a second, empty archive
       // beside the real one on every aliased account.
       accountDir =
-        (await resolveAccountDir(root, { id: account.id })) ??
-        (alias ? aliasDirFor(root, alias) : accountDirFor(root, account.id));
+        (await resolveAccountDir(ACCOUNT, root, { id: account.id })) ??
+        (alias ? aliasDirFor(ACCOUNT, root, alias) : accountDirFor(ACCOUNT, root, account.id));
       archive = await readArchive(accountDir);
       // A first run has nothing to recognise, so there is nothing to stop at.
       incremental = archive.size > 0 && !full;
@@ -217,7 +223,7 @@ async function doPlan({ target, root, alias, unalias, cookies, full, threshold, 
   // to catch a typo cheaply but not enough to be the answer — and promising a
   // move in the block that --go would then refuse is worse than stopping here.
   if (alias) {
-    const verdict = await checkAlias(root, { id: account.id, alias });
+    const verdict = await checkAlias(ACCOUNT, root, { id: account.id, alias });
     if (!verdict.ok) return { aliasRefused: verdict.reason };
   }
 
@@ -252,7 +258,7 @@ async function doPlan({ target, root, alias, unalias, cookies, full, threshold, 
   // Written now rather than after the download, so a folder that exists always
   // says whose it is. It is also what --go finds the folder by when all it has
   // is the URL, the alias or the handle.
-  await recordIdentity(root, accountDir, { account, url: target.url });
+  await recordIdentity(ACCOUNT, root, accountDir, { account, url: target.url });
 
   return {
     plan,
@@ -269,7 +275,7 @@ async function doGo({
   // it passes it in. A bare --go enumerates nothing, never learns the numeric
   // id, and cannot go straight to the folder — the alias the user gave it, the
   // URL the plan was written from, and the handle are the keys that still work.
-  let accountDir = dir ?? (await findAccountDir(root, { url, alias, handle }));
+  let accountDir = dir ?? (await findAccountDir(ACCOUNT, root, { url, alias, handle }));
   if (!accountDir) {
     return { refused: `no archive under ${root} for this account yet`, planHint };
   }
@@ -285,8 +291,8 @@ async function doGo({
   if (account?.id && (alias || unalias)) {
     try {
       accountDir = unalias
-        ? await clearAlias(root, { id: account.id })
-        : await applyAlias(root, { id: account.id, alias });
+        ? await clearAlias(ACCOUNT, root, { id: account.id })
+        : await applyAlias(ACCOUNT, root, { id: account.id, alias });
     } catch (error) {
       return { refused: error.message };
     }
@@ -312,7 +318,7 @@ async function doGo({
   const remaining = outstanding(plan.posts, await readArchive(accountDir)).length;
 
   // After the move, so the alias recorded is the folder this run finished in.
-  await recordIdentity(root, accountDir, { account: plan.account, url });
+  await recordIdentity(ACCOUNT, root, accountDir, { account: plan.account, url });
   await recordRun(accountDir, {
     root,
     found: plan.counts?.foundPosts ?? null,
@@ -424,8 +430,8 @@ export async function main(argv) {
   // never been seen, which cannot collide with itself either way. doPlan asks
   // again once the real id is in hand.
   if (alias) {
-    const existing = await findAccountDir(root, { url: target.url, alias, handle: target.handle });
-    const verdict = await checkAlias(root, {
+    const existing = await findAccountDir(ACCOUNT, root, { url: target.url, alias, handle: target.handle });
+    const verdict = await checkAlias(ACCOUNT, root, {
       id: existing ? ((await readAccount(existing))?.account?.id ?? null) : null,
       alias,
     });

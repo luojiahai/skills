@@ -6,7 +6,7 @@ import test from 'node:test';
 
 import { DEFAULT_ABORT, collect, makeStopper } from './collect.mjs';
 import { ROW_MARKER } from './gallerydl.mjs';
-import { buildPost } from './post.mjs';
+import { buildPost } from '../shared/post.mjs';
 
 const row = (id, num = 1, count = 1) =>
   [

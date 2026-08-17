@@ -50,9 +50,8 @@ the other.
 
 A folder under `scripts/` exporting `main(argv)` from its `run.mjs`, and one
 entry in `PLATFORMS`. There is nowhere else to remember. What the platform owes
-the archive — the folder layout, the seven `post.json` keys, the alias rules — is
-in each platform README's shared-layout section, and those must agree, because
-both platforms write into one archives root.
+the archive — the folder layout, the seven `post.json` keys, the alias rules — it
+gets by using `shared/`, which is where that contract is written down once.
 
 ## Preflight sits where it can act
 

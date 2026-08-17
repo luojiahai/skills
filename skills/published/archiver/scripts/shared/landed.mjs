@@ -28,7 +28,14 @@
 import { readdir } from 'node:fs/promises';
 import path from 'node:path';
 
-import { tweetIdFromFolder } from './naming.mjs';
+import { postIdFromFolder } from './naming.mjs';
+
+/**
+ * Re-exported because what counts as a post folder is part of what "already
+ * downloaded" means, and callers asking that question should not have to know
+ * naming.mjs builds the name too.
+ */
+export { postIdFromFolder };
 import { isComplete, readPost } from './post.mjs';
 
 export const POSTS_DIR = 'posts';
@@ -68,7 +75,7 @@ export async function readArchive(accountDir) {
 
   for (const entry of entries) {
     if (!entry.isDirectory()) continue;
-    const id = tweetIdFromFolder(entry.name);
+    const id = postIdFromFolder(entry.name);
     if (!id) continue;
 
     const dir = path.join(root, entry.name);
@@ -81,4 +88,30 @@ export async function readArchive(accountDir) {
     posts.set(id, { folder: entry.name, names, post: await readPost(dir) });
   }
   return posts;
+}
+
+/**
+ * The ids that count as downloaded. A post whose media failed leaves a folder
+ * holding only its post.json, and that has to read as still-missing or a run cut
+ * short would report itself complete.
+ */
+export async function onDiskIds(accountDir) {
+  const ids = new Set();
+  for (const [id, entry] of await readArchive(accountDir)) {
+    if (isLanded(entry)) ids.add(id);
+  }
+  return ids;
+}
+
+/**
+ * On disk but no longer listed by the account. Only what was observed is
+ * claimed: an id here reads the same whether the post was deleted, hidden,
+ * region-locked or missed by a listing that stopped short, and none of those can
+ * be told apart without fetching each one.
+ *
+ * Both arguments are id sets. Turning a platform's posts into ids belongs to the
+ * platform, and stays there.
+ */
+export function unlistedIds(listed, onDisk) {
+  return [...onDisk].filter((id) => !listed.has(id));
 }

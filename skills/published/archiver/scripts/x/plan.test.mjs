@@ -11,7 +11,7 @@ import {
   renderSummaryBlock,
   validatePlan,
 } from './plan.mjs';
-import { buildPost } from './post.mjs';
+import { buildPost } from '../shared/post.mjs';
 
 const rows = [
   { tweetId: '1', num: 1, count: 2, ext: 'jpg', date: '2024-03-11 07:22:19', content: 'a' },

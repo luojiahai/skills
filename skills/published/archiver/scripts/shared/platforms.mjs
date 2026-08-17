@@ -25,6 +25,11 @@
 const DOUYIN = /^(?:https?:\/\/)?(?:[a-z0-9-]+\.)*douyin\.com(?:[/?#]|$)/i;
 const X = /^(?:https?:\/\/)?(?:[a-z0-9-]+\.)*(?:twitter|x)\.com(?:[/?#]|$)/i;
 
+/**
+ * `account` is the descriptor the shared account store is threaded with: the
+ * folder this platform's accounts live under, and what `account.json` calls the
+ * readable handle. See `account.mjs`.
+ */
 export const PLATFORMS = [
   {
     name: 'douyin',
@@ -32,6 +37,7 @@ export const PLATFORMS = [
     label: 'Douyin',
     hosts: ['douyin.com'],
     match: (arg) => DOUYIN.test(arg),
+    account: { platform: 'douyin', handleKey: 'douyin_id' },
   },
   {
     name: 'x',
@@ -39,8 +45,16 @@ export const PLATFORMS = [
     label: 'X, formerly Twitter',
     hosts: ['x.com', 'twitter.com'],
     match: (arg) => X.test(arg),
+    account: { platform: 'x', handleKey: 'handle' },
   },
 ];
+
+/** One platform's account descriptor, by name. */
+export function descriptorFor(name) {
+  const platform = PLATFORMS.find((candidate) => candidate.name === name);
+  if (!platform) throw new Error(`no platform called '${name}'`);
+  return platform.account;
+}
 
 /**
  * The platform a command line is about, or null if no argument names one.

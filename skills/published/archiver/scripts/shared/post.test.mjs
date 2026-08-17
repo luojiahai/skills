@@ -126,3 +126,24 @@ test('writePost and readPost round-trip, creating the folder', async () => {
 test('readPost of a folder with no post.json is null, not an error', async () => {
   assert.equal(await readPost(await mkdtemp(path.join(os.tmpdir(), 'x-post-'))), null);
 });
+
+// ---- media named outright, as yt-dlp reports it ----------------------------
+
+test('a media entry omits what is not known rather than nulling it', () => {
+  // yt-dlp exposes no per-item id for Douyin at all, so there is nothing to
+  // record — and a null would look like a value that had been looked up.
+  assert.deepEqual(buildPost({ id: '1', media: [{ file: '1.mp4', type: 'video' }] }).media, [
+    { file: '1.mp4', type: 'video' },
+  ]);
+});
+
+test('buildPost keeps a caption whole', () => {
+  const text = '第一行\n第二行\ttabbed — 🎉';
+  assert.equal(buildPost({ id: '1', text }).text, text);
+});
+
+test('reply_to is written even though Douyin has nothing to put in it', () => {
+  // Always null here. The key exists so both platforms' post.json have one
+  // shape, which is the whole reason the platform folders were introduced.
+  assert.equal(buildPost({ id: '1' }).reply_to, null);
+});
