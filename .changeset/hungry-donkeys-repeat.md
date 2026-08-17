@@ -1,5 +1,5 @@
 ---
-"luojiahai-skills": minor
+"luojiahai-skills": patch
 ---
 
 archiver: every command now answers in one structured JSON document
