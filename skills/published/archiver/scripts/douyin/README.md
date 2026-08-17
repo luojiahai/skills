@@ -145,13 +145,22 @@ already-downloaded ID: Douyin pins up to 3 posts at the top regardless of age,
 so a stop-at-first-known rule halts immediately and collects nothing, forever,
 silently.
 
-It is also not worth much: a full scroll of a few hundred posts measures **~34
-seconds**, while downloads take 30–40 minutes and are already deduped against the
-post folders on disk. The X side does stop early, after 100 consecutive known
-posts; giving this one the same is tracked in
-[#59](https://github.com/luojiahai/skills/issues/59) and needs care rather than
-speed, because a stopper that is wrong does not fail loudly — it silently
-archives less.
+It is also not worth much. A full scroll of a few hundred posts measures **~34
+seconds**, and a stopper does not save that: page load, the 3s settle and up to
+12s of header polling are a floor it cannot go under. What it buys is around
+twenty seconds, once per re-run.
+
+Against that, every way it goes wrong is silent. Stopping short truncates
+`collected`, and three block lines are computed from it — `found N of M
+reported`, `hidden()`, and `missing()`, which would report every archived post
+below the cut as *no longer on the profile*. That last one is parked in the plan
+and read back at `--go` time, so the false number outlives the run that made it.
+The fetch list stays correct throughout, which is precisely the problem: the
+archive quietly gets smaller while the run reports success.
+
+The X side does stop early, after 100 consecutive known posts, and can hold that
+rule to account because `makeStopper` is a pure function with tests of its own.
+The equivalent here would live inside the browser loop.
 
 ## Counts will not match
 

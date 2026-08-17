@@ -148,6 +148,26 @@ test('a plan is retired once every post in it has landed', async () => {
   assert.equal(sync.plan ?? null, null);
 });
 
+test('every flag the usage text offers is declared, and the ones taking a value consume it', async () => {
+  // Asked of main() rather than of the parser, because the parser is only ever
+  // as right as the sets it is handed and this is where they are handed to it.
+  //
+  // A post URL is used so the run refuses for a reason of its own, and the value
+  // flags lead so their arguments have somewhere wrong to go: a flag that takes
+  // a value must be declared as one, or its value lands in the positional list
+  // the URL is read from. Each way of getting this wrong refuses in its own
+  // words — an undeclared flag names itself, and a value read as the URL is
+  // refused as a URL rather than as a post.
+  const { code, stderr } = await runMain([
+    '--browser', 'chrome', '--cookies', '/tmp/c.txt', '--full',
+    'https://x.com/someone/status/1767',
+  ]);
+
+  assert.equal(code, 2);
+  assert.doesNotMatch(stderr, /unknown option/);
+  assert.match(stderr, /out of scope/);
+});
+
 test('an actually unknown flag still reports as unknown', async () => {
   // The targeted refusal above must not swallow the general case it sits in
   // front of.

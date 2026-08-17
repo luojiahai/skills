@@ -16,7 +16,13 @@ import path from 'node:path';
 import { EXIT } from '../shared/exit.mjs';
 import { fail, pickMode, self } from '../shared/run.mjs';
 import { missingTool, onPath } from '../shared/tools.mjs';
-import { isMainModule, optString, parseCommandLine } from '../shared/cli.mjs';
+import {
+  COMMON_BOOLEAN_FLAGS,
+  COMMON_FLAGS,
+  isMainModule,
+  optString,
+  parseCommandLine,
+} from '../shared/cli.mjs';
 import {
   accountDirFor,
   aliasDirFor,
@@ -56,8 +62,9 @@ import { mintCookies, profileHasSession } from './session.mjs';
 import { clearPlan, loadPlan, previousRoot, recordRun, savePlan } from '../shared/sync.mjs';
 import { parseTarget } from './target.mjs';
 
-const BOOLEAN_FLAGS = new Set(['plan', 'go', 'yes', 'y', 'unalias', 'login', 'help', 'h']);
-const KNOWN_FLAGS = new Set([...BOOLEAN_FLAGS, 'archives', 'alias', 'profile']);
+/** What Douyin adds to the flags every platform shares. */
+const BOOLEAN_FLAGS = new Set([...COMMON_BOOLEAN_FLAGS, 'login']);
+const KNOWN_FLAGS = new Set([...COMMON_FLAGS, ...BOOLEAN_FLAGS, 'profile']);
 
 const USAGE = `Usage: archive.sh <url> [--archives DIR] [--alias NAME] [--plan|--go|--yes]
 
