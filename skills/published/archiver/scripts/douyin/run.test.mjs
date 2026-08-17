@@ -353,5 +353,5 @@ test('the skipped image-post count reaches the block, and the ticket with it', a
   });
 
   assert.match(output, /3 image posts skipped/);
-  assert.match(output, /issues\/39/);
+  assert.match(output, /issues\/48/);
 });

@@ -76,7 +76,7 @@ const USAGE = `Usage: archive.sh <url> [--archives DIR] [--alias NAME] [--plan|-
   -h, --help            Show this help
 
 Image posts (图文) are counted and reported, but not yet downloaded:
-https://github.com/luojiahai/skills/issues/39`;
+https://github.com/luojiahai/skills/issues/48`;
 
 /**
  * `deps` names everything this run reaches outside itself. Injected so the

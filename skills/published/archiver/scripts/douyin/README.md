@@ -162,11 +162,13 @@ already-downloaded ID: Douyin pins up to 3 posts at the top regardless of age,
 so a stop-at-first-known rule halts immediately and collects nothing, forever,
 silently.
 
-It is also not worth defending against: a full scroll of a 284-video account
-measures **~34 seconds**, while downloads take 30–40 minutes and are already
-deduped against the post folders on disk. If you ever point this at an account
-with thousands of posts, revisit — a `--fast` opt-in would be the shape to
-add.
+It is also not worth much: a full scroll of a 405-post account measures **~34
+seconds**, while downloads take 30–40 minutes and are already deduped against the
+post folders on disk. The X side does stop early, after 100 consecutive known
+posts, and giving this one the same is tracked in
+[#59](https://github.com/luojiahai/skills/issues/59) — deliberately not part of
+the merge, because a stopper that is wrong does not fail loudly, it silently
+archives less.
 
 ## Counts will not match
 
@@ -187,7 +189,7 @@ leaving a disagreeing pair of numbers looking like an error:
   by hand is the one thing that shrinks an archive, and it is how you ask for
   that post again.)
 - **image posts are counted, never collected** — 图文 posts link as `/note/<id>`
-  and nothing here can fetch them yet (issue #39). They are reported as skipped
+  and nothing here can fetch them yet (issue #48). They are reported as skipped
   and subtracted before the `counted but not shown` gap is worked out, so the
   same posts are not blamed twice.
 

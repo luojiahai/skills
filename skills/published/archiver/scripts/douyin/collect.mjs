@@ -71,7 +71,7 @@ export function parseFeedPayload(payload) {
  * ?modal_id=<id>. Both appear depending on layout, so harvest each.
  *
  * Image posts (图文) link as /note/<id> and are returned separately: nothing
- * here can download them yet (issue #39). Returned separately rather than left
+ * here can download them yet (issue #48). Returned separately rather than left
  * to fall through the /video/ match, where they would vanish without trace and
  * leave an archive quietly short. Counting them is what makes that gap visible.
  *
@@ -219,7 +219,7 @@ export async function collect({
 
     // Insertion-ordered, so the download phase runs in feed order.
     const ids = new Set();
-    // Counted, never collected: nothing downloads these yet (issue #39).
+    // Counted, never collected: nothing downloads these yet (issue #48).
     const noteIds = new Set();
     let stable = 0;
     let rounds = 0;

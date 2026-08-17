@@ -43,7 +43,7 @@ test('image posts are reported with the ticket that tracks them', () => {
   // rather than silent.
   const [note] = notes({ collected: 405, reported: 405, skipped: 4, unlisted: 0 });
   assert.match(first(note), /4 image posts skipped — not yet supported/);
-  assert.match(note[1], /issues\/39/);
+  assert.match(note[1], /issues\/48/);
 });
 
 test('one image post is not "1 image posts"', () => {

@@ -44,14 +44,14 @@ function hidden(collected, reported, skipped) {
  * Image posts (图文) are collected as a count and nothing else: neither yt-dlp
  * nor gallery-dl can fetch them, so an account's archive is short by however
  * many it has. Reporting the number is what keeps that gap visible rather than
- * silent, until issue #39 closes it.
+ * silent, until issue #48 closes it.
  */
 function images(skipped) {
   if (!skipped) return [];
   return [
     [
       `${skipped} image post${skipped === 1 ? '' : 's'} skipped — not yet supported`,
-      '(see github.com/luojiahai/skills/issues/39)',
+      '(see github.com/luojiahai/skills/issues/48)',
     ],
   ];
 }

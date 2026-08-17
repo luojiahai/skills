@@ -121,7 +121,7 @@ test('the renderer never branches on platform — extra facts arrive as text', (
     headline: '小明 (抖音号 abc123)',
     folder: '/f',
     counts: counts({ foundDetail: 'of 411 reported' }),
-    notes: [['4 image posts skipped — not yet supported', '(see github.com/luojiahai/skills/issues/39)']],
+    notes: [['4 image posts skipped — not yet supported', '(see github.com/luojiahai/skills/issues/48)']],
   });
   assert.match(douyin, /found\s+405 of 411 reported/);
   assert.match(douyin, /note\s+4 image posts skipped/);

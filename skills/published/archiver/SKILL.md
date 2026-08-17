@@ -151,7 +151,7 @@ read out of a real page. The downloading itself is yt-dlp's.
 fetch them. They are counted during collection and reported as skipped in every
 block, so an account's archive is never quietly short without saying so — say
 that number out loud when it is not zero. Tracked in
-[issue #39](https://github.com/luojiahai/skills/issues/39).
+[issue #48](https://github.com/luojiahai/skills/issues/48).
 
 The one failure that needs a human is an expired session: the collector reports
 0 posts in the grid while the header still shows a post count. That is the
