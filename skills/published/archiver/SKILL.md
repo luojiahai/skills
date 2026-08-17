@@ -126,15 +126,22 @@ than an oversight — see each platform's section below.
 Needs [yt-dlp](https://github.com/yt-dlp/yt-dlp), Node, and a one-off sign-in.
 `setup.sh douyin` installs the Playwright browser it drives.
 
-Only a human can pass Douyin's login:
+Only a human can pass Douyin's login, so signing in is its own step and
+finishing it starts nothing:
 
 ```bash
-node <skill-dir>/scripts/douyin/collect-douyin-ids.mjs --login <profile-url>
+<skill-dir>/scripts/archive.sh <profile-url> --login
 ```
 
-That command is a **handoff**. Print it, tell them a browser will open and that
-they sign in, wait for the post grid, then press Enter — and give the turn back
-so they can run it. The session persists, and every later run works headless.
+That command is a **handoff**, in three beats. Print it and say a browser will
+open. **Give the turn back** so they can run it. Then **wait until the user says
+the sign-in is done** — do not run `--plan` before that. The command notices the
+session by itself and stops there; it archives nothing, and it is the only thing
+in this skill that opens a visible browser.
+
+The session persists, and every later run works headless. A `--plan` with no
+session refuses instantly rather than spending half a minute on a grid that
+cannot render.
 
 **Why it needs a browser.** yt-dlp has no Douyin account extractor, and Douyin's
 feed API refuses unsigned requests, so the list of an account's posts can only be

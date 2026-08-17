@@ -40,7 +40,7 @@
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 
-import { isMainModule, optString, parseArgs, readJson, writeJson } from './cli.mjs';
+import { readJson, writeJson } from './cli.mjs';
 import { archivesRoot, normalizeRoot } from './paths.mjs';
 
 export const ARCHIVER_FILE = 'archiver.json';
@@ -245,35 +245,4 @@ export async function writeAlias(root, platform, id, alias) {
   accounts[platform] = table;
   await writeJson(path.join(root, ARCHIVER_FILE), { ...file, schema: SCHEMA_VERSION, accounts });
   return table;
-}
-
-// ---- CLI -------------------------------------------------------------------
-//
-// the X platform's copy of this module has none: its whole run is Node, so run.mjs
-// calls these directly. Here the run is driven from bash, so each needs a
-// command. Only the file format is shared between the two platforms, not the
-// module.
-//
-//   check [--archives DIR]   exits 0, or exits 2 saying why this archive cannot
-//                            be read. Reads nothing else and writes nothing.
-//   stamp [--archives DIR]   records the schema, once the run is committed to
-//                            writing into this root. Upgrades a schema-2 root.
-
-if (isMainModule(import.meta.url)) {
-  const [command, ...rest] = process.argv.slice(2);
-  const opts = parseArgs(rest);
-
-  if (command !== 'check' && command !== 'stamp') {
-    console.error(`error: unknown command '${command ?? ''}' (expected check|stamp)`);
-    process.exit(2);
-  }
-
-  try {
-    const given = optString(opts, 'archives');
-    const root = given ? normalizeRoot(given) : archivesRoot();
-    await (command === 'check' ? checkRoot(root) : stampRoot(root));
-  } catch (err) {
-    console.error(`error: ${err.message}`);
-    process.exit(2);
-  }
 }

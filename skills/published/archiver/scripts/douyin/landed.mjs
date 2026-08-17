@@ -30,25 +30,18 @@
 import { readdir } from 'node:fs/promises';
 import path from 'node:path';
 
+import { postIdFromFolder } from './naming.mjs';
 import { isComplete, readPost } from './post.mjs';
 
 export const POSTS_DIR = 'posts';
 
 /**
- * `undated` is a literal, not a wildcard: it has to be recognised on the way
- * back out, or a post fetched without a date would be re-downloaded forever.
- *
- * Nothing here *builds* a folder name — yt-dlp's output template in
- * download-douyin.sh does, and this regex has to keep agreeing with it.
- * landed.test.mjs reads that template and checks the two still match.
+/**
+ * Folder naming lives in naming.mjs, which both builds these names and reads
+ * them back — one place, so the two cannot drift. Re-exported because what
+ * counts as a post folder is part of what "already downloaded" means.
  */
-const POST_FOLDER = /^(?:\d{4}-\d{2}-\d{2}|undated)_(\d+)$/;
-
-/** The id back out of a folder name, or null if this is not a post folder. */
-export function postIdFromFolder(name) {
-  const m = POST_FOLDER.exec(String(name ?? ''));
-  return m ? m[1] : null;
-}
+export { postIdFromFolder };
 
 /** Whether one archived post holds everything it says it does. */
 export function isLanded(entry) {

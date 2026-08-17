@@ -32,51 +32,46 @@ account's own.
 **Grid class names are obfuscated and rotate** (`a.RZuwF26I`, `div.gsF4XxDR`).
 Filter structurally — exclude `footer`, exclude the SEO marker — never by class.
 
-**A shell function called under `||` runs with errexit off.** `run_plan … ||
-status=$?` reads like status capture; it is bash turning `set -e` off for the
-whole function body, so a refused plan prints its refusal and then *keeps
-going*, through the metadata write and a bogus summary telling the user to
-re-run the `--go` that just failed. So `run_plan` is invoked plainly, failure
-exiting the script through errexit, and the plan load carries its own
-`|| return $?` so the refusal holds even if a guarded call sneaks back in.
-`download_list` is the one function called under `||`: it manages `set +e` around its
-pipeline itself and returns an explicit status, which is the pattern that
-makes such a call safe.
+**The orchestration stays in Node.** Not preference — shell cannot hold this
+shape safely. A shell function called under `||` runs with `set -e` switched off
+for its whole body, so `run_plan … || status=$?` reads like status capture while
+letting a *refused* plan print its refusal and then keep going, through the
+metadata write and a bogus summary telling the user to re-run the `--go` that
+just failed. Every refusal here is a returned exit code that the caller must
+read, and `../archive.sh` holds nothing but the node preflight.
 
-**The pauses are what let a long run finish.** `download-douyin.sh` runs yt-dlp
-with `--sleep-requests 2 --sleep-interval 3 --max-sleep-interval 8`. Douyin
+**The pauses are what let a long run finish.** `fetch.mjs` runs yt-dlp with
+`--sleep-requests 2 --sleep-interval 3 --max-sleep-interval 8`. Douyin
 rate-limits hard: an unthrottled batch starts failing partway through and can
 get the session challenged. Tuning these down to make a run finish faster is
 what stops it finishing.
 
 ## Files
 
-**This skill archives; the tools it drives download.** The split is the reason
-there are two shell scripts and not one. `archive.sh` owns the account — which
-folder it lives in, what is already on disk, what is missing, and whether the
-user has said yes — and knows nothing about how bytes arrive.
-`download-douyin.sh` takes a list of URLs and fetches them, and knows nothing
-about accounts. yt-dlp is a downloader and is named as one throughout; it cannot
-resume an account, which is the whole reason this layer sits above it. The
-filenames are the only place that boundary is written down, so
-`download-douyin.sh` keeps its name deliberately — renaming it to match the
-skill would erase the distinction it exists to mark.
+**This platform archives; the tool it drives downloads.** `run.mjs` owns the
+account — which folder it lives in, what is already on disk, what is missing, and
+whether the user has said yes — and knows nothing about how bytes arrive.
+`fetch.mjs` owns everything said to yt-dlp and knows nothing about accounts.
+yt-dlp is a downloader and is named as one throughout; it cannot resume an
+account, which is the whole reason this layer sits above it.
 
 | File | Role |
 | --- | --- |
-| `archive.sh` | Entry point. Owns folder, plan and metadata policy. Everything else is called by it. |
-| `download-douyin.sh` | General-purpose layer: a list of URLs/IDs in, one folder per post out, with throttling. Knows nothing about accounts. |
-| `collect-douyin-ids.mjs` | Drives Playwright, scrolls the profile, emits post URLs and profile metadata. |
-| `export-cookies.mjs` | Exports the Playwright session as a Netscape `cookies.txt` for yt-dlp. |
-| `plan.mjs` | The confirm step: diffs the collected list against what is on disk, records the account in `account.json` on the way past, and renders **every** block the skill prints. |
+| `run.mjs` | The whole run: parses the command line, refuses what it must, and drives plan and go. Everything else is called by it. |
+| `target.mjs` | What the user pointed at. A profile URL, or a refusal by name — a `/video/` URL is never read as the account that posted it. |
+| `collect.mjs` | Drives Playwright, scrolls the profile, and returns every post the grid names. The DOM says which posts exist; the feed responses passing underneath say what each one is. |
+| `fetch.mjs` | Everything said to yt-dlp, and the download loop. One invocation per post, into a folder this side chose. |
+| `login.mjs` | Signing in, as its own step. Waits by watching for the session cookie, not by trusting a keypress. |
+| `session.mjs` | Whether the profile holds a session, and minting it as a Netscape `cookies.txt` yt-dlp can read. |
+| `naming.mjs` | A post's identity as a directory name: `<date>_<id>`, built and read back in one place. |
+| `plan.mjs` | The confirm step: what a run *would* download, the rules that refuse a stale or foreign plan, and **every** block the skill prints. |
 | `landed.mjs` | What is already downloaded, answered from the post folders themselves. The layout rules, shared with the X platform. |
 | `cli.mjs` | The argument parsing, file reading, atomic JSON writing and entry-point detection the other modules share. |
-| `account.mjs` | Where an account's folder is (`douyin/<sec_uid>`); owns the shape of `account.json` and how it merges; answers what the archives root is. Called by both `plan.mjs` and `archive.sh`. |
-| `post.mjs` | The shape of `post.json` — the shape `download-douyin.sh`'s yt-dlp template has to produce — and whether a post holds every file it lists. |
+| `account.mjs` | Where an account's folder is (`douyin/<sec_uid>`); owns the shape of `account.json` and how it merges. |
+| `post.mjs` | The shape of `post.json`, and whether a post holds every file it lists. |
 | `sync.mjs` | `sync.json`: the parked plan and the last run's history. Deletable without loss. |
-| `archiver.mjs` | The archives root's schema version, and the refusal when it is one this build cannot read. Also a `check` CLI, since the run here is driven from bash. |
+| `archiver.mjs` | The archives root's schema version, and the refusal when it is one this build cannot read. |
 | `paths.mjs` | Single source of truth for where state lives and how Playwright is found. |
-| `collect-douyin-ids.js` | A DevTools console snippet that harvests `/video/` ids — a no-dependency fallback if Playwright breaks. It does **not** track `collect-douyin-ids.mjs`: it has no profile-metadata read, no `--limit`, and no image-post counting, so it emits ids and nothing else. |
 
 ## State files, disjoint on purpose
 
@@ -122,10 +117,9 @@ what was shown.
 `--go` runs no collection pass, and needs none: the `sec_uid` is in the profile
 URL and the `sec_uid` *is* the folder, so the account's directory is known
 outright rather than found by scanning. The parked plan carries identity too,
-but only as a guard for `validatePlan`; nothing looks a folder up by it. The
-only browser it can open
-is `export-cookies.mjs`, and only when the cached cookies are missing or yt-dlp
-has just rejected them.
+but only as a guard for `validatePlan`; nothing looks a folder up by it. The only browser `--go` opens is
+`session.mjs` minting cookies, and only when the cached file is missing or
+yt-dlp has just rejected it.
 
 A plan is refused rather than repaired when it is missing, older than 24h, or
 written for another account, root or folder. The alternative to refusing is
@@ -153,10 +147,9 @@ of what has landed.
 
 `paths.mjs` owns it — `normalizeRoot` for an explicit `--archives` (tilde
 expanded, made absolute, symlinks resolved as far as the path exists) and
-`archivesRoot` for the default. `archive.sh` asks for it through
-`account.mjs root` rather than recomputing it in shell, because a root that
-disagrees between the two languages names a different account folder and
-silently re-downloads everything.
+`archivesRoot` for the default. Every caller asks it rather than recomputing the
+rule, because two answers name a different account folder and silently
+re-download an entire archive.
 
 The symlink resolution is not fussiness: on macOS the default root comes back
 as `/private/tmp/...` while a hand-typed `--archives /tmp/...` would not, and
@@ -232,17 +225,12 @@ the run stops and asks for `--archives`. Guessing is the one thing it must not
 do — a wrong root names a different account folder and silently re-downloads
 everything.
 
-The **archives** root is written down once, in `paths.mjs`, and `archive.sh`
-asks for it through `account.mjs root` rather than reimplementing the rule — it
-is the root that varies per run, and two answers to it would split an account's
-archive in half. The `posts/` subdirectory is likewise named in both languages
-(`landed.mjs`'s `POSTS_DIR` and `archive.sh`'s `POSTS_SUBDIR`); change one and
-change the other. The **state** directory is still spelled out in both languages
-(`paths.mjs` and the top of `archive.sh`): it is one unchanging expression,
-`${XDG_STATE_HOME:-~/.local/state}/archiver/douyin`, and the shell needs it
-before it can afford to start Node. Change it in one place and change it in the
-other. `../setup.sh` installs into that directory and is safe to re-run — the
-skill's `package.json` is the version manifest, copied in at install time.
+The **archives** root, the **state** directory and the `posts/` subdirectory are
+each written down once — in `paths.mjs` and `landed.mjs` — and every caller asks
+rather than recomputing. Two answers to the archives root would name a different
+account folder and silently re-download an entire archive. `../../setup.sh
+douyin` installs into the state directory and is safe to re-run; this folder's
+`package.json` is the version manifest, copied in at install time.
 
 Playwright is loaded from the state directory by explicit path, since that is
 outside Node's upward module resolution. It is CommonJS, so an import by path
@@ -264,29 +252,22 @@ against a live account.
 
 ## Manual use
 
-The scripts work standalone if you want them without the skill:
+`run.mjs` is reached through the skill's dispatcher, which resolves the platform
+from the URL. Call that rather than this folder:
 
 ```bash
-# establish or refresh the session (opens a window)
-node collect-douyin-ids.mjs --login "https://www.douyin.com/user/MS4w..."
+# sign in once (opens a window, and stops there)
+../archive.sh "https://www.douyin.com/user/MS4w..." --login
 
 # an account, without the two-step confirm
-./archive.sh "https://www.douyin.com/user/MS4w..." --archives ~/Videos/douyin --yes
-
-# collect only
-node collect-douyin-ids.mjs --headless "https://www.douyin.com/user/MS4w..." -o urls.txt
-
-# download an arbitrary list
-./download-douyin.sh -i urls.txt -o ~/Videos/douyin
+../archive.sh "https://www.douyin.com/user/MS4w..." --archives ~/Videos/douyin --yes
 ```
 
-`download-douyin.sh` accepts full `/video/` URLs, `/user/...?modal_id=...` URLs,
-and bare numeric IDs interchangeably, and de-duplicates them. Use `-n` to see
-the yt-dlp command without running it.
-
-That it takes a single `/video/` URL is plumbing for the account loop, whose
-list is made of them, and not a user entry point — `archive.sh` takes profile
-URLs only.
+There is no separate downloader script to point at a list of URLs, and adding
+one back would be a mistake: it was a second path to the same folders, with its
+own flags and its own idea of what `post.json` should contain, and the two
+drifted. One post's worth of yt-dlp arguments lives in `fetch.mjs` and nowhere
+else.
 
 ## Shared with the X platform, on purpose
 
@@ -349,38 +330,24 @@ between these copies corrupts an archive both of them read. Until they move,
 the duplication is only worth its cost while they agree. The specification lives
 in the issue tracker; these two blocks are what ships.
 
-Four deliberate differences:
+Three deliberate differences:
 
-- **`post.json` is written by yt-dlp here, and in JS there.** `--print-to-file`
-  fires after extraction and before the download, which is exactly when the file
-  has to appear; doing it from Node would cost a second metadata request per
-  post against a hard rate limiter. So `POST_TEMPLATE` in `download-douyin.sh`
-  assembles the JSON, every user-text field passed through yt-dlp's `j`
-  conversion, and `landed.test.mjs` pins the template — driving the real yt-dlp
-  through `--load-info-json`, which needs no network — against the shape
-  `post.mjs` reads back. So the two `post.mjs` modules agree on the *file* and
-  differ in their API: the X platform's owns `toTimestamp` and `mediaEntry` and takes
-  media as `{num, ext, …}`, because it is the thing turning gallery-dl's rows
-  into filenames; this one has neither and takes `{file, …}`, because by the time
-  anything in Node sees a media entry the name has already been decided by the
-  template.
+- **Where each field of `post.json` comes from.** The X platform gets everything
+  from its listing pass, because gallery-dl prints the caption, the date and the
+  filename together. Here the caption and the timestamp come from the profile
+  feed responses read during the scroll, and only the media filename comes from
+  yt-dlp — it is what picks the container, so nothing else can know the
+  extension. `--print` fires after extraction and before the download, so the
+  name still arrives in time for `post.json` to be written first. The two
+  `post.mjs` modules therefore agree on the *file* and differ in their API: the X
+  platform's owns `toTimestamp` and `mediaEntry` and takes media as
+  `{num, ext, …}`; this one takes `{file, …}`, because by then yt-dlp has already
+  said the name.
 - **Junk files need no rule of their own.** yt-dlp can leave `1.f137.mp4` /
   `1.f140.m4a` behind when a stream merge fails — whole files, which would make
   an unplayable post read as finished under any rule that merely matched the
   positional `<n>.<ext>` shape. Against a named list of expected files, none of
   those is `1.mp4`, so nothing has to know about them.
-- **The X platform *builds* its folder names in JS (`naming.mjs`). Here nothing
-  does** — yt-dlp's `POST_DIR` output template builds them, and `landed.mjs`
-  only reads them back. That is two spellings of one rule in two languages, so
-  `landed.test.mjs` reads the template out of the shell script and checks the
-  regex still accepts what it produces.
-- **`assets/` is x-only.** gallery-dl puts the avatar and banner URLs on rows
-  the X platform already reads. Nothing here reads Douyin's out of the profile page
+- **`assets/` is x-only.** gallery-dl puts the avatar and banner URLs on rows the
+  X platform already reads. Nothing here reads Douyin's out of the profile page
   yet, so the directory is simply absent — the layout allows it to be.
-
-`--print-to-file` appends and has no overwrite mode, so `download-douyin.sh`
-clears a post's `post.json` before fetching it — matched by id, since the folder
-name depends on a date it does not yet have. Without it a re-fetch concatenates
-a second JSON document onto the first and the file stops parsing entirely. That
-lives in the same script as the `--print-to-file` that needs it, so running the
-layer standalone twice does not break the file either.

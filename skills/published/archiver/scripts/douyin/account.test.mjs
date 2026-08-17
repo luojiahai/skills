@@ -1,12 +1,9 @@
 import assert from 'node:assert/strict';
-import { execFile as execFileCb } from 'node:child_process';
 import { mkdtemp, mkdir, readdir, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { promisify } from 'node:util';
 
-const execFile = promisify(execFileCb);
 
 import {
   ACCOUNT_VERSION,
@@ -369,40 +366,33 @@ test('clearAlias on an account that never had one is not an error', async () => 
   assert.equal(await clearAlias(dir, { id: 'MS4wSEC' }), folder);
 });
 
-const CLI = new URL('./account.mjs', import.meta.url).pathname;
-const runCli = (...args) => execFile(process.execPath, [CLI, ...args]);
-
-test('check-alias without a sec_uid does not refuse an account its own alias', async () => {
-  // A profile URL that carried no sec_uid: all the run has is the 抖音号 and the
-  // alias. Passing the alias this account already has must find
-  // it, not be read as a collision with itself — the account cannot take a name
-  // off itself.
+test('an account is not refused the alias it already has', async () => {
+  // Passing the alias this account already holds must find it, not be read as a
+  // collision with itself — an account cannot take a name off itself.
   const dir = await root();
   await seed(dir, '小明', { account: { id: 'MS4wSEC', douyin_id: 'abc123', alias: '小明' } });
   await writeAlias(dir, PLATFORM, 'MS4wSEC', '小明');
 
-  await runCli('check-alias', '--archives', dir, '--sec-uid', '', '--alias', '小明', '--douyin-id', 'abc123');
+  assert.equal((await checkAlias(dir, { id: 'MS4wSEC', alias: '小明' })).ok, true);
 });
 
-test('a known sec_uid asking for somebody else\'s alias is still refused', async () => {
+test("a known sec_uid asking for somebody else's alias is refused", async () => {
   // The collision that matters, and the only one that can do harm: this is the
-  // path that goes on to *rename* a folder. Where no sec_uid is known nothing
-  // moves, and an alias there is only ever a way of naming a folder to look in.
+  // path that goes on to *rename* a folder.
   const dir = await root();
   await seed(dir, '小明', { account: { id: 'MS4wSEC', douyin_id: 'abc123', alias: '小明' } });
   await writeAlias(dir, PLATFORM, 'MS4wSEC', '小明');
 
-  await assert.rejects(
-    () => runCli('check-alias', '--archives', dir, '--sec-uid', 'MS4wOTHER', '--alias', '小明'),
-    (err) => /already belongs/.test(err.stderr),
-  );
+  const verdict = await checkAlias(dir, { id: 'MS4wOTHER', alias: '小明' });
+  assert.equal(verdict.ok, false);
+  assert.match(verdict.reason, /already belongs/);
 });
 
-test('an alias nothing has taken is free, sec_uid or no sec_uid', async () => {
+test('an alias nothing has taken is free, whoever is asking', async () => {
   const dir = await root();
   await seed(dir, '小明', { account: { id: 'MS4wSEC', douyin_id: 'abc123', alias: '小明' } });
   await writeAlias(dir, PLATFORM, 'MS4wSEC', '小明');
 
-  await runCli('check-alias', '--archives', dir, '--sec-uid', '', '--alias', '小红', '--douyin-id', 'other');
-  await runCli('check-alias', '--archives', dir, '--sec-uid', 'MS4wOTHER', '--alias', '小红');
+  assert.equal((await checkAlias(dir, { id: null, alias: '小红' })).ok, true);
+  assert.equal((await checkAlias(dir, { id: 'MS4wOTHER', alias: '小红' })).ok, true);
 });

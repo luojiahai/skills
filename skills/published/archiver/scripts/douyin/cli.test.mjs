@@ -1,132 +1,78 @@
-/**
- * Tests for cli.mjs — run with:
- *   node --test scripts/cli.test.mjs
- *
- * The parser's one hard-won rule is that a valueless flag must not swallow the
- * flag after it. There is one copy of the parser, and this is what keeps it
- * honest.
- */
-import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { execFile } from 'node:child_process';
-import { mkdtempSync, readdirSync, writeFileSync } from 'node:fs';
-import os from 'node:os';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { promisify } from 'node:util';
+import test from 'node:test';
 
-import { optString, parseArgs, readJson, readText } from './cli.mjs';
+import { optString, parseCommandLine } from './cli.mjs';
 
-const run = promisify(execFile);
-const ARCHIVE_SH = path.join(path.dirname(fileURLToPath(import.meta.url)), 'archive.sh');
-
-test('--downloads is refused by name rather than as a generic unknown flag', async () => {
-  // The old flag would otherwise fall through to the `-*` catch-all and be
-  // reported as an unknown option — true, but it sends the user to --help to
-  // work out what happened. The whole risk of this rename is a stale command
-  // still in someone's shell history, so the refusal names its replacement.
-  //
-  // Argument parsing runs before every preflight, so this needs neither yt-dlp
-  // nor a session to be installed.
-  const failed = await run(ARCHIVE_SH, [
-    'https://www.douyin.com/user/MS4wLjABAAAA',
-    '--downloads',
-    '/data',
-  ]).then(
-    () => null,
-    (error) => error,
-  );
-
-  assert.ok(failed, 'expected a non-zero exit');
-  assert.equal(failed.code, 2);
-  assert.match(failed.stderr, /--downloads was renamed to --archives/);
+test('a URL is positional and flags are flags', () => {
+  const { opts, positional } = parseCommandLine(['https://www.douyin.com/user/MS4w', '--plan']);
+  assert.deepEqual(positional, ['https://www.douyin.com/user/MS4w']);
+  assert.equal(opts.plan, true);
 });
 
-test('a /video/ URL is refused rather than archived as the account that posted it', async () => {
-  // What keeps a request for one post from being answered with the whole
-  // account. Like the refusal above it exits before the preflight, so it needs
-  // neither yt-dlp nor a session — and --yes is passed because the
-  // pre-authorised path must refuse it too.
-  const root = mkdtempSync(path.join(os.tmpdir(), 'douyin-archive-'));
-  const failed = await run(ARCHIVE_SH, [
-    'https://www.douyin.com/video/7111111111', '--yes', '--archives', root,
-  ]).then(
-    () => null,
-    (error) => error,
-  );
-
-  assert.ok(failed, 'expected a non-zero exit');
-  assert.equal(failed.code, 2);
-  assert.match(failed.stderr, /not a Douyin profile URL/);
-  // An empty root means no folder was resolved, no schema stamped, nothing
-  // fetched.
-  assert.deepEqual(readdirSync(root), []);
+test('a boolean flag does not swallow the argument after it', () => {
+  const { opts } = parseCommandLine(['--login', '--archives', '/data']);
+  assert.equal(opts.login, true);
+  assert.equal(opts.archives, '/data');
 });
 
-test('parseArgs pairs flags with their values', () => {
-  assert.deepEqual(parseArgs(['--folder', '/data/abc', '--alias', '小明']), {
-    folder: '/data/abc',
-    alias: '小明',
-  });
+test('a value flag followed by another flag neither eats nor loses it', () => {
+  // --alias has no value here, but --plan must still be parsed as a flag in its
+  // own right rather than disappearing into --alias.
+  const { opts } = parseCommandLine(['--alias', '--plan']);
+  assert.equal(opts.alias, true);
+  assert.equal(opts.plan, true);
 });
 
-test('parseArgs turns dashes into underscores', () => {
-  assert.deepEqual(parseArgs(['--sec-uid', 'MS4w', '--require-match']), {
-    sec_uid: 'MS4w',
-    require_match: true,
-  });
+test('--unalias is a flag in its own right, not an alias with a value', () => {
+  // It has to be: an empty --alias is how archive.sh passes a flag it has no
+  // value for, so "" cannot also mean "take the alias off".
+  const { opts } = parseCommandLine(['--unalias', '--go']);
+  assert.equal(opts.unalias, true);
+  assert.equal(opts.go, true);
 });
 
-test('a valueless flag does not swallow the flag after it', () => {
-  // The regression the shared copy exists to prevent: with --require-match
-  // eating --archives, the root silently becomes the default and the run
-  // works on the wrong archive.
-  assert.deepEqual(parseArgs(['--require-match', '--archives', '/data']), {
-    require_match: true,
-    archives: '/data',
-  });
+test('dashes in a flag name become underscores', () => {
+  const { opts } = parseCommandLine(['--archives', '~/data']);
+  assert.equal(opts.archives, '~/data');
 });
 
-test('a trailing flag with no value is true, not undefined', () => {
-  assert.deepEqual(parseArgs(['--folder', '/data', '--require-match']), {
-    folder: '/data',
-    require_match: true,
-  });
+test('short forms are accepted', () => {
+  assert.equal(parseCommandLine(['-y']).opts.y, true);
+  assert.equal(parseCommandLine(['-h']).opts.h, true);
 });
 
-test('parseArgs keeps an empty-string value as a value', () => {
-  // archive.sh passes optional flags through unconditionally — `--alias ""`
-  // rather than omitting them — so empty must parse as present-but-empty.
-  assert.deepEqual(parseArgs(['--alias', '', '--folder', '/data']), {
-    alias: '',
-    folder: '/data',
-  });
+test('an unknown flag is reported rather than guessed at', () => {
+  const { unknown } = parseCommandLine(['https://x.com/a', '--retweets']);
+  assert.deepEqual(unknown, ['--retweets']);
+});
+
+test('the accepted flags are exactly the documented ones', () => {
+  // Anything admitted here but absent from USAGE is a surface nobody can find
+  // and nobody maintains.
+  for (const flag of [
+    '--archives', '--alias', '--unalias', '--profile', '--login', '--plan', '--go', '--yes',
+  ]) {
+    assert.deepEqual(parseCommandLine([flag, 'v']).unknown, [], flag);
+  }
+  for (const flag of ['--bin', '--abort', '--url', '--name']) {
+    assert.deepEqual(parseCommandLine([flag, 'v']).unknown, [flag], flag);
+  }
+});
+
+test('everything after -- is positional, even if it looks like a flag', () => {
+  const { positional } = parseCommandLine(['--', '--plan']);
+  assert.deepEqual(positional, ['--plan']);
+});
+
+test('a URL is never mistaken for a flag value', () => {
+  const { opts, positional } = parseCommandLine(['--archives', '/data', 'https://www.douyin.com/user/MS4w', '--go']);
+  assert.equal(opts.archives, '/data');
+  assert.equal(opts.go, true);
+  assert.deepEqual(positional, ['https://www.douyin.com/user/MS4w']);
 });
 
 test('optString treats a valueless flag as absent', () => {
-  const opts = parseArgs(['--require-match', '--alias', 'abc']);
-  assert.equal(optString(opts, 'require_match'), '');
-  assert.equal(optString(opts, 'alias'), 'abc');
-  assert.equal(optString(opts, 'missing'), '');
-});
-
-test('readJson returns the parsed object, and null for anything unreadable', async () => {
-  const dir = mkdtempSync(path.join(os.tmpdir(), 'douyin-cli-'));
-  const file = path.join(dir, 'account.json');
-  writeFileSync(file, '{"douyin_id":"abc123"}\n');
-
-  assert.deepEqual(await readJson(file), { douyin_id: 'abc123' });
-  assert.equal(await readJson(path.join(dir, 'missing.json')), null);
-
-  writeFileSync(file, 'not json');
-  assert.equal(await readJson(file), null);
-});
-
-test('readText returns the file, and empty for a missing one', async () => {
-  const dir = mkdtempSync(path.join(os.tmpdir(), 'douyin-cli-'));
-  const file = path.join(dir, 'some-file.txt');
-  writeFileSync(file, 'douyin 7111\n');
-
-  assert.equal(await readText(file), 'douyin 7111\n');
-  assert.equal(await readText(path.join(dir, 'missing.txt')), '');
+  assert.equal(optString({ alias: true }, 'alias'), '');
+  assert.equal(optString({ alias: 'jia' }, 'alias'), 'jia');
+  assert.equal(optString({}, 'alias'), '');
 });

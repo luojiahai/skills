@@ -2,89 +2,44 @@
  * Tests for plan.mjs — run with:
  *   node --test scripts/*.test.mjs
  *
- * Mostly the pure functions: the diff, the validation rules and the rendering.
- * The `build` subcommand is covered too, because it is where reading and
- * writing account.json have to happen in that order. Everything that talks to
- * the live site is exercised by hand, which no test can stand in for.
+ * The pure functions: the diff, the validation rules and the rendering. What a
+ * run does with them — writing account.json before anything is fetched, parking
+ * the plan, reporting a move it has not made — is run.test.mjs. Everything that
+ * talks to the live site is exercised by hand, which no test can stand in for.
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { execFile as execFileCb } from 'node:child_process';
-import { existsSync } from 'node:fs';
-import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
-import os from 'node:os';
-import path from 'node:path';
-import { promisify } from 'node:util';
 
 import {
   buildPlan,
   listedIds,
-  pendingUrls,
-  postIdFromUrl,
   statusBlock,
   summaryBlock,
   unlistedCountFromPlan,
   validatePlan,
 } from './plan.mjs';
 
-const execFile = promisify(execFileCb);
-
 const HOUR = 3600 * 1000;
 
-test('postIdFromUrl reads the id out of a post URL', () => {
-  assert.equal(postIdFromUrl('https://www.douyin.com/video/7112233445566'), '7112233445566');
-  assert.equal(postIdFromUrl('https://www.douyin.com/user/MS4w?modal_id=7112233445566'), '7112233445566');
-  assert.equal(postIdFromUrl('https://www.douyin.com/user/MS4w'), null);
-});
+/** A post as the listing pass hands it over. */
+const post = (id, over = {}) => ({ id, text: '', createTime: 1710144139, ...over });
 
-test('postIdFromUrl reads a /note/ id, so an archived image post is recognised', () => {
-  // The collector does not emit these yet (issue #39), but a folder for one
-  // read as unlisted would report a deletion that never happened.
-  assert.equal(postIdFromUrl('https://www.douyin.com/note/7112233445566'), '7112233445566');
-});
-
-test('listedIds collects the ids a URL list names, dropping what it cannot parse', () => {
-  const ids = listedIds([
-    'https://www.douyin.com/video/7111',
-    'https://www.douyin.com/video/7111',
-    'not-a-url',
-  ]);
-  assert.deepEqual([...ids], ['7111']);
+test('listedIds collects the ids a post list names', () => {
+  const ids = listedIds([post('7111'), post('7111'), post('7222')]);
+  assert.deepEqual([...ids].sort(), ['7111', '7222']);
   assert.equal(listedIds(null).size, 0);
 });
 
-test('pendingUrls keeps only what is not on disk, in feed order', () => {
-  const collected = [
-    'https://www.douyin.com/video/7111',
-    'https://www.douyin.com/video/7222',
-    'https://www.douyin.com/video/7333',
-  ];
-  assert.deepEqual(pendingUrls(collected, new Set(['7222'])), [
-    'https://www.douyin.com/video/7111',
-    'https://www.douyin.com/video/7333',
-  ]);
-});
-
-test('pendingUrls de-duplicates and drops unparseable lines', () => {
-  const collected = [
-    'https://www.douyin.com/video/7111',
-    'https://www.douyin.com/video/7111',
-    'not-a-url',
-  ];
-  assert.deepEqual(pendingUrls(collected, new Set()), ['https://www.douyin.com/video/7111']);
-});
-
-test('pendingUrls is empty when everything is already downloaded', () => {
-  const collected = ['https://www.douyin.com/video/7111'];
-  assert.deepEqual(pendingUrls(collected, new Set(['7111'])), []);
+test('listedIds ignores an entry carrying no id', () => {
+  assert.deepEqual([...listedIds([{ text: 'no id' }, post('7111')])], ['7111']);
 });
 
 test('unlistedCountFromPlan counts what a finished run holds and the listing dropped', () => {
-  const plan = { collected: ['https://www.douyin.com/video/7111'] };
+  const plan = { collected: [post('7111')] };
   assert.equal(unlistedCountFromPlan(plan, new Set(['7111', '7333'])), 1);
   assert.equal(unlistedCountFromPlan(plan, new Set(['7111'])), 0);
-  // The listing may run ahead of what is on disk — that is pendingUrls'
-  // business, not this one's.
+  // The listing may run ahead of what is on disk — that is the diff's business,
+  // not this one's.
   assert.equal(unlistedCountFromPlan({ collected: [] }, new Set()), 0);
 });
 
@@ -98,19 +53,22 @@ test('unlistedCountFromPlan says unknown, not zero, for a plan with no collected
 
 function samplePlan(overrides = {}) {
   return buildPlan({
-    meta: {
-      sec_uid: 'MS4wSEC',
-      douyin_id: 'abc123',
-      nickname: '小明',
-      reported_works_count: 284,
-    },
-    collected: ['https://www.douyin.com/video/7111', 'https://www.douyin.com/video/7222'],
-    pending: ['https://www.douyin.com/video/7222'],
+    account: { sec_uid: 'MS4wSEC', douyin_id: 'abc123', nickname: '小明' },
+    reported: 284,
+    collected: [post('7111'), post('7222')],
+    pending: [post('7222')],
     archivesRoot: '/data',
     now: new Date('2026-08-14T10:00:00Z'),
     ...overrides,
   });
 }
+
+test('the plan carries each post whole, so --go needs no browser', () => {
+  // A plan of bare ids would send --go back to a browser for every caption and
+  // timestamp — which is the half-minute the confirm step exists to pay once.
+  const plan = samplePlan();
+  assert.deepEqual(plan.pending, [{ id: '7222', text: '', createTime: 1710144139 }]);
+});
 
 test('buildPlan records identity, root and both lists', () => {
   const plan = samplePlan();
@@ -120,7 +78,7 @@ test('buildPlan records identity, root and both lists', () => {
   assert.equal(plan.archives_root, '/data');
   assert.equal(plan.reported_works_count, 284);
   assert.equal(plan.collected.length, 2);
-  assert.deepEqual(plan.pending, ['https://www.douyin.com/video/7222']);
+  assert.deepEqual(plan.pending.map((p) => p.id), ['7222']);
   assert.equal(plan.created_at, '2026-08-14T10:00:00.000Z');
 });
 
@@ -506,173 +464,4 @@ test('summaryBlock repeats the skipped-image note the approved block showed', ()
     total: 40,
   });
   assert.match(block, /2 image posts skipped/);
-});
-
-// ---- the build CLI ---------------------------------------------------------
-// One thing here is worth the cost of spawning node: build both *writes*
-// account.json and *reports* the root the previous run used, and it reads
-// before it writes. Reorder those two and the note goes quiet forever, which no
-// unit test of statusBlock can catch.
-
-const CLI = new URL('./plan.mjs', import.meta.url).pathname;
-
-async function buildIn(folder, { archives, url, alias, meta = {}, collected = [] }) {
-  const scratch = await mkdtemp(path.join(os.tmpdir(), 'douyin-build-'));
-  const metaFile = path.join(scratch, 'meta.json');
-  const urlsFile = path.join(scratch, 'urls.txt');
-  await writeFile(metaFile, JSON.stringify(meta));
-  await writeFile(urlsFile, collected.join('\n'));
-
-  const { stdout } = await execFile(process.execPath, [
-    CLI, 'build',
-    '--meta', metaFile,
-    '--urls', urlsFile,
-    '--folder', folder,
-    '--archives', archives,
-    '--url', url,
-    ...(alias ? ['--alias', alias] : []),
-  ]);
-  return stdout;
-}
-
-const accountJson = async (folder) => JSON.parse(await readFile(path.join(folder, 'account.json'), 'utf8'));
-const syncJson = async (folder) => JSON.parse(await readFile(path.join(folder, 'sync.json'), 'utf8'));
-
-test('build records the account before anything is downloaded', async () => {
-  const archives = await mkdtemp(path.join(os.tmpdir(), 'douyin-archives-'));
-  const folder = path.join(archives, 'douyin', 'MS4wABC');
-
-  await buildIn(folder, {
-    archives,
-    url: 'https://www.douyin.com/user/MS4wABC',
-    meta: { sec_uid: 'MS4wABC', douyin_id: 'abc123', nickname: '某人' },
-    collected: ['https://www.douyin.com/video/7111'],
-  });
-
-  const account = await accountJson(folder);
-  assert.deepEqual(account.account, { id: 'MS4wABC', douyin_id: 'abc123', nickname: '某人' });
-  assert.equal(account.url, 'https://www.douyin.com/user/MS4wABC');
-  assert.equal(account.platform, 'douyin');
-});
-
-test('an aliased folder records its own name, and the root file agrees', async () => {
-  // The alias comes off the folder rather than off the flag, so the two cannot
-  // disagree — and archiver.json is written from the same fact.
-  const archives = await mkdtemp(path.join(os.tmpdir(), 'douyin-archives-'));
-  const folder = path.join(archives, 'douyin', '小明');
-
-  await buildIn(folder, {
-    archives,
-    url: 'https://www.douyin.com/user/MS4wABC',
-    meta: { sec_uid: 'MS4wABC', douyin_id: 'abc123', nickname: '某人' },
-    collected: ['https://www.douyin.com/video/7111'],
-  });
-
-  assert.equal((await accountJson(folder)).account.alias, '小明');
-  const rootFile = JSON.parse(await readFile(path.join(archives, 'archiver.json'), 'utf8'));
-  assert.deepEqual(rootFile.accounts.douyin, { MS4wABC: '小明' });
-});
-
-test('a plan says where --alias would move the folder, and moves nothing', async () => {
-  const archives = await mkdtemp(path.join(os.tmpdir(), 'douyin-archives-'));
-  const folder = path.join(archives, 'douyin', 'MS4wABC');
-
-  const out = await buildIn(folder, {
-    archives,
-    url: 'https://www.douyin.com/user/MS4wABC',
-    alias: '小明',
-    meta: { sec_uid: 'MS4wABC', douyin_id: 'abc123', nickname: '某人' },
-    collected: ['https://www.douyin.com/video/7111'],
-  });
-
-  assert.match(out, /moves to .*小明 — on --go/);
-  assert.equal(await accountJson(folder).then((a) => a.account.id), 'MS4wABC');
-});
-
-test('account.json holds no progress, and no root it would go stale about', async () => {
-  const archives = await mkdtemp(path.join(os.tmpdir(), 'douyin-archives-'));
-  const folder = path.join(archives, 'douyin', 'MS4wABC');
-  await buildIn(folder, {
-    archives,
-    url: 'https://www.douyin.com/user/MS4wABC',
-    meta: { sec_uid: 'MS4wABC', douyin_id: 'abc123' },
-    collected: ['https://www.douyin.com/video/7111'],
-  });
-  assert.deepEqual(Object.keys(await accountJson(folder)).sort(), ['account', 'platform', 'url', 'version']);
-});
-
-test('build reports the previous root before overwriting it', async () => {
-  const archives = await mkdtemp(path.join(os.tmpdir(), 'douyin-archives-'));
-  const folder = path.join(archives, 'douyin', 'MS4wABC');
-  await mkdir(folder, { recursive: true });
-  await writeFile(
-    path.join(folder, 'sync.json'),
-    JSON.stringify({ version: 1, plan: null, last_run: { at: 'yesterday', root: '/elsewhere/archives' } }),
-  );
-
-  const out = await buildIn(folder, {
-    archives,
-    url: 'https://www.douyin.com/user/MS4wABC',
-    meta: { sec_uid: 'MS4wABC', douyin_id: 'abc123' },
-    collected: ['https://www.douyin.com/video/7111'],
-  });
-
-  assert.match(out, /last run used \/elsewhere\/archives/);
-});
-
-test('parking a plan leaves the previous run’s history beside it', async () => {
-  const archives = await mkdtemp(path.join(os.tmpdir(), 'douyin-archives-'));
-  const folder = path.join(archives, 'douyin', 'MS4wABC');
-  await mkdir(folder, { recursive: true });
-  await writeFile(
-    path.join(folder, 'sync.json'),
-    JSON.stringify({ version: 1, plan: null, last_run: { at: 'yesterday', root: archives, landed: 7 } }),
-  );
-
-  await buildIn(folder, {
-    archives,
-    url: 'https://www.douyin.com/user/MS4wABC',
-    meta: { sec_uid: 'MS4wABC', douyin_id: 'abc123' },
-    collected: ['https://www.douyin.com/video/7111'],
-  });
-
-  const sync = await syncJson(folder);
-  assert.equal(sync.plan.pending.length, 1);
-  assert.equal(sync.last_run.landed, 7);
-});
-
-test('build records the account even when there is nothing left to fetch', async () => {
-  // No plan is parked in this case, so account.json is the only thing that will
-  // tell the next run whose folder this is.
-  const archives = await mkdtemp(path.join(os.tmpdir(), 'douyin-archives-'));
-  const folder = path.join(archives, 'douyin', 'MS4wABC');
-
-  const out = await buildIn(folder, {
-    archives,
-    url: 'https://www.douyin.com/user/MS4wABC',
-    meta: { sec_uid: 'MS4wABC', douyin_id: 'abc123' },
-    collected: [],
-  });
-
-  assert.match(out, /already up to date/);
-  assert.equal((await syncJson(folder)).plan, null);
-  assert.equal((await accountJson(folder)).account.douyin_id, 'abc123');
-});
-
-test('the shell asks for the pending count rather than testing for a file', async () => {
-  const archives = await mkdtemp(path.join(os.tmpdir(), 'douyin-archives-'));
-  const folder = path.join(archives, 'douyin', 'MS4wABC');
-
-  const empty = await execFile(process.execPath, [CLI, 'pending', '--folder', folder]);
-  assert.equal(empty.stdout.trim(), '0', 'an account with no plan has nothing pending');
-
-  await buildIn(folder, {
-    archives,
-    url: 'https://www.douyin.com/user/MS4wABC',
-    meta: { sec_uid: 'MS4wABC', douyin_id: 'abc123' },
-    collected: ['https://www.douyin.com/video/7111', 'https://www.douyin.com/video/7222'],
-  });
-
-  const parked = await execFile(process.execPath, [CLI, 'pending', '--folder', folder]);
-  assert.equal(parked.stdout.trim(), '2');
 });

@@ -1,11 +1,9 @@
 /**
- * cli.mjs — the argument parsing, file reading, JSON writing and entry-point
- * detection the other modules share.
+ * cli.mjs — argument parsing, file reading and entry-point detection.
  *
- * `account.mjs` and `plan.mjs` are small `<verb> --flag value` CLIs called from
- * archive.sh, and they had a copy each of this. The copies then drifted: one
- * learned that a flag with no value of its own must not swallow the flag after
- * it, and the other did not. One copy is how that stops happening again.
+ * run.mjs is the only entry point; every other module here is a library it
+ * calls. This file is what those two facts are expressed through: one command
+ * line parser, and one answer to "was I the file node was asked to run".
  */
 import { realpathSync } from 'node:fs';
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
@@ -14,10 +12,10 @@ import { pathToFileURL } from 'node:url';
 
 /**
  * True when `importMetaUrl` names the file node was asked to run. Each CLI
- * here dispatches only behind this: plan.mjs imports from account.mjs, and a
- * dispatch keyed on argv alone would run account's CLI on plan's arguments.
- * argv[1] is realpath'd because the skill is installed by symlink while node
- * resolves the entry module to its real location.
+ * dispatches only behind this: the modules import from each other, and a
+ * dispatch keyed on argv alone would run one module's CLI on another's
+ * arguments. argv[1] is realpath'd because the skill is installed by symlink
+ * while node resolves the entry module to its real location.
  */
 export function isMainModule(importMetaUrl) {
   if (!process.argv[1]) return false;
@@ -28,20 +26,56 @@ export function isMainModule(importMetaUrl) {
   }
 }
 
+/** Flags that are on or off. Everything else takes the argument after it. */
+export const BOOLEAN_FLAGS = new Set(['plan', 'go', 'yes', 'y', 'login', 'unalias', 'help', 'h']);
+
+/** Every flag this entry point accepts. Anything else is a usage error. */
+export const KNOWN_FLAGS = new Set([
+  ...BOOLEAN_FLAGS,
+  'archives',
+  'alias',
+  'profile',
+]);
+
 /**
- * `--folder DIR --require-match` → `{ folder: 'DIR', require_match: true }`.
- * Dashes become underscores so keys are readable as identifiers.
+ * A command line into `{ opts, positional, unknown }`.
+ *
+ * Boolean flags are declared rather than guessed: `--full --archives DIR`
+ * must not read DIR as the value of --full, and `--alias --plan` must not
+ * silently name a folder "--plan".
  */
-export function parseArgs(argv) {
+export function parseCommandLine(argv, { booleans = BOOLEAN_FLAGS, known = KNOWN_FLAGS } = {}) {
   const opts = {};
+  const positional = [];
+  const unknown = [];
+
   for (let i = 0; i < argv.length; i++) {
-    const key = argv[i].replace(/^--/, '').replace(/-/g, '_');
-    const next = argv[i + 1];
-    // A valueless flag such as --require-match must not eat the one after it.
-    if (next === undefined || next.startsWith('--')) opts[key] = true;
-    else opts[key] = argv[++i];
+    const arg = argv[i];
+
+    if (arg === '--') {
+      positional.push(...argv.slice(i + 1));
+      break;
+    }
+
+    if (arg.length > 1 && arg.startsWith('-')) {
+      const key = arg.replace(/^--?/, '').replace(/-/g, '_');
+      if (known && !known.has(key)) {
+        unknown.push(arg);
+        continue;
+      }
+      if (booleans.has(key)) {
+        opts[key] = true;
+        continue;
+      }
+      const next = argv[i + 1];
+      opts[key] = next === undefined || next.startsWith('-') ? true : argv[++i];
+      continue;
+    }
+
+    positional.push(arg);
   }
-  return opts;
+
+  return { opts, positional, unknown };
 }
 
 /**
@@ -58,15 +92,6 @@ export function optString(opts, key) {
   return typeof value === 'string' ? value : '';
 }
 
-export function requireOpts(opts, ...keys) {
-  for (const key of keys) {
-    if (!optString(opts, key)) {
-      console.error(`error: --${key.replace(/_/g, '-')} is required`);
-      process.exit(2);
-    }
-  }
-}
-
 /** Null rather than a throw: missing metadata or no plan is an ordinary answer. */
 export async function readJson(file) {
   try {
@@ -80,8 +105,8 @@ export async function readJson(file) {
  * Written to a temporary neighbour and renamed over the target, so a reader
  * sees either the old file or the new one and never half of either.
  *
- * post.json is the only copy of a post's caption, and account.json the only
- * thing saying whose folder this is — a plain write interrupted partway leaves
+ * post.json is the only copy of a post's words, and account.json the only thing
+ * saying whose folder this is — a plain write interrupted partway leaves
  * unparseable JSON where the record used to be, which reads as corrupt rather
  * than as absent. rename(2) within a directory is atomic, and the temporary
  * name carries the pid so two runs against one archive cannot collide on it.
@@ -98,24 +123,4 @@ export async function writeJson(file, value) {
   await writeFile(temp, `${JSON.stringify(value, null, 2)}\n`);
   await rename(temp, file);
   return value;
-}
-
-/** Empty rather than a throw: no archive means nothing has been downloaded. */
-export async function readText(file) {
-  try {
-    return await readFile(file, 'utf8');
-  } catch {
-    return '';
-  }
-}
-
-/**
- * A plain write, for the scratch files the shell reads back.
- *
- * Not atomic, and does not need to be: these live in the system temp directory
- * for the length of one run and are cleaned up by an EXIT trap. Only the
- * archive's own files go through writeJson.
- */
-export async function writeText(file, contents) {
-  await writeFile(file, contents);
 }

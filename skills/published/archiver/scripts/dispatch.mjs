@@ -32,7 +32,8 @@ The URL says which platform this is. ${supported()}.
   -h, --help            Show this help. With a URL, the platform's own help.
 
   Douyin — douyin.com/user/<sec_uid>
-      --profile DIR     Browser profile holding the Douyin session.
+      --login           Sign in to Douyin in a browser, and stop.
+      --profile DIR     Browser profile holding that session.
 
   X — x.com/<handle>
       --browser NAME    Browser to read the X session from the first time

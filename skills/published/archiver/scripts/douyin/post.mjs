@@ -18,11 +18,10 @@
  * the post says what it carries before the download starts, and a post whose
  * media failed reads as incomplete rather than as done.
  *
- * Unlike the X platform, nothing here *builds* the file during a run: yt-dlp writes
- * it directly through the JSON template in download-douyin.sh, which fires after
- * extraction and before the download. This module owns the shape that template
- * has to produce, reads it back, and answers whether a post has landed —
- * landed.test.mjs is what holds the two in step.
+ * The listing pass supplies the caption and the timestamp; yt-dlp supplies only
+ * the media filename, because it is what picks the container. fetch.mjs puts the
+ * two together and writes the file the moment that filename is printed, which is
+ * before the download begins.
  */
 import path from 'node:path';
 
@@ -34,10 +33,8 @@ export const POST_VERSION = 1;
 /**
  * The post, in a fixed order and holding nothing else.
  *
- * Used by the tests and by anything that has to write a post.json from Node;
- * the live path is yt-dlp's template. `text` goes in whole and is never
- * truncated — this is the only place a caption is kept, since the folder name
- * carries none of it and `text.txt` is gone.
+ * `text` goes in whole and is never truncated — this is the only place a caption
+ * is kept, since the folder name carries none of it.
  */
 export function buildPost({ id, permalink, timestamp, text, replyTo, media } = {}) {
   return {

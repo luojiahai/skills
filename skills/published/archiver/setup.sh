@@ -110,8 +110,8 @@ check_douyin() {
   else
     warn "no Douyin session yet — only a human can pass Douyin's login"
     echo "      Sign in once with:"
-    echo "        node ${SKILL_DIR}/scripts/douyin/collect-douyin-ids.mjs --login <profile-url>"
-    echo "      A browser opens. Sign in, wait for the video grid, press Enter."
+    echo "        ${SKILL_DIR}/scripts/archive.sh <douyin-url> --login"
+    echo "      A browser opens. Sign in; it notices by itself and stops there."
   fi
   echo
 }

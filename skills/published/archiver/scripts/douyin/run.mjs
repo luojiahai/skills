@@ -1,31 +1,502 @@
 /**
- * run.mjs — Douyin's entry point, as the dispatcher expects to find it.
+ * run.mjs — the whole Douyin run: what the user asked for, in, and a block out.
  *
- * Every platform exposes `main(argv)` and owns everything past it: its own flag
- * set, its own tool preflight, its own exit code. Here that run is orchestrated
- * by archive.sh, which this hands the command line to and waits on.
+ *   --login  sign in once, in a browser, and stop.
+ *   --plan   collect, diff, report. Downloads nothing.
+ *   --go     download exactly what the last plan listed.
+ *   --yes    both, without stopping to confirm.
+ *
+ * All of the orchestration is here rather than in shell. A shell function called
+ * under `||` runs with errexit off for its whole body, so a refused plan printed
+ * its refusal and then kept going — through the state write and a summary
+ * telling the user to re-run the very command that had just failed.
  */
-import { spawn } from 'node:child_process';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 
 import { EXIT } from '../shared/exit.mjs';
+import { missingTool, onPath } from '../shared/tools.mjs';
+import { isMainModule, optString, parseCommandLine } from './cli.mjs';
+import {
+  accountDirFor,
+  aliasDirFor,
+  aliasShapeRefusal,
+  applyAlias,
+  checkAlias,
+  clearAlias,
+  findAccountDir,
+  isSafeAlias,
+  readAccount,
+  recordIdentity,
+  resolveAccountDir,
+} from './account.mjs';
+import { checkRoot, stampRoot } from './archiver.mjs';
+import { collect } from './collect.mjs';
+import { YT_DLP, fetchPosts, outstanding } from './fetch.mjs';
+import { onDiskIds, readArchive } from './landed.mjs';
+import { login } from './login.mjs';
+import { COOKIE_FILE, PROFILE_DIR, archivesRoot, loadPlaywright, normalizeRoot } from './paths.mjs';
+import {
+  DEFAULT_TTL_HOURS,
+  buildPlan,
+  listedIds,
+  statusBlock,
+  summaryBlock,
+  unlistedCountFromPlan,
+  validatePlan,
+} from './plan.mjs';
+import { mintCookies, profileHasSession } from './session.mjs';
+import { clearPlan, loadPlan, previousRoot, recordRun, savePlan } from './sync.mjs';
+import { parseTarget } from './target.mjs';
 
-const ARCHIVE_SH = path.join(path.dirname(fileURLToPath(import.meta.url)), 'archive.sh');
+const BOOLEAN_FLAGS = new Set(['plan', 'go', 'yes', 'y', 'unalias', 'login', 'help', 'h']);
+const KNOWN_FLAGS = new Set([...BOOLEAN_FLAGS, 'archives', 'alias', 'profile']);
 
-export function main(argv) {
-  return new Promise((resolve) => {
-    const child = spawn(ARCHIVE_SH, argv, { stdio: 'inherit' });
+const USAGE = `Usage: archive.sh <url> [--archives DIR] [--alias NAME] [--plan|--go|--yes]
 
-    child.on('error', (error) => {
-      console.error(`error: could not run the Douyin archiver — ${error.message}`);
-      resolve(EXIT.FAILED);
-    });
+  <url>                 https://www.douyin.com/user/MS4w...   an account's posts
 
-    // A signal is not an exit code, and reporting 0 for one would tell the
-    // caller a run that was killed had finished.
-    child.on('close', (code, signal) => {
-      resolve(signal ? EXIT.FAILED : (code ?? EXIT.FAILED));
-    });
+      --plan            Collect the post list, report what would be fetched, and
+                        stop. Downloads nothing, and moves nothing.
+      --go              Download the posts the last --plan listed. Needs a plan
+                        for this account and root, under a day old.
+      --yes, -y         Plan and download in one run, without stopping.
+      --login           Sign in to Douyin in a browser, and stop. Only a human
+                        can pass Douyin's login; this waits for it and nothing
+                        else.
+      --archives DIR    Root directory the archives live in.
+                        DIR/douyin/<alias> or DIR/douyin/<sec_uid>.
+      --alias NAME      Name this account's folder NAME instead of its sec_uid.
+      --unalias         Put this account's folder back under its sec_uid.
+      --profile DIR     Browser profile holding the Douyin session.
+  -h, --help            Show this help
+
+Image posts (图文) are counted and reported, but not yet downloaded:
+https://github.com/luojiahai/skills/issues/39`;
+
+/**
+ * `deps` names everything this run reaches outside itself. Injected so the
+ * orchestration — what is written, in what order, and what is refused before
+ * anything is written at all — is testable without a browser, a network or
+ * yt-dlp on the machine running the tests.
+ */
+export async function main(argv, deps = {}) {
+  const {
+    collectImpl = collect,
+    fetchImpl = fetchPosts,
+    loginImpl = login,
+    playwrightImpl = loadPlaywright,
+    hasSessionImpl = profileHasSession,
+    mintImpl = mintCookies,
+    onPathImpl = onPath,
+  } = deps;
+
+  const { opts, positional, unknown } = parseCommandLine(argv, {
+    booleans: BOOLEAN_FLAGS,
+    known: KNOWN_FLAGS,
   });
+
+  if (opts.help || opts.h) {
+    console.log(USAGE);
+    return EXIT.OK;
+  }
+
+  // Named rather than left to the unknown-flag path below. The old flag is the
+  // one thing likely to still be sitting in a shell history, and "unknown
+  // option" would be true while sending the user to --help to work out why.
+  if (unknown.includes('--downloads')) {
+    console.error(
+      'error: --downloads was renamed to --archives (and the default root is now archives/)',
+    );
+    console.error(
+      '  the old root is not read: rename downloads/ to archives/, or pass --archives DIR',
+    );
+    return EXIT.USAGE;
+  }
+
+  if (unknown.length) {
+    console.error(`error: unknown option '${unknown[0]}' (try --help)`);
+    return EXIT.USAGE;
+  }
+
+  const url = positional[0];
+  if (!url) {
+    console.error(USAGE);
+    console.error('\nerror: no URL given');
+    return EXIT.USAGE;
+  }
+
+  // Settled before the archives root, before the preflight, before anything is
+  // read or written, because refusing a URL needs nothing installed.
+  let target;
+  try {
+    target = parseTarget(url);
+  } catch (error) {
+    return fail(error.message, EXIT.USAGE);
+  }
+
+  const profileDir = optString(opts, 'profile') || PROFILE_DIR;
+
+  // Playwright drives the browser for both signing in and collecting, so it is
+  // needed on every path past here.
+  let chromium;
+  try {
+    ({ chromium } = await playwrightImpl());
+  } catch (error) {
+    return fail(error.message);
+  }
+
+  if (opts.login === true) {
+    const result = await loginImpl({ url: target.url, profileDir, launch: chromium });
+    if (result.ok) return EXIT.OK;
+    return fail(`${result.reason}.\n  Nothing was archived. Run --login again when you are ready.`, EXIT.UNAUTHORIZED);
+  }
+
+  // yt-dlp is what downloads, so nothing past here works without it. Checked
+  // after the URL, because a refusable URL should be refused on any machine.
+  if (!(await onPathImpl(YT_DLP))) {
+    console.error(
+      missingTool(YT_DLP, {
+        brew: 'brew install yt-dlp',
+        otherwise: 'pipx install yt-dlp\n      or see https://github.com/yt-dlp/yt-dlp#installation',
+        hasBrew: await onPathImpl('brew'),
+      }),
+    );
+    return EXIT.FAILED;
+  }
+
+  const alias = optString(opts, 'alias');
+  const unalias = opts.unalias === true;
+
+  if (alias && unalias) {
+    return fail('--alias and --unalias ask for opposite things. Pass one or the other.', EXIT.USAGE);
+  }
+
+  // The shape of an alias needs no filesystem and no browser, so a typo is
+  // refused here rather than after a full profile scroll.
+  if (alias && !isSafeAlias(alias)) return fail(aliasShapeRefusal(alias), EXIT.USAGE);
+
+  let root;
+  try {
+    const given = optString(opts, 'archives');
+    root = given ? normalizeRoot(given) : archivesRoot();
+  } catch (error) {
+    return fail(error.message, EXIT.USAGE);
+  }
+
+  // Before the session, before the first request, before anything is written:
+  // an archive this build cannot read must cost nothing to discover. With no
+  // old-layout detection behind it, this refusal is the only thing standing
+  // between a version mismatch and a silent full re-download.
+  try {
+    await checkRoot(root);
+  } catch (error) {
+    return fail(error.message, EXIT.USAGE);
+  }
+
+  // Everything an alias can be refused for except "it is already yours" needs
+  // only the archives root, so it is decided before the browser opens. The
+  // sec_uid is in the URL, so this run always knows whose account it is.
+  if (alias) {
+    const existing = await findAccountDir(root, { url: target.url, alias, douyinId: null });
+    const verdict = await checkAlias(root, {
+      id: existing ? ((await readAccount(existing))?.account?.id ?? null) : target.secUid,
+      alias,
+    });
+    if (!verdict.ok) return fail(verdict.reason, EXIT.USAGE);
+  }
+
+  // A cookie in the profile proves a sign-in happened. It does not prove Douyin
+  // still accepts it — an expired-but-present session is caught later, by a grid
+  // that renders nothing — but its absence is knowable now, and turns a
+  // confusing half-minute into an instant, correct message.
+  if (!(await hasSessionImpl(profileDir, { launch: chromium }))) {
+    return fail(
+      `no Douyin session in ${profileDir}.\n` +
+        `  Only a human can pass Douyin's login. Sign in once with:\n` +
+        `    ${self()} '${url}' --login`,
+      EXIT.UNAUTHORIZED,
+    );
+  }
+
+  const mode = pickMode(opts);
+  const planHint = `${self()} '${url}'${
+    optString(opts, 'archives') ? ` --archives '${optString(opts, 'archives')}'` : ''
+  }${alias ? ` --alias '${alias}'` : ''} --plan`;
+
+  if (mode === 'go') {
+    return await doGo({ root, target, alias, unalias, profileDir, chromium, planHint, fetchImpl, mintImpl });
+  }
+
+  const planned = await doPlan({ root, target, alias, unalias, profileDir, chromium, collectImpl });
+  if (planned.exit !== undefined) return planned.exit;
+
+  console.log(planned.block);
+
+  if (planned.pending === 0) return EXIT.OK;
+
+  if (mode === 'plan') {
+    console.log('\nNothing has been downloaded. To fetch the posts above:');
+    console.log(`  ${planHint.replace(/ --plan$/, ' --go')}`);
+    return EXIT.OK;
+  }
+
+  console.log('');
+  return await doGo({ root, target, alias, unalias, profileDir, chromium, planHint, fetchImpl, mintImpl });
+}
+
+/** Collect the account, diff it against disk, park the plan, render the block. */
+async function doPlan({ root, target, alias, unalias, profileDir, chromium, collectImpl }) {
+  console.log('[douyin] collecting post IDs…');
+  const listing = await collectImpl({
+    url: target.url,
+    secUid: target.secUid,
+    profileDir,
+    headless: true,
+    launch: chromium,
+    log: progress,
+  });
+
+  if (listing.failure === 'empty-grid') {
+    return {
+      exit: fail(
+        'found 0 posts in the profile grid.\n' +
+          (listing.reported
+            ? `  The profile reports ${listing.reported} post(s), so the grid exists but did\n` +
+              '  not render — almost certainly an expired session.\n'
+            : '  An account can genuinely have none. It also looks like this when the\n' +
+              '  saved session has expired without saying so.\n') +
+          `  Sign in again with:  ${self()} '${target.url}' --login`,
+        listing.reported ? EXIT.UNAUTHORIZED : EXIT.EMPTY,
+      ),
+    };
+  }
+
+  if (!listing.account?.douyin_id) {
+    return {
+      exit: fail(
+        'the profile was readable but never showed its 抖音号, so there is no\n' +
+          '  identity to file this archive under. Try again; if it persists, the\n' +
+          '  saved session may be partly rejected.',
+      ),
+    };
+  }
+
+  // Asked again now the 抖音号 is known: the first check could not tell an
+  // account's own alias apart from a collision with someone else's.
+  if (alias) {
+    const verdict = await checkAlias(root, { id: target.secUid, alias });
+    if (!verdict.ok) return { exit: fail(verdict.reason, EXIT.USAGE) };
+  }
+
+  // Resolved through the alias map first: an account already archived under an
+  // alias has a folder that is not named after its sec_uid, and going straight
+  // to the id would quietly start a second, empty archive beside the real one
+  // on every aliased account. Nothing resolves for an account never archived,
+  // and that is where the folder gets invented.
+  const accountDir =
+    (await resolveAccountDir(root, { id: target.secUid })) ??
+    (alias ? aliasDirFor(root, alias) : accountDirFor(root, target.secUid));
+
+  // Read before anything is written: the "last run used …" note compares the
+  // root this run was given against the one the previous run recorded.
+  const lastRoot = await previousRoot(accountDir);
+
+  await stampRoot(root);
+
+  // Written at the one point every run passes through once its folder is known,
+  // so a folder that exists always says whose it is — before anything has been
+  // downloaded into it. The alias is not passed: recordIdentity reads it off the
+  // folder's own name, which is what keeps account.json and the directory from
+  // disagreeing.
+  await recordIdentity(root, accountDir, {
+    account: {
+      id: target.secUid,
+      douyin_id: listing.account.douyin_id,
+      nickname: listing.account.nickname,
+    },
+    url: target.url,
+  });
+
+  const archive = await readArchive(accountDir);
+  const onDisk = await onDiskIds(accountDir);
+  const pending = outstanding(listing.posts, archive);
+  const listed = listedIds(listing.posts);
+
+  const plan = buildPlan({
+    account: {
+      sec_uid: target.secUid,
+      douyin_id: listing.account.douyin_id,
+      nickname: listing.account.nickname,
+    },
+    collected: listing.posts,
+    pending,
+    archivesRoot: root,
+    reported: listing.reported,
+    skippedImagePosts: listing.skippedImagePosts,
+    now: new Date(),
+  });
+
+  if (pending.length) await savePlan(accountDir, plan);
+  // A plan left over from an earlier run would otherwise outlive the work it
+  // described, and --go would happily download it.
+  else await clearPlan(accountDir);
+
+  return {
+    pending: pending.length,
+    block: statusBlock({
+      account: plan,
+      folder: accountDir,
+      movingTo: aliasTarget({ root, alias, unalias, secUid: target.secUid, accountDir }),
+      previousRoot: lastRoot,
+      archivesRoot: root,
+      collected: listing.posts.length,
+      reported: listing.reported,
+      onDisk: onDisk.size,
+      unlisted: [...onDisk].filter((id) => !listed.has(id)).length,
+      skipped: listing.skippedImagePosts,
+      pending: pending.length,
+    }),
+  };
+}
+
+/** Download the plan that was approved. No collection, no browser. */
+async function doGo({ root, target, alias, unalias, profileDir, chromium, planHint, fetchImpl, mintImpl }) {
+  // resolveAccountDir returns a folder only once account.json there names this
+  // sec_uid, so a non-null answer *is* the identity check. Falling back to the
+  // bare sec_uid path would be the one case that matters: a folder of that name
+  // belonging to somebody else, handed to --go to run a plan against.
+  let accountDir = await resolveAccountDir(root, { id: target.secUid });
+
+  if (!accountDir) {
+    return fail(
+      `no folder for this account under ${root}, so there is no plan to run.\n  make one with:\n    ${planHint}`,
+      EXIT.REFUSED,
+    );
+  }
+
+  const plan = await loadPlan(accountDir);
+  const refusal = validatePlan(plan, {
+    secUid: target.secUid,
+    douyinId: null,
+    folder: accountDir,
+    archivesRoot: root,
+    now: new Date(),
+    ttlHours: DEFAULT_TTL_HOURS,
+  });
+
+  if (refusal) {
+    console.error(`error: ${refusal.message}`);
+    console.error(`  make one with:\n    ${planHint}`);
+    return EXIT.REFUSED;
+  }
+
+  // The move happens before the download, so what is fetched goes straight into
+  // its final home. A rename between --plan and --go invalidates nothing,
+  // because a plan records the archives root and the account, never the folder.
+  accountDir = await moveIfAsked({ root, alias, unalias, secUid: target.secUid, accountDir });
+
+  const archive = await readArchive(accountDir);
+  const before = (await onDiskIds(accountDir)).size;
+
+  // Re-checked against disk rather than taken as written. A --go that died
+  // partway leaves a plan still listing what it managed to fetch, and every one
+  // of those would otherwise cost a request to discover it was already there.
+  const pending = outstanding(plan.pending, archive);
+
+  let fetched = 0;
+  let failed = 0;
+  if (!pending.length) {
+    console.log('[douyin] every post in the plan is already downloaded');
+  } else {
+    console.log(`[douyin] downloading ${pending.length} post(s) to ${path.join(accountDir, 'posts')}…`);
+    const cookies = await mintImpl(profileDir, COOKIE_FILE, { launch: chromium });
+    ({ fetched, failed } = await fetchImpl({
+      accountDir,
+      posts: pending,
+      cookies,
+      refreshCookies: () => mintImpl(profileDir, COOKIE_FILE, { launch: chromium }),
+      log: progress,
+    }));
+  }
+
+  const landed = await onDiskIds(accountDir);
+  const total = landed.size;
+
+  await recordRun(accountDir, {
+    root,
+    found: plan.collected_count ?? null,
+    landed: total - before,
+    failed,
+  });
+
+  console.log('');
+  console.log(
+    summaryBlock({
+      account: plan,
+      folder: accountDir,
+      collected: plan.collected_count ?? '?',
+      reported: plan.reported_works_count ?? null,
+      unlisted: unlistedCountFromPlan(plan, landed),
+      skipped: plan.skipped_image_posts ?? null,
+      downloaded: total - before,
+      total,
+      failed: failed > 0,
+    }),
+  );
+
+  // Kept after a partial run, so a retry re-fetches only what is missing without
+  // paying for another collection; retired once it has all landed.
+  if (!failed) await clearPlan(accountDir);
+
+  return failed ? EXIT.FAILED : EXIT.OK;
+}
+
+async function moveIfAsked({ root, alias, unalias, secUid, accountDir }) {
+  if (unalias) return (await clearAlias(root, { id: secUid })) ?? accountDir;
+  if (alias) return (await applyAlias(root, { id: secUid, alias })) ?? accountDir;
+  return accountDir;
+}
+
+/**
+ * Where `--alias`/`--unalias` would put this folder, or null when neither was
+ * asked for. Only ever computed: the move belongs to `--go`, so a preview never
+ * reorganises the archive.
+ */
+function aliasTarget({ root, alias, unalias, secUid, accountDir }) {
+  try {
+    if (unalias) return secUid ? accountDirFor(root, secUid) : null;
+    return alias ? aliasDirFor(root, alias) : null;
+  } catch {
+    return null;
+  }
+}
+
+function self() {
+  return process.env.ARCHIVE_SELF || 'archive.sh';
+}
+
+/** Progress lines rewrite one line rather than scrolling a wall of them. */
+function progress(message, { progress: inPlace } = {}) {
+  if (inPlace && process.stdout.isTTY) process.stdout.write(`\r${message}`);
+  else console.log(message);
+}
+
+function fail(message, code = EXIT.FAILED) {
+  console.error(`error: ${message}`);
+  return code;
+}
+
+/**
+ * --yes outranks a --plan or --go after it on the command line. The skill never
+ * reaches for --yes; a user who typed it has pre-authorised the run, and the
+ * skill appending its own mode flag must not take that back.
+ */
+export function pickMode(opts) {
+  if (opts.yes === true || opts.y === true) return 'yes';
+  if (opts.go === true) return 'go';
+  return 'plan';
+}
+
+if (isMainModule(import.meta.url)) {
+  process.exitCode = await main(process.argv.slice(2));
 }

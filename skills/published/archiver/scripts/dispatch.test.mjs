@@ -101,7 +101,7 @@ test('--help without a URL describes every platform', async () => {
   }
   const help = io.lines.join('\n');
   assert.match(help, /Common to every platform/);
-  assert.match(help, /--profile/, 'the Douyin section');
+  assert.match(help, /--login/, 'the Douyin section');
   assert.match(help, /--browser/, 'the X section');
 });
 
