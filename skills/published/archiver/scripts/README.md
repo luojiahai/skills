@@ -54,6 +54,13 @@ entry in `PLATFORMS`. There is nowhere else to remember. What the platform owes
 the archive — the folder layout, the seven `post.json` keys, the alias rules — it
 gets by using `shared/`, which is where that contract is written down once.
 
+A module that runs as an entry point dispatches behind `isMainModule()` from
+`shared/cli.mjs`, never a hand-written `import.meta.url` comparison. This skill
+is installed by symlink, and node resolves the entry module to its real location
+while `process.argv[1]` keeps the path it was handed — so comparing the two
+unresolved is false on every installed copy, and the file exits 0 having run
+nothing.
+
 ## Preflight sits where it can act
 
 `archive.sh` checks only node, plus the `--downloads` refusal. Both are there
