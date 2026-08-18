@@ -51,9 +51,7 @@ export async function login({
   });
 
   let giveUp = false;
-  const keys = input.isTTY === undefined && !input.readable
-    ? null
-    : createInterface({ input });
+  const keys = input?.readable ? createInterface({ input }) : null;
   keys?.on('line', () => {
     giveUp = true;
   });

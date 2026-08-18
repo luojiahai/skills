@@ -89,9 +89,9 @@ nothing.
 
 `archive.sh` works out which node to run on, plus the `--downloads` refusal. Both
 are there because they must happen before node runs or before a platform is
-reached: a platform refuses `--downloads` too, but only past its own tool
-preflight, so that order would report a build instead of the flag that is
-actually wrong.
+reached — and `--downloads` is refused *only* there. A platform could refuse it
+too, but only past its own tool preflight, so that order would report a missing
+tool instead of the flag that is actually wrong.
 
 **`archive.sh` runs on the runtime box's node and no other, and builds nothing.**
 A `node` on PATH is never used: the interpreter running the scripts is as much

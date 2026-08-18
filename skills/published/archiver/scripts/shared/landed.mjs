@@ -17,8 +17,8 @@
  * `post.json` does not weaken that. It is written *before* the media rather than
  * after, so it is a description of the post rather than a claim about it — the
  * question "did this land" is still answered by looking for the files. What it
- * adds is the list to look for, which is why a post whose fourth image failed
- * now reads as incomplete instead of as done.
+ * adds is the list to look for, which is what makes a post whose fourth image
+ * failed read as incomplete rather than as done.
  *
  * Both platforms write into one archives root, so this rule has one home and
  * both import it from here. A per-platform copy is the thing to refuse: two
@@ -28,7 +28,8 @@
 import { readdir } from 'node:fs/promises';
 import path from 'node:path';
 
-import { postIdFromFolder } from './naming.mjs';
+import { postFolderName, postIdFromFolder } from './naming.mjs';
+import { isComplete, readPost } from './post.mjs';
 
 /**
  * Re-exported because what counts as a post folder is part of what "already
@@ -36,7 +37,6 @@ import { postIdFromFolder } from './naming.mjs';
  * naming.mjs builds the name too.
  */
 export { postIdFromFolder };
-import { isComplete, readPost } from './post.mjs';
 
 export const POSTS_DIR = 'posts';
 
@@ -48,14 +48,38 @@ export function isLanded(entry) {
 /**
  * Whether a post still needs fetching, given what is on disk.
  *
- * X's rule, used by its plan diff, its collection pass's stopping rule and its
- * fetch loop's outstanding list — one definition across all three, because three
- * copies is how a block comes to promise a number the download then disagrees
- * with. It keys on `tweetId`, which only X's posts carry; Douyin asks the same
- * question of `isLanded` directly.
+ * One definition, used by a plan diff, a collection pass's stopping rule and a
+ * fetch loop's outstanding list — because three copies is how a block comes to
+ * promise a number the download then disagrees with.
+ *
+ * `postIdKey` is what a collected post calls its own id, and comes from the
+ * platform registry rather than being written in here: `platforms.mjs` names it
+ * precisely so this has one parameterised answer instead of one platform's
+ * spelling and a comment explaining why the other cannot use it.
  */
-export function isMissing(post, archive) {
-  return !isLanded(archive.get(post.tweetId));
+export function isMissing(post, archive, postIdKey) {
+  return !isLanded(archive.get(post[postIdKey]));
+}
+
+/**
+ * The posts in a list that are not yet fully on disk, in the order they were
+ * collected.
+ *
+ * Derived, never stored. A remembered "still to do" list would be a second
+ * account of what has downloaded sitting beside the files, free to disagree with
+ * them after a run that died at the wrong moment.
+ */
+export function outstanding(posts, archive, postIdKey) {
+  return posts.filter((post) => isMissing(post, archive, postIdKey));
+}
+
+/**
+ * Where one post's folder is. The date and the id are the platform's to name —
+ * they are spelled differently on each — and everything below them is this
+ * module's and naming.mjs's.
+ */
+export function postDirFor(accountDir, { date, postId }) {
+  return path.join(accountDir, POSTS_DIR, postFolderName({ date, postId }));
 }
 
 /**
@@ -63,6 +87,13 @@ export function isMissing(post, archive) {
  *
  * A missing folder is not an error: an account nobody has downloaded yet has
  * nothing on disk, which is an ordinary answer and not a failure.
+ *
+ * One id can name two folders — `undated_5` from a run that could not date the
+ * post and `2024-01-01_5` from a later one that could. The landed folder wins,
+ * so which one answers for the post is decided by what is in it rather than by
+ * whichever `readdir` happened to yield last. The other is counted, because its
+ * media is then counted by nothing and every figure derived from this map is
+ * short by that much.
  */
 export async function readArchive(accountDir) {
   const posts = new Map();
@@ -74,6 +105,8 @@ export async function readArchive(accountDir) {
   } catch {
     return posts;
   }
+
+  const shadowed = [];
 
   for (const entry of entries) {
     if (!entry.isDirectory()) continue;
@@ -87,9 +120,37 @@ export async function readArchive(accountDir) {
     } catch {
       // Unreadable is indistinguishable from empty here, and both mean refetch.
     }
-    posts.set(id, { folder: entry.name, names, post: await readPost(dir) });
+    const found = { folder: entry.name, names, post: await readPost(dir) };
+
+    const held = posts.get(id);
+    if (!held) {
+      posts.set(id, found);
+      continue;
+    }
+
+    // Deterministic both ways round: the landed one wins, and where both or
+    // neither landed the folder that sorts first does, so two machines reading
+    // one archive give the same answer.
+    const winner = pickFolder(held, found);
+    posts.set(id, winner);
+    shadowed.push(winner === held ? found.folder : held.folder);
   }
+
+  // Carried on the Map rather than changing what readArchive returns: every
+  // caller wants the id → folder lookup, and one of them also wants to say how
+  // many folders it had to set aside. `shadowedFolders` is how that is read.
+  posts.shadowed = shadowed;
   return posts;
+}
+
+function pickFolder(a, b) {
+  if (isLanded(a) !== isLanded(b)) return isLanded(a) ? a : b;
+  return a.folder <= b.folder ? a : b;
+}
+
+/** How many post folders this archive holds that nothing answers for. */
+export function shadowedFolders(archive) {
+  return archive?.shadowed?.length ?? 0;
 }
 
 /**
@@ -113,6 +174,11 @@ export async function onDiskIds(accountDir) {
  *
  * Both arguments are id sets. Turning a platform's posts into ids belongs to the
  * platform, and stays there.
+ *
+ * The one spelling of this rule. Anything that wants the count asks for
+ * `unlistedIds(...).length` rather than filtering a set of its own — two
+ * spellings of one subtraction is how two figures in one document come to
+ * disagree.
  */
 export function unlistedIds(listed, onDisk) {
   return [...onDisk].filter((id) => !listed.has(id));

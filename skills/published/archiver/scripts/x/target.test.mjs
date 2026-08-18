@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { parseTarget, permalink } from './target.mjs';
+import { ERROR_EXITS } from '../shared/errors.mjs';
 
 test('a profile URL is an account', () => {
   assert.deepEqual(parseTarget('https://x.com/someone'), {
@@ -35,7 +36,18 @@ test('a post URL is refused rather than read as the account that posted it', () 
     'https://x.com/someone/status/',
     'https://twitter.com/someone/statuses/1767',
   ]) {
-    assert.throws(() => parseTarget(url), /out of scope/, url);
+    assert.throws(
+      () => parseTarget(url),
+      (error) => {
+        // Its own code, not the generic out-of-scope one: the user pointed at a
+        // post, and the answer names the account they can archive instead.
+        assert.equal(error.code, 'url-single-post');
+        assert.equal(error.details.handle, 'someone');
+        assert.match(error.remedy.command ?? error.remedy.message, /https:\/\/x\.com\/someone/);
+        return true;
+      },
+      url,
+    );
   }
 });
 
@@ -62,9 +74,25 @@ test('a bare x.com names no account', () => {
   assert.throws(() => parseTarget('https://x.com/'));
 });
 
-test('every refusal says why', () => {
-  for (const url of ['https://example.com', 'https://x.com/someone/likes', 'https://x.com/']) {
-    assert.throws(() => parseTarget(url), (error) => error.message.length > 0, url);
+test('every refusal names the code SKILL.md branches on, and says what was wrong', () => {
+  const expected = {
+    'https://example.com': ['url-not-platform', /x\.com or twitter\.com/],
+    'https://x.com/someone/likes': ['url-out-of-scope', /likes/],
+    'https://x.com/': ['url-no-account', /names no account/],
+    'https://x.com/home': ['url-reserved-handle', /home/],
+  };
+
+  for (const [url, [code, says]] of Object.entries(expected)) {
+    assert.throws(
+      () => parseTarget(url),
+      (error) => {
+        assert.equal(error.code, code, url);
+        assert.match(error.message, says, url);
+        assert.ok(ERROR_EXITS[error.code] !== undefined, `${error.code} has no exit`);
+        return true;
+      },
+      url,
+    );
   }
 });
 

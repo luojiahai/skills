@@ -14,6 +14,14 @@ import { Refusal } from '../shared/errors.mjs';
 
 const HOST = /^(?:https?:\/\/)?(?:www\.|mobile\.)?(?:twitter|x)\.com\//i;
 
+/**
+ * The sections that name one post. Refused with a message about that post rather
+ * than through the generic out-of-scope branch — the handle sits in the same
+ * position as a profile URL's, so this is the confusion the module exists for
+ * and it is worth saying what the user actually pointed at.
+ */
+const SINGLE_POST = new Set(['status', 'statuses']);
+
 /** Paths that are x.com's own, not anybody's handle. */
 const RESERVED = new Set(['i', 'home', 'explore', 'notifications', 'messages', 'search', 'settings', 'hashtag']);
 
@@ -49,6 +57,20 @@ export function parseTarget(input) {
       'url-reserved-handle',
       `x.com/${handle} is not an account this skill can archive`,
       { details: { handle } },
+    );
+  }
+
+  if (SINGLE_POST.has(section)) {
+    throw new Refusal(
+      'url-single-post',
+      `that URL names one post by @${handle}, and this skill archives an account's whole media timeline`,
+      {
+        details: { handle, section },
+        remedy: {
+          message: `archive the account instead, at https://x.com/${handle}`,
+          run_by: 'user',
+        },
+      },
     );
   }
 

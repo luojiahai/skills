@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
+import { realpathSync } from 'node:fs';
 import { mkdtemp, mkdir, symlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -79,19 +80,35 @@ test('normalizeRoot is idempotent', async () => {
 
 test('the default root is archives/ beside a plain directory', async () => {
   const cwd = await mkdtemp(path.join(os.tmpdir(), 'x-dl-plain-'));
-  assert.equal(archivesRoot(cwd), path.join(cwd, 'archives'));
+  assert.equal(archivesRoot(cwd), path.join(realpathSync(cwd), 'archives'));
+});
+
+test('the default root and --archives spell one directory the same way', async () => {
+  // They have to. A plan records the root it was made under and --go refuses one
+  // made elsewhere, so two spellings of one directory are a plan that can never
+  // be run. On macOS /tmp → /private/tmp makes that concrete rather than
+  // theoretical.
+  const cwd = await mkdtemp(path.join(os.tmpdir(), 'x-dl-same-'));
+  assert.equal(archivesRoot(cwd), normalizeRoot(path.join(cwd, 'archives')));
 });
 
 test('the default root is archives/ at the git root, not the subdirectory', async () => {
   const repo = await mkdtemp(path.join(os.tmpdir(), 'x-dl-repo-'));
-  const { execFileSync } = await import('node:child_process');
   execFileSync('git', ['init', '-q'], { cwd: repo });
   const deep = path.join(repo, 'a', 'b');
   await mkdir(deep, { recursive: true });
 
   // An archive belongs beside the project, not beside whichever folder you
   // happened to be standing in.
-  const { realpathSync } = await import('node:fs');
+  assert.equal(archivesRoot(deep), path.join(realpathSync(repo), 'archives'));
+});
+
+test('a worktree, whose .git is a file, is still a project root', async () => {
+  const repo = await mkdtemp(path.join(os.tmpdir(), 'x-dl-worktree-'));
+  const deep = path.join(repo, 'src');
+  await mkdir(deep, { recursive: true });
+  await writeFile(path.join(repo, '.git'), 'gitdir: /elsewhere/.git/worktrees/w\n');
+
   assert.equal(archivesRoot(deep), path.join(realpathSync(repo), 'archives'));
 });
 

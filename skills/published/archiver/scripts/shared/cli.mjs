@@ -11,6 +11,8 @@ import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
+import { Refusal } from './errors.mjs';
+
 /**
  * True when `importMetaUrl` names the file node was asked to run. Each CLI
  * dispatches only behind this: the modules import from each other, and a
@@ -36,16 +38,23 @@ export const COMMON_BOOLEAN_FLAGS = new Set(['plan', 'go', 'yes', 'y', 'unalias'
 export const COMMON_FLAGS = new Set([...COMMON_BOOLEAN_FLAGS, 'archives', 'alias']);
 
 /**
- * A command line into `{ opts, positional, unknown }`.
+ * A command line into `{ opts, positional, unknown, missing }`.
  *
  * Boolean flags are declared rather than guessed: `--full --archives DIR`
  * must not read DIR as the value of --full, and `--alias --plan` must not
  * silently name a folder "--plan".
+ *
+ * The value side is declared the same way rather than guessed at. A flag that
+ * takes a value and is handed the end of the line or the next flag is named in
+ * `missing`, for the caller to refuse — swallowing it would run `--alias -foo`
+ * as if no alias had been asked for, which is a successful run that did not do
+ * what the user typed.
  */
 export function parseCommandLine(argv, { booleans = COMMON_BOOLEAN_FLAGS, known = COMMON_FLAGS } = {}) {
   const opts = {};
   const positional = [];
   const unknown = [];
+  const missing = [];
 
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
@@ -66,14 +75,35 @@ export function parseCommandLine(argv, { booleans = COMMON_BOOLEAN_FLAGS, known 
         continue;
       }
       const next = argv[i + 1];
-      opts[key] = next === undefined || next.startsWith('-') ? true : argv[++i];
+      // An empty string is a value: archive.sh passes optional flags through
+      // unconditionally, so `--alias ""` is how a flag says nothing at all.
+      if (next === undefined || (next.length > 1 && next.startsWith('-'))) {
+        missing.push(arg);
+        continue;
+      }
+      opts[key] = argv[++i];
       continue;
     }
 
     positional.push(arg);
   }
 
-  return { opts, positional, unknown };
+  return { opts, positional, unknown, missing };
+}
+
+/**
+ * Why a flag was refused for having no value, in one place, so the two platforms
+ * and the dispatcher cannot come to describe the rule differently.
+ */
+export function missingValueRefusal(flag) {
+  return new Refusal(
+    'flag-needs-value',
+    `${flag} needs a value, and the next argument is another flag`,
+    {
+      details: { flag },
+      remedy: { message: `give ${flag} a value, or drop it`, run_by: 'user' },
+    },
+  );
 }
 
 /**
@@ -100,14 +130,19 @@ export async function readJson(file) {
 }
 
 /**
- * Written to a temporary neighbour and renamed over the target, so a reader
- * sees either the old file or the new one and never half of either.
+ * Written to a temporary neighbour and renamed over the target, so a concurrent
+ * reader sees either the old file or the new one and never half of either.
  *
  * post.json is the only copy of a post's words, and account.json the only thing
  * saying whose folder this is — a plain write interrupted partway leaves
  * unparseable JSON where the record used to be, which reads as corrupt rather
- * than as absent. rename(2) within a directory is atomic, and the temporary
- * name carries the pid so two runs against one archive cannot collide on it.
+ * than as absent. rename(2) within a directory is atomic. Neither the temporary
+ * file nor its directory is fsynced, so this is a guarantee about readers and
+ * not about power loss.
+ *
+ * The temporary name carries the pid *and* a counter, so neither two runs
+ * against one archive nor two writes in flight in one process can collide on it —
+ * a pid alone would have the second write rename away the first one's file.
  *
  * sync.json and archiver.json go through it too, though neither strictly needs
  * to: a truncated sync.json reads as "no plan", which is safe, and archiver.json
@@ -115,8 +150,10 @@ export async function readJson(file) {
  * one write path is a rule that can be checked by looking, where "these two are
  * atomic and that one is not" is a distinction someone has to remember.
  */
+let writeSeq = 0;
+
 export async function writeJson(file, value) {
-  const temp = `${file}.${process.pid}.tmp`;
+  const temp = `${file}.${process.pid}.${writeSeq++}.tmp`;
   await mkdir(path.dirname(file), { recursive: true });
   await writeFile(temp, `${JSON.stringify(value, null, 2)}\n`);
   await rename(temp, file);

@@ -23,9 +23,9 @@
  *
  * `ok` answers "was this run refused or stopped", which is not the same question
  * as "did the exit code say zero". A Douyin `--go` that lost three posts to the
- * downloader finished as asked and still exits `FAILED`, because that exit is
- * what its shell callers have always seen — so it is `ok` with a non-zero
- * `exit`, and the posts it lost are in `result.run.failed`.
+ * downloader finished as asked and still exits `FAILED`, because shell callers
+ * read a lost post as a non-zero exit — so it is `ok` with a non-zero `exit`,
+ * and the posts it lost are in `result.run.failed`.
  *
  * **`error.message` is a fallback, not a user-facing string.** The agent branches
  * on `error.code` and words the outcome itself. The message exists so a refusal

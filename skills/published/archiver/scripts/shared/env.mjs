@@ -26,22 +26,29 @@ import { existsSync } from 'node:fs';
 import path from 'node:path';
 
 import { Refusal } from './errors.mjs';
+import { quote } from './output.mjs';
 import { ENV_DIR, boxDir, cacheRoot, downloadSize, setupScript, systemTools } from './paths.mjs';
 
-/** The builder, and the marker saying the user has agreed to the download once. */
+/** The builder, and the marker saying the user has agreed to one box's download. */
 const BUILDER = path.join(ENV_DIR, 'ensure-env');
-const CONSENT = () => path.join(cacheRoot(), 'consented');
+const consentMarker = (box) => path.join(cacheRoot(), `consented-${box}`);
 
 /**
  * Builds whichever of `boxes` is not there yet, and answers nothing when they
  * all are — which is every run after the first.
  *
- * The first run refuses instead, because several hundred megabytes is not
- * something to start downloading without asking. The remedy is the agent's: it
- * is asking the user's permission, not reporting a defect. Once anything has
- * been built, later boxes appear silently — a manifest bump that moves the tools
+ * A box nobody has agreed to refuses instead, because several hundred megabytes
+ * is not something to start downloading without asking. The remedy is the
+ * agent's: it is asking the user's permission, not reporting a defect. A box
+ * already agreed to is rebuilt silently — a manifest bump that moves the tools
  * box is seconds and a few megabytes, and stopping to ask again would be asking
  * about a cost the user has already agreed to.
+ *
+ * Consent is per box because the boxes are nothing like each other in size.
+ * Somebody who agreed to the runtime and the downloaders for X has agreed to
+ * roughly 115 MB; `browser` is a quarter of a gigabyte of Chromium, and one
+ * marker covering both is how handing this skill a Douyin URL starts that
+ * download over whatever connection they happen to be on, unasked.
  */
 export async function ensureEnv(boxes, { platform = null, spawnImpl = spawn, exists = existsSync } = {}) {
   if (systemTools()) return;
@@ -49,7 +56,7 @@ export async function ensureEnv(boxes, { platform = null, spawnImpl = spawn, exi
   const missing = boxes.filter((box) => !exists(boxDir(box)));
   if (!missing.length) return;
 
-  if (!exists(CONSENT())) throw consentRefusal(missing, platform);
+  if (missing.some((box) => !exists(consentMarker(box)))) throw consentRefusal(missing, platform);
   await build(missing, spawnImpl);
 }
 
@@ -63,7 +70,9 @@ function consentRefusal(boxes, platform) {
       remedy: {
         message:
           'say how much this downloads and where it goes, ask the user, and run this only if they agree',
-        command: platform ? `${setupScript()} ${platform}` : setupScript(),
+        // Quoted, because this is a command the agent is instructed to run and
+        // the skill is routinely installed under a path with a space in it.
+        command: platform ? `${quote(setupScript())} ${quote(platform)}` : quote(setupScript()),
         run_by: 'agent',
       },
     },
@@ -85,6 +94,10 @@ function build(boxes, spawnImpl) {
     let output = '';
 
     child.on('error', (error) => reject(buildFailed(boxes, error.message)));
+    // Decoded by the stream rather than by `+=` on a Buffer: a multi-byte
+    // character split across two chunks would otherwise become mojibake in the
+    // very text the user is told to read.
+    child.stderr?.setEncoding?.('utf8');
     child.stderr?.on('data', (chunk) => {
       process.stderr.write(chunk);
       output += chunk;

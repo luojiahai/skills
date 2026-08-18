@@ -19,11 +19,12 @@
 import { access, constants, chmod, mkdir, rm } from 'node:fs/promises';
 import { spawn } from 'node:child_process';
 
-import { readArchive } from '../shared/landed.mjs';
+import { isLanded, readArchive } from '../shared/landed.mjs';
 import {
   COMMON_BOOLEAN_FLAGS,
   COMMON_FLAGS,
   isMainModule,
+  missingValueRefusal,
   optString,
   parseCommandLine,
 } from '../shared/cli.mjs';
@@ -48,15 +49,11 @@ import { saveProfileAssets } from './assets.mjs';
 import { FAILURES, cookieExportArgs } from './gallerydl.mjs';
 import { fetchPosts, outstanding } from './fetch.mjs';
 import { archivesRoot, cookieFile, normalizeRoot, stateDir, toolPath } from '../shared/paths.mjs';
-import { descriptorFor } from '../shared/platforms.mjs';
+import { descriptorFor, postIdKeyFor } from '../shared/platforms.mjs';
 
-const PLATFORM = 'x';
-const ACCOUNT = descriptorFor(PLATFORM);
-const STATE_DIR = stateDir(PLATFORM);
-const COOKIE_FILE = cookieFile(PLATFORM);
 import { DEFAULT_TTL_HOURS, approved, buildPlan, planRefusal, validatePlan } from '../shared/plan.mjs';
 import { clearPlan, loadPlan, previousRoot, recordRun, savePlan } from '../shared/sync.mjs';
-import { parseTarget } from './target.mjs';
+import { parseTarget, permalink } from './target.mjs';
 import { EXIT } from '../shared/exit.mjs';
 import { Refusal, refusalFields } from '../shared/errors.mjs';
 import {
@@ -67,6 +64,7 @@ import {
   commandFor,
   nothingFetched,
   planWindow,
+  progress,
   refuse,
   runCounts,
   sharedNotes,
@@ -74,6 +72,12 @@ import {
 import { pickMode } from '../shared/run.mjs';
 import { hatchToolMissing, onPath } from '../shared/tools.mjs';
 import { ensureEnv } from '../shared/env.mjs';
+
+const PLATFORM = 'x';
+const ACCOUNT = descriptorFor(PLATFORM);
+const POST_ID_KEY = postIdKeyFor(PLATFORM);
+const STATE_DIR = stateDir(PLATFORM);
+const COOKIE_FILE = cookieFile(PLATFORM);
 
 /** The browsers gallery-dl can read a session out of, for a refusal that lists them. */
 const BROWSERS = ['chrome', 'firefox', 'safari', 'edge', 'brave', 'chromium', 'opera', 'vivaldi'];
@@ -109,7 +113,8 @@ const USAGE = `Usage: archive.sh <url> [--archives DIR] [--alias NAME] [--plan|-
   -h, --help            Show this help
 
 Every command but this one answers with a single JSON document on stdout;
-progress and tool chatter go to stderr.
+progress goes to stderr. gallery-dl's own output is buffered rather than
+relayed — it is what a failure is classified from.
 
 State lives in the account folder: posts/ holds one folder per post,
 account.json the account's identity, assets/ the current avatar and banner, and
@@ -147,7 +152,14 @@ async function ensureCookies({ cookies, browser, url, bin = toolPath('gallery-dl
     });
   }
 
-  await mkdir(STATE_DIR, { recursive: true });
+  // 0700 before gallery-dl is started, not after it finishes. The export is
+  // written by the child at its own umask, and that window is the whole of the
+  // run — seconds to minutes with a keychain prompt pending — during which a
+  // live session token would otherwise be readable by anyone on the machine.
+  // The directory mode closes it whatever mode the file lands with.
+  await mkdir(STATE_DIR, { recursive: true, mode: 0o700 });
+  await chmod(STATE_DIR, 0o700).catch(() => {});
+
   const code = await new Promise((resolve) => {
     const child = spawn(bin, cookieExportArgs({ browser, cookies: COOKIE_FILE, url }), {
       stdio: ['ignore', 'ignore', 'inherit'],
@@ -266,7 +278,7 @@ async function doPlan({
   }
 
   const posts = groupFiles(result.rows);
-  const { counts, toFetch } = diff(posts, archive);
+  const { counts, toFetch } = diff(posts, archive, POST_ID_KEY);
 
   const plan = buildPlan({
     account,
@@ -287,7 +299,10 @@ async function doPlan({
         videos: counts.videos,
       },
     }),
-    notes: [sweepNote({ incremental, stoppedEarly: result.stoppedEarly, threshold })],
+    notes: [
+      sweepNote({ incremental, stoppedEarly: result.stoppedEarly, threshold }),
+      ...underDescribedNote(counts.underDescribed),
+    ],
     now: new Date(),
   });
 
@@ -330,15 +345,14 @@ function collectRefusal(failure, stderr) {
 }
 
 /**
- * Exported so the download half's decisions — which posts it hands the fetcher,
- * and when it retires the plan — can be asserted without a network or a
- * gallery-dl on the machine. `main` reaches it the same way.
+ * The download half: which posts it hands the fetcher, and when it retires the
+ * plan.
  *
  * Returns `{ refusal }` for a plan it will not run, and otherwise everything the
  * finished run has to report. It composes no document itself: `main` owns the
  * envelope, so a `--yes` emits exactly one.
  */
-export async function doGo({
+async function doGo({
   root, dir, alias, unalias, url, handle, cookies, planCommand,
   bin = toolPath('gallery-dl'), fetchImpl = fetchPosts,
 }) {
@@ -374,7 +388,7 @@ export async function doGo({
   if (!valid.ok) return { refusal: withPlanRemedy(planRefusal(valid), planCommand) };
 
   const archive = await readArchive(accountDir);
-  const todo = outstanding(approved(plan), archive);
+  const todo = outstanding(approved(plan), archive, POST_ID_KEY);
 
   const { fetched, failed, stopped } = await fetchImpl({
     accountDir,
@@ -382,11 +396,26 @@ export async function doGo({
     handle: plan.account?.handle,
     cookies,
     bin,
+    // A 2,000-post run takes hours. Without a line per post it is silent on
+    // stderr for all of them, which is indistinguishable from a hang.
+    onPost: ({ post, ok }, done) =>
+      progress(
+        ok
+          ? `[x] ${done}/${todo.length} — ${post.tweetId}`
+          : `[x] failed: ${permalink(post.handle || plan.account?.handle, post.tweetId)}`,
+        { progress: ok },
+      ),
   });
 
   await refreshAssets(accountDir, plan.account);
 
-  const remaining = outstanding(approved(plan), await readArchive(accountDir)).length;
+  const landed = await readArchive(accountDir);
+  const remaining = outstanding(approved(plan), landed, POST_ID_KEY).length;
+
+  // Asked of the folder, so a resumed run reports the archive rather than its
+  // own increment.
+  let total = 0;
+  for (const [, entry] of landed) if (isLanded(entry)) total += 1;
 
   // After the move, so the alias recorded is the folder this run finished in.
   await recordIdentity(ACCOUNT, root, accountDir, { account: plan.account, url });
@@ -401,7 +430,7 @@ export async function doGo({
   // partway, which is what makes the retry fetch only what is missing.
   if (remaining === 0) await clearPlan(accountDir);
 
-  return { plan, accountDir, fetched, failed, stopped, remaining };
+  return { plan, accountDir, fetched, failed, stopped, remaining, total };
 }
 
 function noArchive(root, planCommand) {
@@ -426,7 +455,7 @@ export async function main(argv, deps = {}) {
     ensureEnvImpl = ensureEnv,
   } = deps;
 
-  const { opts, positional, unknown } = parseCommandLine(argv, {
+  const { opts, positional, unknown, missing } = parseCommandLine(argv, {
     booleans: BOOLEAN_FLAGS,
     known: KNOWN_FLAGS,
   });
@@ -441,19 +470,13 @@ export async function main(argv, deps = {}) {
   const command = pickMode(opts);
   const refuseHere = (fields) => refuse({ command, platform: PLATFORM, ...fields });
 
-  // Named rather than left to the unknown-flag path below. The old flag is the
-  // one thing likely to still be sitting in a shell history, and "unknown
-  // option" would be true while sending the user to --help to work out why.
-  if (unknown.includes('--downloads')) {
-    return refuseHere({
-      code: 'downloads-renamed',
-      message: '--downloads was renamed to --archives, and the default root is now archives/',
-      remedy: { message: 'the old root is not read: rename downloads/ to archives/, or name the root explicitly', run_by: 'user' },
-    });
-  }
-
   // Whatever the user typed is passed through as given, so an unknown flag is
   // their typo to see rather than something for the agent to guess at.
+  // A flag that takes a value and was given none is refused rather than run as
+  // if it had not been typed: `--alias -foo` would otherwise archive the account
+  // under its id and report that as a success.
+  if (missing.length) return refuseHere(refusalFields(missingValueRefusal(missing[0])));
+
   if (unknown.length) {
     return refuseHere({
       code: 'unknown-flag',
@@ -654,7 +677,11 @@ async function report(command, outcome, { url = null, notes = null, plan = null 
     plan: plan ? planWindow({ createdAt: plan.created_at, ttlHours: DEFAULT_TTL_HOURS }) : null,
     run: runCounts({
       downloaded: outcome.fetched.posts,
-      total: (outcome.plan.counts?.on_disk ?? 0) + outcome.fetched.posts,
+      // Asked of the folder rather than added to the plan's `on_disk`, which was
+      // frozen when the plan was made. A --go that fetched 40 of 100 and was
+      // rate-limited leaves the next one reporting 60 for an archive holding
+      // 100. Douyin asks the filesystem and gets this right.
+      total: outcome.total,
       failed: outcome.failed,
       remaining: outcome.remaining,
     }),
@@ -677,6 +704,17 @@ async function report(command, outcome, { url = null, notes = null, plan = null 
     remedy: known?.remedy ?? null,
     result: payload,
   });
+}
+
+/**
+ * Posts the extractor said carry more files than this pass saw rows for.
+ *
+ * They are refetched, so the files land — but the plan's own list was written
+ * short, and nothing can lengthen it after the fact. The count is what keeps
+ * that visible instead of leaving the archive quietly under-describing a post.
+ */
+function underDescribedNote(count) {
+  return count ? [{ code: 'under-described-posts', count }] : [];
 }
 
 /**

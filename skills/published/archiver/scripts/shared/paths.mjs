@@ -19,9 +19,8 @@
  * is computed *here and only here*: two answers to it would put one account in
  * two folders and re-download everything.
  */
-import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { readFileSync, realpathSync } from 'node:fs';
+import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -65,6 +64,10 @@ function projectFromInstall() {
  * the next update replaces. Such a cwd counts for nothing here: the project is
  * recovered from the install path, and where that names none this throws rather
  * than guessing. Guessing is the one thing it must not do.
+ *
+ * The answer is built from the realpath'd cwd, because `normalizeRoot` resolves
+ * symlinks too — and a plan parked under one spelling of a root is refused under
+ * the other. On macOS `/tmp` → `/private/tmp` makes that concrete.
  */
 export function archivesRoot(cwd = process.cwd()) {
   const here = realpathSync(cwd);
@@ -85,17 +88,29 @@ export function archivesRoot(cwd = process.cwd()) {
     );
   }
 
-  try {
-    const root = execFileSync('git', ['rev-parse', '--show-toplevel'], {
-      cwd,
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'ignore'],
-    }).trim();
-    if (root) return path.join(root, 'archives');
-  } catch {
-    // Not a git repository — fall through to cwd.
+  return path.join(gitRoot(here) ?? here, 'archives');
+}
+
+/**
+ * The nearest ancestor holding a `.git`, or null.
+ *
+ * Walked here rather than asked of `git rev-parse`. Running git inside a
+ * repository executes that repository's own configuration — `core.fsmonitor`,
+ * `core.pager`, an alias — so shelling out would hand a freshly cloned tree the
+ * ability to run whatever it liked, and archiving from inside a tree you have
+ * just cloned is precisely the workflow this exists to support.
+ *
+ * `.git` is tested for existence rather than for being a directory, because a
+ * worktree and a submodule both spell it as a file.
+ */
+function gitRoot(from) {
+  let dir = from;
+  for (;;) {
+    if (existsSync(path.join(dir, '.git'))) return dir;
+    const parent = path.dirname(dir);
+    if (parent === dir) return null;
+    dir = parent;
   }
-  return path.join(cwd, 'archives');
 }
 
 /**
@@ -160,8 +175,19 @@ export const ENV_DIR = path.join(SKILL_DIR, 'env');
  * the one this file resolved itself to.
  */
 export function setupScript() {
+  const own = path.join(SKILL_DIR, 'setup.sh');
   const invoked = process.env.ARCHIVE_SELF;
-  if (!invoked) return path.join(SKILL_DIR, 'setup.sh');
+  if (!invoked) return own;
+
+  // Believed only where it resolves to this skill's own archive.sh. The value
+  // is environment, and it ends up in a remedy carrying `run_by: 'agent'` —
+  // which is a string SKILL.md instructs the agent to execute. Anything able to
+  // set ARCHIVE_SELF would otherwise be choosing that command.
+  try {
+    if (realpathSync(invoked) !== path.join(SKILL_DIR, 'scripts', 'archive.sh')) return own;
+  } catch {
+    return own;
+  }
   return path.join(path.dirname(path.dirname(invoked)), 'setup.sh');
 }
 
@@ -250,9 +276,20 @@ function keyInput(box, sections, readFile) {
 
 /** A box's short key: the first 12 hex characters of that input's SHA-256. */
 export function boxKey(box, sections = manifest(), readFile = readEnvFile) {
-  if (sections !== manifest() || readFile !== readEnvFile) return digest(box, sections, readFile);
+  if (!isDefaultInput(sections, readFile)) return digest(box, sections, readFile);
   keyCache[box] ??= digest(box, sections, readFile);
   return keyCache[box];
+}
+
+/**
+ * Whether this call is keying the *real* manifest, which is the only input worth
+ * caching: it is read once per process and cannot change under us. A caller that
+ * passed its own sections or its own reader — the tests, asking what a different
+ * manifest would key to — is answered afresh, because caching that would return
+ * the real manifest's key for it.
+ */
+function isDefaultInput(sections, readFile) {
+  return sections === manifest() && readFile === readEnvFile;
 }
 
 const keyCache = {};

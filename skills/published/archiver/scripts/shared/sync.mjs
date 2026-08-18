@@ -34,11 +34,10 @@ import { readJson, writeJson } from './cli.mjs';
 export const SYNC_FILE = 'sync.json';
 
 /**
- * 2, because the parked plan carries the counts and notes the run will report,
- * and those are named differently from what version 1 held. A file this build
- * cannot read reads as no plan at all, which costs one `--plan` and is the whole
- * remedy — the file is a cache, and its own specification is that deleting it
- * loses nothing.
+ * The version of this file's own shape, and the reason it is safe to bump: a
+ * file this build cannot read reads as no plan at all, which costs one `--plan`
+ * and is the whole remedy. The file is a cache, and its own specification is
+ * that deleting it loses nothing.
  */
 export const SYNC_VERSION = 2;
 
@@ -47,10 +46,11 @@ const syncPath = (accountDir) => path.join(accountDir, SYNC_FILE);
 /**
  * What the file holds, in a fixed order, written out rather than spread.
  *
- * Same reason as account.json: a key this skill has stopped writing must not
- * survive in an archive by being copied forward run after run. Passing a key as
- * `undefined` keeps what is already there; passing it as null clears it, which
- * is how a completed plan is retired.
+ * Same reason as account.json: only the keys named here are written, so an
+ * archive holds this shape and nothing else — a key spread in from the file
+ * being merged would be copied forward run after run with nothing to stop it.
+ * Passing a key as `undefined` keeps what is already there; passing it as null
+ * clears it, which is how a completed plan is retired.
  */
 export function mergeSync(existing, next) {
   const merged = {
@@ -64,9 +64,9 @@ export function mergeSync(existing, next) {
 /**
  * The file's contents, or null.
  *
- * A file written by a version that numbered its fields differently reads as
- * nothing at all — which is the correct answer, because a plan is a cache and
- * the honest thing to do with one we cannot read is make a new one.
+ * A file this build cannot read reads as no plan at all — which is the correct
+ * answer, because a plan is a cache and the honest thing to do with one we
+ * cannot read is make a new one.
  */
 export async function readSync(accountDir) {
   const json = await readJson(syncPath(accountDir));

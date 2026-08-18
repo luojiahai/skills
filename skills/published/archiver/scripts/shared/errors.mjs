@@ -37,6 +37,7 @@ export const ERROR_EXITS = {
   'list-unexpected-argument': EXIT.USAGE,
   'unknown-flag': EXIT.USAGE,
   'no-url': EXIT.USAGE,
+  'flag-needs-value': EXIT.USAGE,
   'downloads-renamed': EXIT.USAGE,
   'node-missing': EXIT.FAILED,
 
@@ -52,6 +53,7 @@ export const ERROR_EXITS = {
   'url-no-account': EXIT.USAGE,
   'url-reserved-handle': EXIT.USAGE,
   'url-out-of-scope': EXIT.USAGE,
+  'url-single-post': EXIT.USAGE,
 
   // Alias
   'alias-and-unalias': EXIT.USAGE,
@@ -59,9 +61,11 @@ export const ERROR_EXITS = {
   'alias-taken': EXIT.USAGE,
   'alias-is-other-id': EXIT.USAGE,
   'alias-target-occupied': EXIT.FAILED,
+  'alias-move-failed': EXIT.FAILED,
   'account-in-two-folders': EXIT.FAILED,
   'unalias-target-occupied': EXIT.FAILED,
   'unsafe-account-id': EXIT.FAILED,
+  'unsafe-post-id': EXIT.FAILED,
 
   // Tools
   'env-consent': EXIT.REFUSED,

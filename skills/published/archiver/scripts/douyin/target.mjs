@@ -14,6 +14,9 @@ import { Refusal } from '../shared/errors.mjs';
 const PROFILE = /^(?:https?:\/\/)?(?:[a-z0-9-]+\.)*douyin\.com\/user\/([^/?#]+)/i;
 const SHARE = /^(?:https?:\/\/)?v\.douyin\.com\//i;
 
+/** One post: a video, or an image post. Both name a post and neither names an account. */
+const SINGLE_POST = /^(?:https?:\/\/)?(?:[a-z0-9-]+\.)*douyin\.com\/(?:video|note)\/(\d+)/i;
+
 const EXPECTED = 'Expected https://www.douyin.com/user/MS4wLjABAAAA...';
 
 /**
@@ -38,6 +41,21 @@ export function parseTarget(input) {
         details: { url: raw },
         remedy: {
           message: 'open the share link in a browser and copy the douyin.com profile URL it lands on',
+          run_by: 'user',
+        },
+      },
+    );
+  }
+
+  const post = raw.match(SINGLE_POST);
+  if (post) {
+    throw new Refusal(
+      'url-single-post',
+      `that URL names one post, and this skill archives an account's whole profile. ${EXPECTED}`,
+      {
+        details: { post_id: post[1] },
+        remedy: {
+          message: 'open the post, follow it to the account, and archive that profile URL',
           run_by: 'user',
         },
       },

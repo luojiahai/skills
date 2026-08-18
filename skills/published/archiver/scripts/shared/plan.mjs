@@ -13,10 +13,10 @@
  * job, and a file it cannot read reads as no plan at all.
  */
 import { Refusal } from './errors.mjs';
+import { unlistedIds } from './landed.mjs';
 
 /** A plan describes a list the user approved. A day later it describes the past. */
 export const DEFAULT_TTL_HOURS = 24;
-export const MAX_PLAN_AGE_MS = DEFAULT_TTL_HOURS * 60 * 60 * 1000;
 
 /**
  * The parked plan.
@@ -127,11 +127,19 @@ export function planRefusal(verdict) {
   return new Refusal(verdict.code, verdict.reason, { details: verdict.details });
 }
 
-/** The ids a collected list names, for diffing against what is on disk. */
-export function listedIds(posts) {
+/**
+ * The ids a collected list names, for diffing against what is on disk.
+ *
+ * `postIdKey` is what this platform's collected posts call their own id, and
+ * comes from the registry in `platforms.mjs`. Written in rather than passed, it
+ * would answer for one platform and silently return nothing for the other —
+ * which would report an entire archive as unlisted.
+ */
+export function listedIds(posts, postIdKey) {
   const ids = new Set();
   for (const post of posts ?? []) {
-    if (post?.id) ids.add(String(post.id));
+    const id = post?.[postIdKey];
+    if (id) ids.add(String(id));
   }
   return ids;
 }
@@ -145,10 +153,9 @@ export function listedIds(posts) {
  * looking like a deletion. Unknown is null and says nothing — reporting 0 would
  * assert the archive is fully listed, which is precisely what is not known.
  */
-export function unlistedCountFromPlan(plan, onDisk) {
+export function unlistedCountFromPlan(plan, onDisk, postIdKey) {
   if (!Array.isArray(plan?.collected)) return null;
-  const listed = listedIds(plan.collected);
-  return [...onDisk].filter((id) => !listed.has(id)).length;
+  return unlistedIds(listedIds(plan.collected, postIdKey), onDisk).length;
 }
 
 /**

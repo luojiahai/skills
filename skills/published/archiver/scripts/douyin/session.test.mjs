@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict';
+import { mkdir, mkdtemp, stat, writeFile } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
 import test from 'node:test';
 
-import { douyinCookies, hasSession, isSessionCookie, toNetscape } from './session.mjs';
+import { douyinCookies, hasSession, isSessionCookie, mintCookies, toNetscape } from './session.mjs';
 
 const cookie = (over = {}) => ({
   domain: '.douyin.com',
@@ -67,4 +70,26 @@ test('a session cookie with no expiry is written as non-expiring', () => {
     const fields = toNetscape([cookie({ expires })]).trim().split('\n').at(-1).split('\t');
     assert.equal(fields[4], '0', String(expires));
   }
+});
+
+test('a cookie file that already existed is still 0600, and its directory 0700', async () => {
+  // writeFile's `mode` applies only on creation, so a cookies.txt left at 0644
+  // by a restore or by hand is overwritten with a live session at its old
+  // permissions. The directory mode is the belt to that brace.
+  const dir = path.join(await mkdtemp(path.join(os.tmpdir(), 'douyin-session-')), 'douyin');
+  const file = path.join(dir, 'cookies.txt');
+  await mkdir(dir, { recursive: true, mode: 0o755 });
+  await writeFile(file, 'stale', { mode: 0o644 });
+
+  await mintCookies('/unused', file, {
+    launch: {
+      launchPersistentContext: async () => ({
+        cookies: async () => [{ domain: '.douyin.com', name: 'sessionid', value: 'live', path: '/' }],
+        close: async () => {},
+      }),
+    },
+  });
+
+  assert.equal((await stat(file)).mode & 0o777, 0o600);
+  assert.equal((await stat(dir)).mode & 0o777, 0o700);
 });

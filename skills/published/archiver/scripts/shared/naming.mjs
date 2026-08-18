@@ -19,9 +19,16 @@
  * archives root holds them all and a listing that sorted two ways would not be a
  * timeline.
  *
- * Everything here is pure and total. It never throws, and it never returns
- * something that means a different path than it looks like.
+ * Reading a moment is pure and total: every value has an answer, `null` included,
+ * and none of it throws. Writing a folder name is the one thing here that can
+ * refuse, because it is the one thing whose output is a path — an id it will not
+ * vouch for is a refusal rather than a name that means a different directory
+ * than it looks like.
  */
+import { Refusal } from './errors.mjs';
+
+/** An id that may sit in a path, the same rule `isSafeId` holds account ids to. */
+const SAFE_POST_ID = /^[A-Za-z0-9._-]+$/;
 
 /** A folder name we could have written ourselves, and the id inside it. */
 const POST_FOLDER = /^(?:\d{4}-\d{2}-\d{2}|undated)_(\d+)$/;
@@ -60,7 +67,14 @@ export function toTimestamp(value) {
   return day ? `${day[1]}T00:00:00Z` : null;
 }
 
+/**
+ * A Date as the archive spells it, or null for one outside the range a Date can
+ * be. A downloader reporting microseconds where the field is documented as
+ * seconds lands here, and an out-of-range moment is no more a moment than an
+ * unparseable string is.
+ */
 function iso(date) {
+  if (!Number.isFinite(date.getTime())) return null;
   return date.toISOString().replace(/\.\d{3}Z$/, 'Z');
 }
 
@@ -81,9 +95,21 @@ export function datePart(value) {
  * Date first so the folder listing sorts chronologically — that is the whole
  * reason the date is in the name. The id second and always, because it is what
  * makes the name unique and what identifies the post again later.
+ *
+ * The id is checked here rather than at each place it is joined. It arrives from
+ * a subprocess's stdout, and a separator or a `..` in this position does not
+ * produce a badly named folder — it produces a tree somewhere else entirely.
  */
 export function postFolderName({ date, postId }) {
-  return `${datePart(date)}_${postId}`;
+  const id = String(postId ?? '');
+  if (!id || id.length > 128 || !SAFE_POST_ID.test(id) || id === '.' || id === '..') {
+    throw new Refusal(
+      'unsafe-post-id',
+      `refusing to use ${JSON.stringify(id)} as a post folder name`,
+      { details: { id } },
+    );
+  }
+  return `${datePart(date)}_${id}`;
 }
 
 /**

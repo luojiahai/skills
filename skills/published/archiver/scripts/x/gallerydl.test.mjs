@@ -174,3 +174,47 @@ test('classifyFailure returns null for output it does not recognise', () => {
   assert.equal(classifyFailure('everything is fine'), null);
   assert.equal(classifyFailure(''), null);
 });
+
+test('a status number in a filename, a URL or a byte count classifies nothing', () => {
+  // session-rejected is fatal *and* discards the cached session, so reading one
+  // of these as a 401 stops a working run and throws away a working login. The
+  // 404 side is milder and just as wrong: a live post reported as gone.
+  for (const line of [
+    '[downloader.http][info] 401.jpg',
+    'https://pbs.twimg.com/media/Gx401abc.jpg',
+    '# 1401 bytes written',
+    '/Users/someone/archives/x/401/posts',
+    '[downloader.http][info] 404.jpg',
+    '# 4040 bytes written',
+    '/Users/someone/archives/protected/1.jpg',
+  ]) {
+    assert.equal(classifyFailure(line), null, line);
+  }
+});
+
+test('a genuine HTTP status is still recognised however gallery-dl spells it', () => {
+  for (const line of ["HttpError: '401 Unauthorized'", 'HTTP/1.1 401', 'HTTP 401', 'status code 401']) {
+    assert.equal(classifyFailure(line), 'session-rejected', line);
+  }
+  for (const line of ["HttpError: '404 Not Found'", 'HTTP/1.1 404']) {
+    assert.equal(classifyFailure(line), 'post-gone', line);
+  }
+  assert.equal(classifyFailure('[twitter][error] this is a protected account'), 'protected');
+});
+
+test('a row whose reply field renders as None carries no reply', () => {
+  // {reply_id} is spelled bare in the print format, so a row that omits the key
+  // renders the four characters "None" — and a permalink built from those names
+  // a post that does not exist.
+  const fields = [
+    'xdl', '1767', '1', '1', 'jpg', 'abc', 'photo', 'https://pbs.twimg.com/abc.jpg',
+    '2024-03-11 07:22:19', '55', 'jack', '"Jack"', '', '', 'None', '""',
+  ];
+  assert.equal(parseRow(fields.join('\t')).replyId, '');
+
+  fields[14] = '0';
+  assert.equal(parseRow(fields.join('\t')).replyId, '');
+
+  fields[14] = '1766';
+  assert.equal(parseRow(fields.join('\t')).replyId, '1766');
+});

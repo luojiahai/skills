@@ -15,14 +15,16 @@
  */
 import { spawn } from 'node:child_process';
 import { mkdir } from 'node:fs/promises';
-import path from 'node:path';
 
-import { POSTS_DIR, isMissing } from '../shared/landed.mjs';
+import { outstanding as outstandingIn, postDirFor } from '../shared/landed.mjs';
 import { toolPath } from '../shared/paths.mjs';
+import { postIdKeyFor } from '../shared/platforms.mjs';
+import { SPAWN_FAILED, runTool } from '../shared/subprocess.mjs';
 import { classifyFailure, fetchArgs } from './gallerydl.mjs';
-import { postFolderName } from '../shared/naming.mjs';
 import { permalink } from './target.mjs';
 import { buildPost, toTimestamp, writePost } from '../shared/post.mjs';
+
+const POST_ID_KEY = postIdKeyFor('x');
 
 /** Failures that end the run rather than the post. */
 export const FATAL = new Set([
@@ -33,40 +35,27 @@ export const FATAL = new Set([
   'downloader-unavailable',
 ]);
 
-function run(bin, args, spawnImpl) {
-  return new Promise((resolve) => {
-    const child = spawnImpl(bin, args, { stdio: ['ignore', 'pipe', 'pipe'] });
-    let output = '';
-    const take = (chunk) => {
-      output += chunk;
-      if (output.length > 32_000) output = output.slice(-16_000);
-    };
-    child.stdout.on('data', take);
-    child.stderr.on('data', take);
-    child.on('close', (code) => resolve({ code, output }));
-    child.on('error', (error) => resolve({ code: -1, output: `could not start: ${error.message}` }));
-  });
-}
+/** The posts in a plan that are not yet fully on disk. */
+export const outstanding = (posts, archive, postIdKey = POST_ID_KEY) =>
+  outstandingIn(posts, archive, postIdKey);
+
+/** Where one post's folder is. X's rows spell the date `date` and the id `tweetId`. */
+export const postDir = (accountDir, post) =>
+  postDirFor(accountDir, { date: post.date, postId: post.tweetId });
 
 /**
- * The posts in a plan that are not yet fully on disk.
+ * How long to wait between posts.
  *
- * Derived, never stored. A remembered "still to do" list would be a second
- * account of what has downloaded sitting beside the files, free to disagree
- * with them after a run that died at the wrong moment.
+ * gallery-dl's `--sleep-request`/`--sleep` are per-process state, and this loop
+ * spawns one process per post — so every post starts with its budget reset and
+ * the configured throttle paces nothing at all above the level of a single
+ * post's files. The pause has to be here, in the only place that outlives a
+ * process. `gallerydl.mjs` says it plainly: tuning these down to make a run
+ * finish faster is what stops it finishing.
  */
-export function outstanding(posts, archive) {
-  return posts.filter((post) => isMissing(post, archive));
-}
+export const POST_INTERVAL_MS = 2000;
 
-/** Where one post's folder is, by the rules naming.mjs owns. */
-export function postDir(accountDir, post) {
-  return path.join(
-    accountDir,
-    POSTS_DIR,
-    postFolderName({ date: post.date, postId: post.tweetId }),
-  );
-}
+const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /**
  * Fetch a list of posts, stopping at the first failure that would repeat.
@@ -75,6 +64,10 @@ export function postDir(accountDir, post) {
  * one of them must not end a 2,000-post run. A rate limit or a rejected session
  * is the opposite: every remaining post would hit it too, so the run stops and
  * says so, and the files already on disk make the retry cheap.
+ *
+ * `onPost` is called once per post with `({ post, ok }, done)` — `done` being
+ * how many have been attempted — so the caller can say something on stderr. A
+ * run of hours that says nothing is indistinguishable from a hang.
  */
 export async function fetchPosts({
   accountDir,
@@ -84,12 +77,21 @@ export async function fetchPosts({
   bin = toolPath('gallery-dl'),
   spawnImpl = spawn,
   onPost,
+  intervalMs = POST_INTERVAL_MS,
+  sleepImpl = wait,
 }) {
   const fetched = { posts: 0, files: 0 };
   let failed = 0;
   let stopped = null;
+  let done = 0;
 
   for (const post of posts) {
+    // Before the request rather than after it, so the pause is skipped for the
+    // first post and paid before every one that follows — including after a
+    // failure, which is exactly when slowing down matters.
+    if (done > 0 && intervalMs > 0) await sleepImpl(intervalMs);
+    done += 1;
+
     const url = permalink(post.handle || handle, post.tweetId);
     const dir = postDir(accountDir, post);
 
@@ -118,16 +120,16 @@ export async function fetchPosts({
       );
     } catch {
       failed += 1;
-      onPost?.({ post, ok: false });
+      onPost?.({ post, ok: false }, done);
       continue;
     }
 
-    const result = await run(bin, fetchArgs({ url, directory: dir, cookies }), spawnImpl);
+    const result = await runTool(bin, fetchArgs({ url, directory: dir, cookies }), { spawnImpl });
 
     const kind =
       result.code === 0
         ? null
-        : (classifyFailure(result.output) ?? (result.code === -1 ? 'downloader-unavailable' : null));
+        : (classifyFailure(result.output) ?? (result.code === SPAWN_FAILED ? 'downloader-unavailable' : null));
     if (kind && FATAL.has(kind)) {
       stopped = kind;
       break;
@@ -135,13 +137,13 @@ export async function fetchPosts({
 
     if (result.code !== 0) {
       failed += 1;
-      onPost?.({ post, ok: false });
+      onPost?.({ post, ok: false }, done);
       continue;
     }
 
     fetched.posts += 1;
     fetched.files += post.files?.length || post.count || 0;
-    onPost?.({ post, ok: true });
+    onPost?.({ post, ok: true }, done);
   }
 
   return { fetched, failed, stopped };

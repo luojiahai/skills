@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, readdir, writeFile } from 'node:fs/promises';
+import { chmod, mkdtemp, mkdir, readdir, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -431,4 +431,51 @@ test('a Douyin account is found by its 抖音号, an X account by its handle', a
   assert.equal(await findAccountDir(douyin, dir, { handle: 'abc123' }), folder);
   // The same lookup under X's descriptor reads a key that is not there.
   assert.equal(await findAccountDir(ACCOUNT, dir, { handle: 'abc123' }), null);
+});
+
+test('an account is never refused its own alias, whatever the map says', async () => {
+  // The map is a cache the tree can rebuild, so deleting or copying past
+  // archiver.json has to be survivable. `existingIds` reads every directory the
+  // map does not name as an *id*, which makes the account's own alias folder
+  // look like somebody else's — and the refusal that follows says something
+  // that is not true, forever.
+  const dir = await root();
+  await seed(dir, 'jia', { account: { id: '55', alias: 'jia' } });
+
+  const verdict = await checkAlias(ACCOUNT, dir, { id: '55', alias: 'jia' });
+  assert.equal(verdict.ok, true, verdict.refusal?.message);
+});
+
+test('somebody else’s folder is still refused, and named', async () => {
+  const dir = await root();
+  await seed(dir, 'jia', { account: { id: '66', alias: 'jia' } });
+
+  const verdict = await checkAlias(ACCOUNT, dir, { id: '55', alias: 'jia' });
+  assert.equal(verdict.ok, false);
+  assert.equal(verdict.refusal.code, 'alias-taken');
+  assert.equal(verdict.refusal.details.holder_id, '66');
+});
+
+test('a rename that fails refuses with a code rather than crashing the run', async () => {
+  // A target created by another run between the check and the rename is a real
+  // race; an archives root spanning two mounts is EXDEV. Both arrive as a plain
+  // Error, which `refusalFields` re-throws and the dispatcher reports as "the
+  // archiver crashed" with a stack — for something the user can put right.
+  const dir = await root();
+  await seed(dir, '55', { account: { id: '55' } });
+
+  // A read-only platform directory: the target does not exist, so nothing is
+  // occupied, and the rename itself is what fails.
+  const platform = path.join(dir, PLATFORM);
+  await chmod(platform, 0o500);
+  try {
+    const error = await applyAlias(ACCOUNT, dir, { id: '55', alias: 'jia' }).catch((thrown) => thrown);
+
+    assert.equal(error.name, 'Refusal');
+    assert.equal(error.code, 'alias-move-failed');
+    assert.equal(error.details.errno, 'EACCES');
+    assert.equal(error.remedy.run_by, 'user');
+  } finally {
+    await chmod(platform, 0o700);
+  }
 });

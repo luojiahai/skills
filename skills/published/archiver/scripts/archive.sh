@@ -26,13 +26,34 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+# `--downloads` is not a flag, and it is named rather than left to the generic
+# unknown-option path: it is the one spelling likely to still be sitting in
+# somebody's shell history, and "unknown option" would be true while sending them
+# to --help to work out why.
+#
 # Refused here rather than after dispatch because of where the platforms refuse
 # it: past their own tool preflight. On a machine missing gallery-dl or yt-dlp
 # that order reports the missing tool, which sends the user to install something
-# when the flag is what is wrong. This check runs before any tool is looked for.
+# when the flag is what is wrong. This check runs before any tool is looked for,
+# and it is the only copy — the platforms do not repeat it.
+#
+# Matched in flag position only. A value that happens to read `--downloads` is
+# the flag's business, not this one's.
+downloads_flag=0
+skip_next=0
 for arg in "$@"; do
-  if [[ "$arg" == "--downloads" ]]; then
-    cat <<'JSON'
+  if [[ "$skip_next" == 1 ]]; then
+    skip_next=0
+    continue
+  fi
+  case "$arg" in
+    --archives | --alias | --browser | --cookies | --profile) skip_next=1 ;;
+    --downloads) downloads_flag=1 ;;
+  esac
+done
+
+if [[ "$downloads_flag" == 1 ]]; then
+  cat <<'JSON'
 {
   "schema": 1,
   "ok": false,
@@ -41,7 +62,7 @@ for arg in "$@"; do
   "exit": 2,
   "error": {
     "code": "downloads-renamed",
-    "message": "--downloads was renamed to --archives, and the default root is now archives/",
+    "message": "--downloads is not a flag; the archives root is named with --archives, and defaults to archives/",
     "remedy": {
       "message": "the old root is not read: rename downloads/ to archives/, or name the root explicitly",
       "run_by": "user"
@@ -49,9 +70,8 @@ for arg in "$@"; do
   }
 }
 JSON
-    exit 2
-  fi
-done
+  exit 2
+fi
 
 # The Node this skill runs on is the one in the runtime box, and only that one.
 # A `node` on PATH is never used and never consulted: the version that runs the

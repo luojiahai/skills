@@ -22,11 +22,22 @@ is the failure a second record invites — a run that dies between two writes
 leaves them disagreeing, silently and permanently.
 
 **Completeness is a named list, not a count.** `post.json` says which files the
-post carries, and every one of them has to be present. A count would have been
-satisfied by the wrong files; the list also makes `1.jpg.part` fail by
-construction, since a half-transferred file is not the file. `post.json` itself
-is ours rather than media and is never in the list, so a post whose images failed
-but whose description was written still reads as incomplete — which it is.
+post carries, and every one of them has to be present — and it has to have been
+written by a build that spells `post.json` the way this one does, which is what
+`post.version` is checked for. A count would have been satisfied by the wrong
+files; the list also makes `1.jpg.part` fail by construction, since a
+half-transferred file is not the file. `post.json` itself is ours rather than
+media and is never in the list, so a post whose images failed but whose
+description was written still reads as incomplete — which it is.
+
+A post listing *no* files is complete, because there is nothing to wait for. That
+cannot arise from a collection pass, which only ever yields posts carrying files,
+and treating it as incomplete would put such a post into an unending retry loop.
+What it does mean is that a listing cut off mid-post — a rate limit landing
+between two of one post's rows — would write a short list and then be satisfied
+by it forever. That is why `diff` treats a post whose extractor count exceeds the
+rows it saw as missing, and reports the count as an `under-described-posts`
+note.
 
 **gallery-dl's skip-and-abort does not run in a collection pass.** `skip:
 "abort:N"` lives in `DownloadJob.handle_url`, and `SimulationJob` overrides that
@@ -98,11 +109,15 @@ what `validatePlan` checks the plan against.
 **`account.json` is authoritative for identity, and never for progress.** It
 says nothing about what has been downloaded: that is answered by the post
 folders alone, and a count or a newest-post id kept here would be a second
-record free to disagree with them. It is written the moment the folder is
-resolved — before the download, not after — so a folder that exists always says
-whose it is, and the parked plan is never asked who an account is. The plan
-carries identity only as a guard, for `validatePlan` to refuse a plan made for
-someone else. What the last run *did* is run history and lives in `sync.json`.
+record free to disagree with them. A `--plan` writes it the moment the folder is
+resolved, before anything is downloaded, so a folder that exists always says
+whose it is.
+
+A `--go` is the other way round: it collects nothing, so the parked plan is the
+only thing that knows the account, and `account.json` is what `findAccountDir`
+and `validatePlan` read to find the folder and refuse a plan made for somebody
+else. It records identity again after the fetch, with the alias the run finished
+under. What the last run *did* is run history and lives in `sync.json`.
 
 **`sync.json`, `post.json`'s write order and the root's schema version are the
 shared archive's rules,** specified in [`../shared/README.md`](../shared/README.md).
@@ -121,6 +136,12 @@ should surface as a clean stop a later `--go` resumes, not as a client hammering
 its way into a longer lockout. The numbers in `THROTTLE` are a conservative
 starting point, unverified against a live account.
 
+`THROTTLE` alone does not pace a download. `--sleep-request` and `--sleep` are
+per-process state and the download loop spawns one gallery-dl per post, so every
+post starts with its budget reset. `fetch.mjs`'s own `POST_INTERVAL_MS` is what
+paces the loop; without it the effective interval between posts is however long
+a process happened to take.
+
 **`--config-ignore` on every invocation.** A user's own
 `~/.config/gallery-dl/config.json` is loaded first otherwise, and it can quietly
 change what this skill archives — retweets on, replies off, a different
@@ -128,10 +149,9 @@ filename format.
 
 ## Files
 
-**This skill archives; gallery-dl downloads.** `archive.sh` and `run.mjs` own
-the account — folder, plan, what is already on disk — and `gallerydl.mjs` owns
-the fetch. `download` surviving in the lower layer is deliberate: it names what
-the tool actually does, and it is the only marker of which layer you are in.
+**This skill archives; gallery-dl downloads.** `archive.sh` and `run.mjs` own the
+account — folder, plan, what is already on disk — and `gallerydl.mjs` owns what
+is said to the tool and how its output is read back.
 
 | File | Role |
 | --- | --- |
@@ -180,9 +200,11 @@ So a re-run stops after **100 consecutive** already-complete posts. Generous on
 purpose: X pins a post to the top of a timeline regardless of age, and a
 stop-at-the-first-thing-you-recognise rule would halt immediately and forever.
 A first run has nothing to recognise and sweeps the lot; `--full` forces a
-complete pass; and every run carries a `sweep` note naming which mode ran and
-whether it stopped early, so `to_fetch: 0` can never be confused with "gave up
-before reaching anything new".
+complete pass; and every run that *collects* carries a `sweep` note naming which
+mode ran and whether it stopped early, so `to_fetch: 0` can never be confused
+with "gave up before reaching anything new". A bare `--go` collects nothing and
+repeats the note its plan recorded, which is up to a day old; a refusal carries
+none.
 
 ## Zero posts is never "up to date"
 
@@ -190,10 +212,18 @@ An account that is protected, or a session that has quietly expired, produces
 exactly the same silence as an account that has posted no media. Reporting that
 silence as "you already have everything" would be a lie the user acts on, so it
 is its own refusal under its own code, and `classifyFailure` exists to keep
-`protected`, `suspended`, `no-such-account`, `rate-limited` and `session-rejected`
-apart from each other and from success. It returns those codes directly: a name
-that meant one thing here and another in the envelope would be a translation
-step, and a translation step is somewhere the distinction can be lost.
+`protected`, `suspended`, `no-such-account`, `rate-limited`, `session-rejected`
+and `post-gone` apart from each other and from success. It returns those codes
+directly: a name that meant one thing here and another in the envelope would be a
+translation step, and a translation step is somewhere the distinction can be lost.
+
+An HTTP status only counts where the line is about a response. gallery-dl writes
+downloaded paths, media URLs and byte counts to the same streams an error goes
+to, so `Gx401abc.jpg` and `1401 bytes` must not read as a rejected session — that
+would stop the run *and* throw away a working login. `post-gone` is the one code
+here that is about a post rather than an account, and a 404 during an account
+listing is not one: it reaches the run as `collect-failed` rather than as an
+answer about a post nobody asked about.
 
 ## No post text reaches a path
 

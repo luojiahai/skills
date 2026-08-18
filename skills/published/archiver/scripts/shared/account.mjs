@@ -147,8 +147,8 @@ function known(fields) {
  *
  * The order is for the person who opens the file: the same lines in the same
  * places whichever run happened to learn which first. Listing them is also what
- * keeps a key this skill has stopped writing from living on in an archive by
- * being copied forward run after run.
+ * keeps an archive holding this shape and nothing else — a key spread in from
+ * the file being merged would live on in it with nothing to stop it.
  */
 const accountKeys = ({ handleKey }) => ['id', handleKey, 'nickname', 'alias'];
 
@@ -207,10 +207,10 @@ export async function writeAccount(descriptor, dir, next, options) {
  */
 export async function recordIdentity(descriptor, root, dir, { account, url = null } = {}) {
   // The folder's own account.json is consulted for the id when the caller has
-  // none. A finished run writes only the url, the account having been recorded
-  // before the download, so the caller's word for the id is not enough: take it
-  // and the write skips the map silently, leaving account.json holding an alias
-  // archiver.json has never heard of. The folder always knows whose it is.
+  // none — a run that collected nothing has only whatever the plan carried, and
+  // that can be blank. Taking the caller's word would skip the map silently,
+  // leaving account.json holding an alias archiver.json has never heard of. The
+  // folder always knows whose it is.
   const existing = await readAccount(dir);
   const id = String(account?.id ?? existing?.account?.id ?? '');
   const base = path.basename(dir);
@@ -250,9 +250,9 @@ async function exists(dir) {
  * Every account folder under the root that this build can read, as it is found.
  *
  * Lazy, so a match in the first folder does not cost a read of every other one.
- * A file written by a version that numbered its fields differently is skipped
- * rather than guessed at: it reads as no archive at all, which is the same
- * answer as a folder nobody has archived into.
+ * A file this build cannot read is skipped rather than guessed at: it reads as
+ * no archive at all, which is the same answer as a folder nobody has archived
+ * into.
  */
 export async function* accounts(descriptor, root) {
   let entries;
@@ -402,9 +402,16 @@ export async function checkAlias(descriptor, root, { id = null, alias } = {}) {
     if (name === alias && other !== mine) return { ok: false, refusal: aliasTaken(alias, other) };
   }
 
+  // The folder is asked whose it is before the id set is consulted, and an
+  // occupant that is *us* settles the question. `existingIds` reads every
+  // directory the map does not name as an id, so with archiver.json deleted or
+  // stale — both of which the archive is meant to survive — an account's own
+  // alias folder would otherwise count as somebody else's id and lock the user
+  // out of the name they chose, permanently and with a message that is untrue.
   const occupant = await identityAt(aliasDirFor(descriptor, root, alias));
   const occupantId = String(occupant?.account?.id ?? '');
   if (occupantId && occupantId !== mine) return { ok: false, refusal: aliasTaken(alias, occupantId) };
+  if (occupantId && occupantId === mine) return { ok: true };
 
   if ((await existingIds(descriptor, root)).has(alias) && alias !== mine) {
     return {
@@ -487,8 +494,36 @@ export async function applyAlias(descriptor, root, { id, alias }) {
     return target;
   }
 
-  if (current) await rename(current, target);
+  if (current) await move(current, target);
   return target;
+}
+
+/**
+ * A rename that answers with a code rather than a stack.
+ *
+ * `ENOTEMPTY` is a target another run created between the check above and this
+ * line — a real race, not a hypothetical one. `EXDEV` is an archives root
+ * spanning two mounts, and `EACCES` a folder somebody has made read-only. All
+ * three arrive here as a plain Error, which `refusalFields` re-throws and the
+ * dispatcher reports as "the archiver crashed" with a stack — for a situation
+ * the user can put right in one command.
+ */
+async function move(from, to) {
+  try {
+    await rename(from, to);
+  } catch (error) {
+    throw new Refusal(
+      'alias-move-failed',
+      `could not move ${from} to ${to}: ${error?.message ?? error}`,
+      {
+        details: { from, to, errno: error?.code ?? null },
+        remedy: {
+          message: 'move the folder by hand, or choose a name whose folder is free',
+          run_by: 'user',
+        },
+      },
+    );
+  }
 }
 
 /**
@@ -521,7 +556,7 @@ export async function clearAlias(descriptor, root, { id }) {
         },
       );
     }
-    await rename(current, target);
+    await move(current, target);
   }
 
   const json = await identityAt(target);

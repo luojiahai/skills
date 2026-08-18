@@ -8,7 +8,7 @@
  * is a cache — re-minted only when Douyin actually rejects it, so the common
  * path costs no browser launch.
  */
-import { writeFile, mkdir } from 'node:fs/promises';
+import { chmod, readFile, rm, writeFile, mkdir } from 'node:fs/promises';
 import path from 'node:path';
 
 import { Refusal } from '../shared/errors.mjs';
@@ -65,6 +65,50 @@ export function toNetscape(cookies) {
   ].join('\n') + '\n';
 }
 
+/**
+ * Whether the cached cookies.txt still holds a live session, read off the file
+ * and without opening anything.
+ *
+ * This is the check that makes the cache a cache. Minting reads the Playwright
+ * profile, which means launching Chromium — the slowest thing in the skill — so
+ * a `--go` that could have used the file on disk and launched a browser anyway
+ * is paying the whole cost of not having a cache at all.
+ *
+ * Freshness is the cookies' own expiry rather than the file's age: the file
+ * says when each cookie dies, and a made-up TTL would either re-mint a session
+ * that is good for weeks or trust one that expired yesterday. `0` in the expiry
+ * column is how `toNetscape` spells a session cookie with no expiry of its own,
+ * and reads as live.
+ *
+ * It cannot say whether Douyin still *accepts* the session — nothing local can.
+ * That is answered by yt-dlp asking for fresh cookies mid-download, which is
+ * what re-mints them.
+ */
+export async function hasFreshCookies(cookieFile, now = Date.now()) {
+  let text;
+  try {
+    text = await readFile(cookieFile, 'utf8');
+  } catch {
+    return false;
+  }
+
+  const seconds = Math.floor(now / 1000);
+  for (const line of text.split('\n')) {
+    if (!line || line.startsWith('#')) continue;
+    const [domain, , , , expires, name, value] = line.split('\t');
+    if (!DOUYIN_DOMAIN.test(domain ?? '')) continue;
+    if (!SESSION_COOKIES.includes(name) || !value) continue;
+    const at = Number(expires);
+    if (!Number.isFinite(at) || at === 0 || at > seconds) return true;
+  }
+  return false;
+}
+
+/** Throws the cached session away, so the next run mints a new one. */
+export async function discardCookies(cookieFile) {
+  await rm(cookieFile, { force: true });
+}
+
 /** Whether the profile holds a session, without downloading anything. */
 export async function profileHasSession(profileDir, { launch } = {}) {
   return hasSession(await readProfileCookies(profileDir, { launch }));
@@ -82,7 +126,13 @@ async function readProfileCookies(profileDir, { launch } = {}) {
 
 /**
  * Writes the profile's Douyin cookies where yt-dlp can read them, and returns
- * that path. Mode 0600, because this file is a live session.
+ * that path.
+ *
+ * The directory is 0700 and the file 0600, and both are set rather than
+ * requested. `writeFile`'s `mode` applies only when it *creates* the file, so a
+ * cookies.txt left at 0644 by a restore or by hand is overwritten with a live
+ * session at its old permissions — and the directory mode is what makes the
+ * file unreachable regardless of its own.
  */
 export async function mintCookies(profileDir, cookieFile, { launch } = {}) {
   const cookies = douyinCookies(await readProfileCookies(profileDir, { launch }));
@@ -95,7 +145,10 @@ export async function mintCookies(profileDir, cookieFile, { launch } = {}) {
     );
   }
 
-  await mkdir(path.dirname(cookieFile), { recursive: true });
+  const dir = path.dirname(cookieFile);
+  await mkdir(dir, { recursive: true, mode: 0o700 });
+  await chmod(dir, 0o700).catch(() => {});
   await writeFile(cookieFile, toNetscape(cookies), { mode: 0o600 });
+  await chmod(cookieFile, 0o600);
   return cookieFile;
 }

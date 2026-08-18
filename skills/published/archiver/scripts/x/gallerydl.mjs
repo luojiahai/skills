@@ -208,7 +208,11 @@ export function parseRow(line) {
       avatar: profileImage,
       banner: profileBanner,
     },
-    replyId: replyId && replyId !== '0' ? replyId : '',
+    // Validated the same way tweetId is, and for the same reason: `{reply_id}`
+    // is spelled bare above, so a row that omits the key renders it as the
+    // literal `None` — which would be written into the archive as a permalink to
+    // a post that does not exist.
+    replyId: /^\d+$/.test(replyId) && replyId !== '0' ? replyId : '',
     content: decodeJson(content),
   };
 }
@@ -236,12 +240,31 @@ function decodeJson(value) {
 export function classifyFailure(output) {
   const text = String(output || '');
   if (/\b429\b|Rate.?limit|too many requests/i.test(text)) return 'rate-limited';
-  if (/401|Unauthorized|login required|requires authentication|Auth.*fail/i.test(text)) return 'session-rejected';
+  if (status(401, 'Unauthorized').test(text) || /login required|requires authentication|Auth.*fail/i.test(text)) {
+    return 'session-rejected';
+  }
   if (/suspended/i.test(text)) return 'suspended';
-  if (/protected|not authorized to view|private account/i.test(text)) return 'protected';
+  if (/\bprotected\s+(?:account|tweets?|user)\b|\baccount\s+is\s+protected\b|not authorized to view|private account/i.test(text)) {
+    return 'protected';
+  }
   if (/does not exist|User not found|No user matches/i.test(text)) return 'no-such-account';
-  if (/\b404\b|Not Found/i.test(text)) return 'post-gone';
+  if (status(404, 'Not\\s+Found').test(text)) return 'post-gone';
   return null;
+}
+
+/**
+ * An HTTP status, and only where the line is about a response.
+ *
+ * gallery-dl writes downloaded paths, media URLs and byte counts to the same
+ * streams an error goes to, so a bare number classifies nothing a run can act
+ * on: `Gx401abc.jpg` is a media token and `1401 bytes` is a size. Reading either
+ * as a rejected session stops the run *and* throws away a working session, so
+ * the number counts only where it is introduced as a status or followed by its
+ * reason phrase.
+ */
+function status(code, reason) {
+  const introduced = String.raw`(?:\bHTTP(?:/[\d.]+)?\s+|\bstatus\s+(?:code\s+)?|\bHttpError:?\s*['"]?)`;
+  return new RegExp(`${introduced}${code}\\b|\\b${code}\\s+${reason}\\b`, 'i');
 }
 
 /**

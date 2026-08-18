@@ -45,15 +45,15 @@ test('saveAsset writes the bytes under the sniffed extension', async () => {
 test('an avatar that changed format does not leave both files behind', async () => {
   // Otherwise nothing on disk says which one the account currently uses.
   const dir = await accountDir();
-  await saveAsset(dir, 'avatar', 'https://x/1', { fetchImpl: serving(PNG) });
-  await saveAsset(dir, 'avatar', 'https://x/2', { fetchImpl: serving(JPEG) });
+  await saveAsset(dir, 'avatar', 'https://pbs.twimg.com/1', { fetchImpl: serving(PNG) });
+  await saveAsset(dir, 'avatar', 'https://pbs.twimg.com/2', { fetchImpl: serving(JPEG) });
   assert.deepEqual(await readdir(path.join(dir, ASSETS_DIR)), ['avatar.jpg']);
 });
 
 test('replacing the avatar leaves the banner alone', async () => {
   const dir = await accountDir();
-  await saveProfileAssets(dir, { avatar: 'https://x/a', banner: 'https://x/b' }, { fetchImpl: serving(PNG) });
-  await saveAsset(dir, 'avatar', 'https://x/a2', { fetchImpl: serving(JPEG) });
+  await saveProfileAssets(dir, { avatar: 'https://pbs.twimg.com/a', banner: 'https://pbs.twimg.com/b' }, { fetchImpl: serving(PNG) });
+  await saveAsset(dir, 'avatar', 'https://pbs.twimg.com/a2', { fetchImpl: serving(JPEG) });
   assert.deepEqual((await readdir(path.join(dir, ASSETS_DIR))).sort(), ['avatar.jpg', 'banner.png']);
 });
 
@@ -61,14 +61,14 @@ test('a file that merely starts with the asset name is not swept up', async () =
   const dir = await accountDir();
   await mkdir(path.join(dir, ASSETS_DIR), { recursive: true });
   await writeFile(path.join(dir, ASSETS_DIR, 'avatar.2019.jpg'), 'kept by hand');
-  await saveAsset(dir, 'avatar', 'https://x/1', { fetchImpl: serving(JPEG) });
+  await saveAsset(dir, 'avatar', 'https://pbs.twimg.com/1', { fetchImpl: serving(JPEG) });
   assert.deepEqual((await readdir(path.join(dir, ASSETS_DIR))).sort(), ['avatar.2019.jpg', 'avatar.jpg']);
 });
 
 test('an account with no banner gets no banner file', async () => {
   // gallery-dl reports an empty string for an account that has never set one.
   const dir = await accountDir();
-  const saved = await saveProfileAssets(dir, { avatar: 'https://x/a', banner: '' }, { fetchImpl: serving(JPEG) });
+  const saved = await saveProfileAssets(dir, { avatar: 'https://pbs.twimg.com/a', banner: '' }, { fetchImpl: serving(JPEG) });
   assert.deepEqual(saved, { avatar: 'avatar.jpg', banner: null });
   assert.deepEqual(await readdir(path.join(dir, ASSETS_DIR)), ['avatar.jpg']);
 });
@@ -77,9 +77,9 @@ test('a CDN failure is null, never a thrown error', async () => {
   // An avatar is decoration beside the posts. It must not end a run that is
   // fetching an account's entire history.
   const dir = await accountDir();
-  assert.equal(await saveAsset(dir, 'avatar', 'https://x/1', { fetchImpl: serving(JPEG, { ok: false }) }), null);
+  assert.equal(await saveAsset(dir, 'avatar', 'https://pbs.twimg.com/1', { fetchImpl: serving(JPEG, { ok: false }) }), null);
   assert.equal(
-    await saveAsset(dir, 'avatar', 'https://x/1', { fetchImpl: async () => { throw new Error('offline'); } }),
+    await saveAsset(dir, 'avatar', 'https://pbs.twimg.com/1', { fetchImpl: async () => { throw new Error('offline'); } }),
     null,
   );
 });
@@ -87,7 +87,50 @@ test('a CDN failure is null, never a thrown error', async () => {
 test('an empty response is not written as an empty avatar', async () => {
   const dir = await accountDir();
   assert.equal(
-    await saveAsset(dir, 'avatar', 'https://x/1', { fetchImpl: serving(new Uint8Array()) }),
+    await saveAsset(dir, 'avatar', 'https://pbs.twimg.com/1', { fetchImpl: serving(new Uint8Array()) }),
     null,
   );
+});
+
+test('an asset URL that is not https twimg.com is not fetched at all', async () => {
+  // The URL comes off gallery-dl's stdout. Unchecked, a spoofed row aims this
+  // skill's own fetch wherever it likes — from the user's machine, with the
+  // answer written into the archive as an avatar.
+  const dir = await accountDir();
+  let asked = 0;
+  const counting = async (url) => (asked++, serving(JPEG)(url));
+
+  for (const url of [
+    'http://pbs.twimg.com/1',
+    'https://169.254.169.254/latest/meta-data/',
+    'https://evil.example.com/1',
+    'https://pbs.twimg.com.evil.example/1',
+    'file:///etc/passwd',
+    'not a url at all',
+  ]) {
+    assert.equal(await saveAsset(dir, 'avatar', url, { fetchImpl: counting }), null, url);
+  }
+
+  assert.equal(asked, 0, 'nothing was requested');
+});
+
+test('an oversized body is refused rather than buffered', async () => {
+  const dir = await accountDir();
+  const huge = new Uint8Array(17 * 1024 * 1024);
+  huge.set([0xff, 0xd8, 0xff, 0xe0]);
+
+  assert.equal(
+    await saveAsset(dir, 'avatar', 'https://pbs.twimg.com/1', { fetchImpl: serving(huge) }),
+    null,
+  );
+
+  // And where the server declares it, the body is never read.
+  let read = 0;
+  const declaring = async () => ({
+    ok: true,
+    headers: { get: () => String(64 * 1024 * 1024) },
+    arrayBuffer: async () => (read++, new ArrayBuffer(0)),
+  });
+  assert.equal(await saveAsset(dir, 'avatar', 'https://pbs.twimg.com/1', { fetchImpl: declaring }), null);
+  assert.equal(read, 0);
 });

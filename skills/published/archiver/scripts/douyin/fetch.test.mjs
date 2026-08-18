@@ -7,6 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { fetchArgs, fetchPosts, metadataArgs, outstanding, postDir, saysSessionStale } from './fetch.mjs';
+import { isComplete } from '../shared/post.mjs';
 
 const root = () => mkdtemp(path.join(os.tmpdir(), 'douyin-fetch-'));
 
@@ -245,4 +246,31 @@ test('a yt-dlp that cannot be spawned is a failed post, not a hung run', async (
   });
 
   assert.equal(result.failed, 1);
+});
+
+test('a post yielding several files lists every one of them', async () => {
+  // MEDIA_NAME numbers a post's files by position because a post can yield more
+  // than one. Recording only the first would let `1.mp4` alone satisfy the
+  // completeness check — so files 2 and 3 stay missing, silently and forever.
+  const dir = await root();
+  const { spawnImpl } = fakeYtDlp([{ lines: ['1.mp4', '2.mp4', '3.mp4'], code: 0 }]);
+
+  const result = await fetchPosts({
+    accountDir: dir,
+    posts: [{ id: '7412', createTime: 1710144139, text: 'three clips' }],
+    cookies: null,
+    bin: '/nonexistent/yt-dlp',
+    spawnImpl,
+  });
+
+  assert.equal(result.fetched, 1);
+
+  const folder = postDir(dir, { id: '7412', createTime: 1710144139 });
+  const post = JSON.parse(await readFile(path.join(folder, 'post.json'), 'utf8'));
+  assert.deepEqual(post.media.map((entry) => entry.file), ['1.mp4', '2.mp4', '3.mp4']);
+
+  // And the point of listing all three: with only the first on disk, the post
+  // is not done.
+  assert.equal(isComplete(post, ['1.mp4']), false);
+  assert.equal(isComplete(post, ['1.mp4', '2.mp4', '3.mp4']), true);
 });
