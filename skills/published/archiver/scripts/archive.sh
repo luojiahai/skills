@@ -37,19 +37,13 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # when the flag is what is wrong. This check runs before any tool is looked for,
 # and it is the only copy — the platforms do not repeat it.
 #
-# Matched in flag position only. A value that happens to read `--downloads` is
-# the flag's business, not this one's.
+# Every argument is scanned, and it needs no list of which flags take a value:
+# `--downloads` cannot be one. A flag's value that begins with `-` is refused as
+# a missing value by the argument parser, so there is no command line where
+# `--downloads` means anything but the flag.
 downloads_flag=0
-skip_next=0
 for arg in "$@"; do
-  if [[ "$skip_next" == 1 ]]; then
-    skip_next=0
-    continue
-  fi
-  case "$arg" in
-    --archives | --alias | --browser | --cookies | --profile) skip_next=1 ;;
-    --downloads) downloads_flag=1 ;;
-  esac
+  [[ "$arg" == "--downloads" ]] && downloads_flag=1
 done
 
 if [[ "$downloads_flag" == 1 ]]; then

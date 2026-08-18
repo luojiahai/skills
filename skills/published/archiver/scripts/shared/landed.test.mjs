@@ -10,7 +10,7 @@ import {
   isMissing,
   onDiskIds,
   readArchive,
-  shadowedFolders,
+  duplicateFolders,
   unlistedIds,
 } from './landed.mjs';
 import { POST_FILE, buildPost, isComplete, writePost } from './post.mjs';
@@ -229,7 +229,7 @@ test('one post id in two folders picks the landed one, and counts the other', ()
     const archive = await readArchive(dir);
     assert.equal(archive.size, 1);
     assert.equal(archive.get('5').folder, '2024-01-01_5', 'the landed folder wins');
-    assert.equal(shadowedFolders(archive), 1);
+    assert.equal(await duplicateFolders(dir), 1);
   })();
 });
 
@@ -241,7 +241,7 @@ test('two folders that both landed pick the same one whichever order they are re
 
     const archive = await readArchive(dir);
     assert.equal(archive.get('6').folder, '2024-01-01_6', 'sorted, so it is the same on every machine');
-    assert.equal(shadowedFolders(archive), 1);
+    assert.equal(await duplicateFolders(dir), 1);
   })();
 });
 
@@ -249,6 +249,6 @@ test('an archive with no duplicates counts none', () => {
   return (async () => {
     const dir = await root();
     await post(dir, '2024-01-01_7', ['1.mp4']);
-    assert.equal(shadowedFolders(await readArchive(dir)), 0);
+    assert.equal(await duplicateFolders(dir), 0);
   })();
 });

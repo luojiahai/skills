@@ -824,9 +824,9 @@ test('a --go whose session mint refuses says so by name, not as a crash', async 
 });
 
 test('a listing that hit the round limit says so in the document', async () => {
-  // The flag exists on the collect result and nothing read it, so a truncated
-  // listing was reported as a complete one — with a hidden-posts count blaming
-  // every post below the cut.
+  // A listing cut off at the round limit is short by an unknown amount. Silent,
+  // it reads as a complete one — with a hidden-posts count blaming every post
+  // below the cut.
   const dir = await root();
   const { document } = await run([URL_MS4W, '--archives', dir, '--plan'], {
     collectImpl: async () => listing({ hitRoundLimit: true }),

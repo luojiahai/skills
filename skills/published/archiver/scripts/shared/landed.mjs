@@ -91,9 +91,9 @@ export function postDirFor(accountDir, { date, postId }) {
  * One id can name two folders — `undated_5` from a run that could not date the
  * post and `2024-01-01_5` from a later one that could. The landed folder wins,
  * so which one answers for the post is decided by what is in it rather than by
- * whichever `readdir` happened to yield last. The other is counted, because its
- * media is then counted by nothing and every figure derived from this map is
- * short by that much.
+ * whichever `readdir` happened to yield last. The map holds one entry per id
+ * either way, which means the other folder's media is counted by nothing:
+ * `duplicateFolders` below is how a run says so.
  */
 export async function readArchive(accountDir) {
   const posts = new Map();
@@ -105,8 +105,6 @@ export async function readArchive(accountDir) {
   } catch {
     return posts;
   }
-
-  const shadowed = [];
 
   for (const entry of entries) {
     if (!entry.isDirectory()) continue;
@@ -123,34 +121,50 @@ export async function readArchive(accountDir) {
     const found = { folder: entry.name, names, post: await readPost(dir) };
 
     const held = posts.get(id);
-    if (!held) {
-      posts.set(id, found);
-      continue;
-    }
-
-    // Deterministic both ways round: the landed one wins, and where both or
-    // neither landed the folder that sorts first does, so two machines reading
-    // one archive give the same answer.
-    const winner = pickFolder(held, found);
-    posts.set(id, winner);
-    shadowed.push(winner === held ? found.folder : held.folder);
+    posts.set(id, held ? pickFolder(held, found) : found);
   }
 
-  // Carried on the Map rather than changing what readArchive returns: every
-  // caller wants the id → folder lookup, and one of them also wants to say how
-  // many folders it had to set aside. `shadowedFolders` is how that is read.
-  posts.shadowed = shadowed;
   return posts;
 }
 
+/**
+ * Which of two folders for one id answers for the post.
+ *
+ * The landed one, and where both or neither landed the folder that sorts first —
+ * so two machines reading one archive give the same answer, whatever order their
+ * filesystems yielded the folders in.
+ */
 function pickFolder(a, b) {
   if (isLanded(a) !== isLanded(b)) return isLanded(a) ? a : b;
   return a.folder <= b.folder ? a : b;
 }
 
-/** How many post folders this archive holds that nothing answers for. */
-export function shadowedFolders(archive) {
-  return archive?.shadowed?.length ?? 0;
+/**
+ * How many post ids this account folder holds in more than one folder.
+ *
+ * Asked of the directory names alone, which is why it is its own pass rather
+ * than something `readArchive` hands back: it needs no post.json, and a map
+ * keyed by id cannot carry the answer without smuggling a second value onto it.
+ */
+export async function duplicateFolders(accountDir) {
+  const seen = new Set();
+  const twice = new Set();
+
+  let entries;
+  try {
+    entries = await readdir(path.join(accountDir, POSTS_DIR), { withFileTypes: true });
+  } catch {
+    return 0;
+  }
+
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+    const id = postIdFromFolder(entry.name);
+    if (!id) continue;
+    if (seen.has(id)) twice.add(id);
+    seen.add(id);
+  }
+  return twice.size;
 }
 
 /**

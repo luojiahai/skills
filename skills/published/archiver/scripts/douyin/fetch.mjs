@@ -27,7 +27,7 @@ import { buildPost, writePost } from '../shared/post.mjs';
 import { toTimestamp } from '../shared/naming.mjs';
 import { toolPath } from '../shared/paths.mjs';
 import { postIdKeyFor } from '../shared/platforms.mjs';
-import { runTool } from '../shared/subprocess.mjs';
+import { httpStatus, runTool } from '../shared/subprocess.mjs';
 import { permalink } from './target.mjs';
 
 const POST_ID_KEY = postIdKeyFor('douyin');
@@ -127,21 +127,46 @@ export function saysSessionStale(output) {
  * consequence there is the account, not the archive.
  */
 export function classifyFailure(output) {
-  const text = String(output ?? '');
-  if (/\b429\b|Rate.?limit|too many requests|frequent|访问频繁|操作频繁/i.test(text)) return 'rate-limited';
-  if (/\b403\b|Forbidden|risk control|滑块|验证码|captcha/i.test(text)) return 'session-rejected';
+  // Read off the lines yt-dlp marked as problems, and nowhere else. It prints
+  // resolved filenames and video titles to the same streams, and a post whose
+  // caption happens to read 访问频繁 must not stop the run — `session-rejected`
+  // also throws the cached session away, so a false one costs a sign-in.
+  const text = String(output ?? '')
+    .split('\n')
+    .filter((line) => /^\s*(?:ERROR|WARNING)\b|\[(?:error|warning)\]/i.test(line))
+    .join('\n');
+  if (!text) return null;
+
+  if (
+    httpStatus(429, 'Too\\s+Many\\s+Requests').test(text) ||
+    /\brate.?limit|too many requests|too frequent|访问(?:过于)?频繁|操作(?:过于)?频繁/i.test(text)
+  ) {
+    return 'rate-limited';
+  }
+
+  if (
+    httpStatus(403, 'Forbidden').test(text) ||
+    /\brisk control\b|\bcaptcha\b|滑块|验证码/i.test(text)
+  ) {
+    return 'session-rejected';
+  }
+
   return null;
 }
 
 /**
- * Failures that end the run rather than the post. The same rule X's fetcher
- * holds, and for the same reason — X's copy is `x/fetch.mjs`'s `FATAL`.
+ * Failures that end the run rather than the post: the ones the next post would
+ * meet too.
+ *
+ * Each platform has its own set rather than sharing one, because what is fatal
+ * depends on what the platform says and when. X's includes `suspended` and
+ * `protected`, which its listing pass can report mid-download; Douyin answers
+ * both of those long before here, with a grid that renders nothing.
  */
 export const FATAL = new Set(['rate-limited', 'session-rejected']);
 
 /** The posts that still need fetching, in the order they were collected. */
-export const outstanding = (posts, archive, postIdKey = POST_ID_KEY) =>
-  outstandingIn(posts, archive, postIdKey);
+export const outstanding = (posts, archive) => outstandingIn(posts, archive, POST_ID_KEY);
 
 /**
  * Where one post lives, named from what the listing pass knew about it. Douyin's
@@ -232,9 +257,9 @@ export async function fetchPosts({
           onLine: (line) => {
             if (!MEDIA_LINE.test(line) || files.includes(line)) return;
             files.push(line);
-            // Chained, never concurrent: two writes racing on one path would let
-            // whichever finished last decide the list, and the shorter one
-            // winning is the bug this whole change is about.
+            // Chained, never concurrent. Two writes racing on one path let
+            // whichever finishes last decide the list, and a shorter list
+            // winning is a post that reads as complete without its later files.
             writing = writing ? writing.then(record) : record();
           },
         },

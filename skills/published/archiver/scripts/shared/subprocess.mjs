@@ -64,3 +64,21 @@ export function runTool(bin, args, { spawnImpl = spawn, onLine = () => {} } = {}
     child.on('close', (code) => resolve({ code: code ?? SPAWN_FAILED, lines, output }));
   });
 }
+
+/**
+ * An HTTP status, and only where the line is about a response.
+ *
+ * The downloaders write resolved paths, media URLs, video titles and byte counts
+ * to the same streams an error goes to, so a bare number classifies nothing a run
+ * can act on: `Gx401abc.jpg` is a media token and `1401 bytes` is a size. Reading
+ * either as a rejected session stops the run *and* throws away a working
+ * session, so the number counts only where it is introduced as a status or
+ * followed by its reason phrase.
+ */
+export function httpStatus(code, reason) {
+  // The spellings the two tools actually use: gallery-dl's `HttpError: '401
+  // Unauthorized'`, yt-dlp's `HTTP Error 429: Too Many Requests`, and a bare
+  // status line. What none of them look like is a number sitting in a path.
+  const introduced = String.raw`(?:\bHTTP(?:/[\d.]+)?(?:\s+Error)?\s+|\bstatus\s+(?:code\s+)?|\bHttpError:?\s*['"]?)`;
+  return new RegExp(`${introduced}${code}\\b|\\b${code}:?\\s+${reason}\\b`, 'i');
+}

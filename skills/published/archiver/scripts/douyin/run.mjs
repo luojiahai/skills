@@ -62,7 +62,7 @@ import { checkRoot, stampRoot } from '../shared/archiver.mjs';
 import { ensureEnv } from '../shared/env.mjs';
 import { collect } from './collect.mjs';
 import { fetchPosts, outstanding } from './fetch.mjs';
-import { onDiskIds, readArchive, shadowedFolders, unlistedIds } from '../shared/landed.mjs';
+import { duplicateFolders, onDiskIds, readArchive, unlistedIds } from '../shared/landed.mjs';
 import { login } from './login.mjs';
 import { archivesRoot, cookieFile, normalizeRoot, toolPath } from '../shared/paths.mjs';
 import { PLATFORM, PROFILE_DIR, discardDerivedState, loadPlaywright } from './playwright.mjs';
@@ -472,7 +472,7 @@ async function doPlan({ root, target, alias, unalias, profileDir, chromium, coll
       unlisted,
       truncated: listing.hitRoundLimit,
       unattributed: listing.unattributed,
-      duplicates: shadowedFolders(archive),
+      duplicates: await duplicateFolders(accountDir),
     }),
     now: new Date(),
   });
@@ -637,7 +637,7 @@ async function doGo({
         // under `undated_<id>` has said something about the archive, and the
         // agent reading stdout is the one who tells the user.
         undated,
-        duplicates: shadowedFolders(currentArchive),
+        duplicates: await duplicateFolders(accountDir),
       }),
     ],
     // Carried by the run that made this plan, and by that run only. A --go is

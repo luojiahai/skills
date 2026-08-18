@@ -308,16 +308,17 @@ test('archive.sh is where --downloads is refused, and it is refused by name', as
   assert.equal(document.exit, 2);
 });
 
-test('a flag value that reads --downloads is the flag’s business, not the shim’s', async () => {
-  // `--alias --downloads` is a usage error about --alias, and an archives path
-  // called `--downloads` is a path. Scanning every argument answered neither.
+test('--downloads is the flag wherever it appears on the line', async () => {
+  // It cannot be a flag's value: a value beginning with `-` is refused as a
+  // missing one by the argument parser. So the shim needs no list of which flags
+  // take a value in order to know it is looking at the flag.
   const failed = await exec(ARCHIVE_SH, ['https://x.com/someone', '--alias', '--downloads']).then(
     () => null,
     (error) => error,
   );
 
   assert.ok(failed, 'expected a non-zero exit');
-  assert.notEqual(validate(JSON.parse(failed.stdout)).error.code, 'downloads-renamed');
+  assert.equal(validate(JSON.parse(failed.stdout)).error.code, 'downloads-renamed');
 });
 
 test('a post URL is refused before anything is fetched', async () => {
@@ -538,4 +539,18 @@ test('a flag given no value is refused, never run as if it had not been typed', 
   assert.equal(document.error.code, 'flag-needs-value');
   assert.equal(document.error.details.flag, '--alias');
   assert.ok(!existsSync(path.join(dir, 'x')), 'nothing was written');
+});
+
+test('one post id in two folders is reported, on X as on Douyin', async () => {
+  // `undated_5` from a run that could not date the post and `2024-01-01_5` from
+  // a later one. One of them answers for the post; the other's media is counted
+  // by nothing, so every figure in the document is short by however much it holds.
+  const root = await archivesRoot();
+  const fresh = tweet('3');
+  const { accountDir } = await go(root, { collected: [fresh], pending: [fresh] });
+
+  await mkdir(path.join(accountDir, 'posts', 'undated_3'), { recursive: true });
+
+  const { document } = await go(root, { collected: [fresh], pending: [fresh] });
+  assert.equal(noteWith(document, 'duplicate-posts').count, 1);
 });

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { EventEmitter } from 'node:events';
+import { Readable } from 'node:stream';
 import path from 'node:path';
 import test from 'node:test';
 
@@ -146,6 +147,27 @@ test('the escape hatch builds nothing at all', async () => {
     delete process.env.ARCHIVER_SYSTEM_TOOLS;
   }
   assert.deepEqual(calls, []);
+});
+
+test('a build failure reports its words intact, however the chunks fell', async () => {
+  // The builder's stderr is bytes off a pipe, and a multi-byte character can be
+  // split across two chunks. Concatenated as Buffers it becomes mojibake — in
+  // the very text the user is told to read to find out what went wrong.
+  const said = '构建失败：找不到 uv\n';
+  const bytes = Buffer.from(said, 'utf8');
+
+  const spawnImpl = () => {
+    const child = new EventEmitter();
+    // Split mid-character, which is what a real pipe does.
+    child.stderr = Readable.from([bytes.subarray(0, 5), bytes.subarray(5)]);
+    child.stderr.on('end', () => child.emit('close', 1));
+    return child;
+  };
+
+  const error = await ensureEnv(['runtime'], { spawnImpl, exists: onlyConsent }).catch((e) => e);
+
+  assert.equal(error.code, 'env-build-failed');
+  assert.equal(error.details.output, said.trim());
 });
 
 /** What a shell would make of the command, so the assertion is about that. */

@@ -5,6 +5,8 @@
  * what we say to it. Two invocations, both built here so the options that make
  * a run survivable cannot drift apart between them.
  */
+import { httpStatus } from '../shared/subprocess.mjs';
+
 
 /**
  * The policy the skill imposes, as gallery-dl config keys.
@@ -240,7 +242,7 @@ function decodeJson(value) {
 export function classifyFailure(output) {
   const text = String(output || '');
   if (/\b429\b|Rate.?limit|too many requests/i.test(text)) return 'rate-limited';
-  if (status(401, 'Unauthorized').test(text) || /login required|requires authentication|Auth.*fail/i.test(text)) {
+  if (httpStatus(401, 'Unauthorized').test(text) || /login required|requires authentication|Auth.*fail/i.test(text)) {
     return 'session-rejected';
   }
   if (/suspended/i.test(text)) return 'suspended';
@@ -248,23 +250,8 @@ export function classifyFailure(output) {
     return 'protected';
   }
   if (/does not exist|User not found|No user matches/i.test(text)) return 'no-such-account';
-  if (status(404, 'Not\\s+Found').test(text)) return 'post-gone';
+  if (httpStatus(404, 'Not\\s+Found').test(text)) return 'post-gone';
   return null;
-}
-
-/**
- * An HTTP status, and only where the line is about a response.
- *
- * gallery-dl writes downloaded paths, media URLs and byte counts to the same
- * streams an error goes to, so a bare number classifies nothing a run can act
- * on: `Gx401abc.jpg` is a media token and `1401 bytes` is a size. Reading either
- * as a rejected session stops the run *and* throws away a working session, so
- * the number counts only where it is introduced as a status or followed by its
- * reason phrase.
- */
-function status(code, reason) {
-  const introduced = String.raw`(?:\bHTTP(?:/[\d.]+)?\s+|\bstatus\s+(?:code\s+)?|\bHttpError:?\s*['"]?)`;
-  return new RegExp(`${introduced}${code}\\b|\\b${code}\\s+${reason}\\b`, 'i');
 }
 
 /**

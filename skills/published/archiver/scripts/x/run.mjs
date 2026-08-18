@@ -19,7 +19,7 @@
 import { access, constants, chmod, mkdir, rm } from 'node:fs/promises';
 import { spawn } from 'node:child_process';
 
-import { isLanded, readArchive } from '../shared/landed.mjs';
+import { duplicateFolders, isLanded, readArchive } from '../shared/landed.mjs';
 import {
   COMMON_BOOLEAN_FLAGS,
   COMMON_FLAGS,
@@ -388,7 +388,7 @@ async function doGo({
   if (!valid.ok) return { refusal: withPlanRemedy(planRefusal(valid), planCommand) };
 
   const archive = await readArchive(accountDir);
-  const todo = outstanding(approved(plan), archive, POST_ID_KEY);
+  const todo = outstanding(approved(plan), archive);
 
   const { fetched, failed, stopped } = await fetchImpl({
     accountDir,
@@ -410,12 +410,17 @@ async function doGo({
   await refreshAssets(accountDir, plan.account);
 
   const landed = await readArchive(accountDir);
-  const remaining = outstanding(approved(plan), landed, POST_ID_KEY).length;
+  const remaining = outstanding(approved(plan), landed).length;
 
   // Asked of the folder, so a resumed run reports the archive rather than its
   // own increment.
   let total = 0;
   for (const [, entry] of landed) if (isLanded(entry)) total += 1;
+
+  // One id in two folders is not a Douyin-only shape: an X post archived once
+  // as `undated_5` and later as `2024-01-01_5` leaves one of them answering for
+  // nothing, and its media counted by nothing.
+  const duplicates = await duplicateFolders(accountDir);
 
   // After the move, so the alias recorded is the folder this run finished in.
   await recordIdentity(ACCOUNT, root, accountDir, { account: plan.account, url });
@@ -430,7 +435,7 @@ async function doGo({
   // partway, which is what makes the retry fetch only what is missing.
   if (remaining === 0) await clearPlan(accountDir);
 
-  return { plan, accountDir, fetched, failed, stopped, remaining, total };
+  return { plan, accountDir, fetched, failed, stopped, remaining, total, duplicates };
 }
 
 function noArchive(root, planCommand) {
@@ -670,8 +675,9 @@ async function report(command, outcome, { url = null, notes = null, plan = null 
     root: outcome.plan.root,
     counts: outcome.plan.counts,
     // A --yes has just made this plan and knows what it announced; a bare --go
-    // has only what the plan recorded.
-    notes: notes ?? outcome.plan.notes ?? [],
+    // has only what the plan recorded. The duplicate count is about the folder
+    // as it is now, so it is added by the run rather than read back.
+    notes: [...(notes ?? outcome.plan.notes ?? []), ...duplicateNote(outcome.duplicates)],
     // Carried by the run that made the plan, and by that run only. A --go is
     // acting on a list already approved, and its window has done its work.
     plan: plan ? planWindow({ createdAt: plan.created_at, ttlHours: DEFAULT_TTL_HOURS }) : null,
@@ -704,6 +710,15 @@ async function report(command, outcome, { url = null, notes = null, plan = null 
     remedy: known?.remedy ?? null,
     result: payload,
   });
+}
+
+/**
+ * One post id found in more than one folder. Only one of them answers for the
+ * post, so the other's media is counted by nothing and every figure here is
+ * short by however much it holds.
+ */
+function duplicateNote(count) {
+  return count ? [{ code: 'duplicate-posts', count }] : [];
 }
 
 /**

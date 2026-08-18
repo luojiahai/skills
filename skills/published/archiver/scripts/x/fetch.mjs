@@ -36,8 +36,7 @@ export const FATAL = new Set([
 ]);
 
 /** The posts in a plan that are not yet fully on disk. */
-export const outstanding = (posts, archive, postIdKey = POST_ID_KEY) =>
-  outstandingIn(posts, archive, postIdKey);
+export const outstanding = (posts, archive) => outstandingIn(posts, archive, POST_ID_KEY);
 
 /** Where one post's folder is. X's rows spell the date `date` and the id `tweetId`. */
 export const postDir = (accountDir, post) =>

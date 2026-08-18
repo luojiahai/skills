@@ -112,8 +112,8 @@ function harvest(body) {
 
 test('a video link outside the grid is not this account’s post', () => {
   // Douyin renders recommendation rails pointing at other accounts. One outside
-  // <footer> and without ?source=Baiduspider is invisible to both of the older
-  // filters, and collecting it files a stranger's upload under this account.
+  // <footer> and without ?source=Baiduspider is caught by nothing but the grid
+  // scope, and collecting it files a stranger's upload under this account.
   const grid = el('div', [link('/video/1'), link('/video/2'), link('/video/3')]);
   const rail = el('div', [link('/video/999')]);
   const body = el('body', [grid, rail]);
