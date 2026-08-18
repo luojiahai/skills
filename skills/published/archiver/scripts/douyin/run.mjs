@@ -35,7 +35,7 @@ import {
   sharedNotes,
 } from '../shared/output.mjs';
 import { pickMode } from '../shared/run.mjs';
-import { missingTool, onPath } from '../shared/tools.mjs';
+import { hatchToolMissing, onPath } from '../shared/tools.mjs';
 import {
   COMMON_BOOLEAN_FLAGS,
   COMMON_FLAGS,
@@ -58,12 +58,13 @@ import {
   resolveAccountDir,
 } from '../shared/account.mjs';
 import { checkRoot, stampRoot } from '../shared/archiver.mjs';
+import { ensureEnv } from '../shared/env.mjs';
 import { collect } from './collect.mjs';
-import { YT_DLP, fetchPosts, outstanding } from './fetch.mjs';
+import { fetchPosts, outstanding } from './fetch.mjs';
 import { onDiskIds, readArchive } from '../shared/landed.mjs';
 import { login } from './login.mjs';
-import { archivesRoot, cookieFile, normalizeRoot } from '../shared/paths.mjs';
-import { PLATFORM, PROFILE_DIR, loadPlaywright } from './playwright.mjs';
+import { archivesRoot, cookieFile, normalizeRoot, toolPath } from '../shared/paths.mjs';
+import { PLATFORM, PROFILE_DIR, discardDerivedState, loadPlaywright } from './playwright.mjs';
 import { descriptorFor } from '../shared/platforms.mjs';
 
 const ACCOUNT = descriptorFor(PLATFORM);
@@ -126,6 +127,8 @@ export async function main(argv, deps = {}) {
     hasSessionImpl = profileHasSession,
     mintImpl = mintCookies,
     onPathImpl = onPath,
+    ensureEnvImpl = ensureEnv,
+    discardImpl = discardDerivedState,
   } = deps;
 
   const { opts, positional, unknown } = parseCommandLine(argv, {
@@ -179,6 +182,25 @@ export async function main(argv, deps = {}) {
 
   const profileDir = optString(opts, 'profile') || PROFILE_DIR;
 
+  // The state directory holds what must survive the skill being replaced, and a
+  // dependency tree is not that. Cleared before the build rather than after, so
+  // a machine that declines the download or has no network is not left carrying
+  // a hundred megabytes it will never read again.
+  await discardImpl();
+
+  // The tools this platform runs on, built before the first one is reached and
+  // never at dispatch — a mistyped flag and a refusable URL have both already
+  // been answered above, without a byte being downloaded. Signing in needs the
+  // browser and nothing else; everything else needs yt-dlp too.
+  try {
+    await ensureEnvImpl(
+      command === 'login' ? ['runtime', 'browser'] : ['runtime', 'tools', 'browser'],
+      { platform: PLATFORM },
+    );
+  } catch (error) {
+    return refuseHere(refusalFields(error));
+  }
+
   // Playwright drives the browser for both signing in and collecting, so it is
   // needed on every path past here.
   let chromium;
@@ -199,20 +221,15 @@ export async function main(argv, deps = {}) {
     });
   }
 
-  // yt-dlp is what downloads, so nothing past here works without it. Checked
-  // after the URL, because a refusable URL should be refused on any machine.
-  if (!(await onPathImpl(YT_DLP))) {
-    return refuseHere(
-      refusalFields(
-        missingTool(YT_DLP, {
-          brew: 'brew install yt-dlp',
-          otherwise: 'pipx install yt-dlp',
-          docs: 'https://github.com/yt-dlp/yt-dlp#installation',
-          hasBrew: await onPathImpl('brew'),
-        }),
-      ),
-    );
-  }
+  // Answers only under the escape hatch, where the machine's own yt-dlp is being
+  // used and can simply not be there. Off it the box holds yt-dlp, and a box
+  // that could not be built has already refused above.
+  const noYtDlp = await hatchToolMissing(
+    toolPath('yt-dlp'),
+    { install: 'uv tool install yt-dlp', docs: 'https://github.com/yt-dlp/yt-dlp#installation' },
+    onPathImpl,
+  );
+  if (noYtDlp) return refuseHere(refusalFields(noYtDlp));
 
   const alias = optString(opts, 'alias');
   const unalias = opts.unalias === true;

@@ -224,6 +224,8 @@
             "account-in-two-folders",
             "unalias-target-occupied",
             "unsafe-account-id",
+            "env-consent",
+            "env-build-failed",
             "tool-missing",
             "playwright-missing",
             "playwright-broken",

@@ -7,13 +7,18 @@ they hang off.
 ## The shape
 
 ```
-archive.sh          the entry point — node preflight, then dispatch.mjs
+archive.sh          the entry point — find a node, then dispatch.mjs
 dispatch.mjs        resolve the platform from the URL, call its main(argv)
 testing.mjs         the seam every run-level test goes through — not a test
 shared/             what more than one platform needs — README.md beside it
 douyin/             the Douyin platform — README.md beside it
 x/                  the X platform — README.md beside it
 ```
+
+The tools these scripts run — yt-dlp, gallery-dl, Playwright, Chromium, and the
+Node above them — are the skill's own, built by `../env/ensure-env` into keyed
+directories under the cache root. `../env/README.md` is where that is specified;
+`shared/paths.mjs` resolves them and `shared/env.mjs` builds them.
 
 `shared/` holds the archive contract and the modules that write it, module by
 module in [`shared/README.md`](./shared/README.md). Anything a platform owes the
@@ -82,15 +87,29 @@ nothing.
 
 ## Preflight sits where it can act
 
-`archive.sh` checks only node, plus the `--downloads` refusal. Both are there
-because they must happen before node runs or before a platform is reached: a
-platform refuses `--downloads` too, but only past its own tool preflight, so on a
-machine missing gallery-dl that order reports the missing tool instead of the
-flag that is actually wrong.
+`archive.sh` works out which node to run on, plus the `--downloads` refusal. Both
+are there because they must happen before node runs or before a platform is
+reached: a platform refuses `--downloads` too, but only past its own tool
+preflight, so that order would report a build instead of the flag that is
+actually wrong.
 
-Every other tool check belongs to the platform that needs it, after its URL is
-found valid — a refusable URL should be refused on any machine, tools installed
-or not.
+**`archive.sh` runs on the runtime box's node and no other, and builds nothing.**
+A `node` on PATH is never used: the interpreter running the scripts is as much
+part of the environment this skill owns as the downloaders are, so "which node
+did this run on" has exactly one answer. With no box there is no run — `--help`
+and `--list` included — only a `node-missing` refusal naming `setup.sh`.
+Building here instead would mean `--help` and a mistyped flag touching the
+network, which is the one thing dispatch must never do.
+
+`ARCHIVER_SYSTEM_TOOLS=1` is the exception and is not a fallback: it is set
+deliberately, all-or-nothing, and puts the whole run back on PATH — which is
+also how the one test that spawns a real `archive.sh` stays hermetic.
+
+Building belongs to the platform that needs it, after its URL is found valid and
+immediately before the first tool is reached — a refusable URL should be refused
+on any machine, before a byte is downloaded. Each platform names the boxes it
+needs and no others, which is what keeps Chromium off the disk of somebody who
+only archives X.
 
 Both refusals happen before node exists to compose one, so they write their
 envelope by hand. See [`shared/README.md`](./shared/README.md) for the contract

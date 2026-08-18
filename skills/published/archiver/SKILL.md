@@ -33,9 +33,8 @@ Run it **from the user's working directory** — call it by its full path, do no
 skill directory is replaced by the next update.
 
 It takes a **profile** URL and archives the whole account. Downloading one named
-post is out of scope; that is a job for the downloader the platform already
-needs installed. A single-post URL is refused rather than read as the account
-that posted it.
+post is out of scope; that is a job for a downloader run by hand. A single-post
+URL is refused rather than read as the account that posted it.
 
 A URL from a platform this skill does not archive is refused by name, and the
 refusal lists what it does archive. There is no generic fallback: every promise
@@ -81,9 +80,9 @@ it out verbatim.
 
 `remedy.run_by` says whose it is to run. **`agent`** is yours — re-collecting an
 account, for instance — and `remedy.command` is the exact invocation. **`user`**
-is theirs: installing a downloader, signing in to a browser, choosing a different
-folder name. Tell them what to do in your own words; do not show them the
-command, and do not run it for them.
+is theirs: signing in to a browser, choosing a different folder name, fixing a
+network they are behind. Tell them what to do in your own words; do not show
+them the command, and do not run it for them.
 
 The codes worth knowing:
 
@@ -96,7 +95,9 @@ The codes worth knowing:
 | `session-expired-grid` | Douyin only: the profile counts posts but the grid is blank. That is the sign-in handoff below. |
 | `session-missing`, `session-empty` | Douyin only: no session yet. Same handoff. |
 | `login-abandoned`, `login-timed-out` | The sign-in did not finish. Offer it again. |
-| `tool-missing`, `playwright-missing` | They install it — `details.install` names the command. |
+| `env-consent`, `node-missing` | The tools have not been built yet. **Yours to act on** — see below. |
+| `env-build-failed` | The build failed. Say what `details.output` ends with, and that it needs the network. |
+| `tool-missing`, `playwright-missing` | Only under the escape hatch. They install it — `details.install` names the command. |
 | `plan-*`, `no-archive` | The prepared list is gone, stale, or for something else. Re-collect with `remedy.command`, then **ask again** before downloading. |
 | `internal-error` | The scripts crashed. Say so and stop; `details.stack` is for a bug report, not for the user. |
 
@@ -108,9 +109,8 @@ Typed bare, this asks what is already archived rather than doing nothing:
 <skill-dir>/scripts/archive.sh --list [--archives DIR]
 ```
 
-It reads the tree and downloads nothing, so it needs no downloader installed and
-no session. Its `result` is `{ "root": …, "accounts": [ … ] }`, and each account
-carries:
+It reads the tree and downloads nothing, and needs no session. Its `result` is
+`{ "root": …, "accounts": [ … ] }`, and each account carries:
 
 | | |
 | --- | --- |
@@ -264,23 +264,62 @@ A working directory inside the skill itself is not a project: the run stops and
 asks for `--archives DIR` rather than archiving into a folder the next update
 deletes.
 
-## Before the first run
+## The tools it runs on
 
-`setup.sh` reports what each platform needs. A bare run installs nothing:
+**There is nothing for the user to install.** The skill downloads and runs its
+own `yt-dlp`, `gallery-dl`, Playwright and Chromium, at versions it pins, and
+never consults what is already on the machine. `curl` is the only thing it
+assumes. Say this once if they ask what it needs.
+
+They go in `${XDG_CACHE_HOME:-~/.cache}/archiver` — about 115MB to download and
+400MB on disk for X, and 365MB to download and a little over a gigabyte on disk
+once Douyin's browser is added. Sessions and cookies live somewhere
+else entirely, so that directory can be deleted at any time and costs only a
+re-download.
+
+### The first run asks
+
+The first time a platform needs them, the run stops with **`env-consent`**
+rather than starting several hundred megabytes of download unannounced. That
+refusal is **yours to act on**:
+
+1. Tell the user how much it will download — `details.download_mb` — and where
+   it goes — `details.dir`. Say that nothing is installed on their system and
+   that the directory can be deleted whenever they like.
+2. **Give the turn back and wait for their answer.**
+3. If they agree, run `remedy.command`. Then run the original command again.
+
+**`node-missing`** is the same conversation, one step earlier. The skill runs on
+the Node it built and on no other, so on a machine where nothing has been built
+yet this is what **every** command answers — `--list` included. Ask the same way,
+then run `<skill-dir>/setup.sh` and re-run the original command.
+
+Every run after that is silent, including one that needs a box the last one did
+not.
+
+**`env-build-failed`** means it could not be built — almost always the network.
+`details.output` holds the last thing the builder said; report the gist of it.
+
+### Pre-warming, and clearing it out
 
 ```bash
-<skill-dir>/setup.sh            # check every platform
-<skill-dir>/setup.sh douyin     # check Douyin, and install what can be installed
-<skill-dir>/setup.sh x          # check X
+<skill-dir>/setup.sh            # report what is built, build nothing
+<skill-dir>/setup.sh douyin     # build everything Douyin needs, now
+<skill-dir>/setup.sh x          # build everything X needs, now
+<skill-dir>/setup.sh refresh    # rebuild the downloaders at their latest release
+<skill-dir>/setup.sh clean      # delete the tools; sessions are untouched
 ```
 
-The two platforms cost very different things, and the asymmetry is real rather
-than an oversight — see each platform's section below.
+`refresh` is for the user who meets a platform change before a fix ships: it
+takes `yt-dlp` and `gallery-dl` at their latest release and keeps them until a
+shipped bump passes them. It costs seconds and a few megabytes.
+
+Somebody who only ever archives X never downloads Chromium.
 
 ## Douyin
 
-Needs [yt-dlp](https://github.com/yt-dlp/yt-dlp), Node, and a one-off sign-in.
-`setup.sh douyin` installs the Playwright browser it drives.
+Needs a one-off sign-in, and nothing else the user has to provide: yt-dlp and the
+browser it drives are the skill's own.
 
 Only a human can pass Douyin's login, so signing in is its own step and
 finishing it starts nothing:
@@ -323,10 +362,11 @@ between requests are deliberate: a run with them removed gets cut off partway.
 
 ## X, formerly Twitter
 
-Needs [gallery-dl](https://github.com/mikf/gallery-dl) (`brew install
-gallery-dl`) and Node, plus a browser already signed in to X. There is no
-sign-in step to automate — X's login cannot be scripted, by this or anything
-else. The first run reads the session out of that browser:
+Needs a browser on this machine already signed in to X. That is the one
+prerequisite the skill cannot supply — gallery-dl is its own, but a signed-in
+session is not something any box can hold. There is no sign-in step to automate:
+X's login cannot be scripted, by this or anything else. The first run reads the
+session out of that browser:
 
 ```bash
 <skill-dir>/scripts/archive.sh <url> --browser chrome --plan
@@ -385,7 +425,9 @@ when it says `agent`.
 ## Changing the scripts
 
 `scripts/README.md` carries the constraints that make the design what it is.
-Read it before modifying anything in `scripts/`.
+Read it before modifying anything in `scripts/`. `env/README.md` does the same
+for the tool environment — read that before touching a pin, the lock, or
+`ensure-env`.
 
 ## State
 
@@ -432,7 +474,9 @@ Read it before modifying anything in `scripts/`.
   and it is rebuilt from them when it disagrees. An account with no alias has no
   entry.
 
-State that is not an archive — sessions, cookies, the Playwright dependency —
-lives under `${XDG_STATE_HOME:-~/.local/state}/archiver/<platform>/`, not in the
-skill directory, so signing in is once per user rather than once per project and
-a plugin update cannot delete it.
+State that is not an archive — sessions and cookies — lives under
+`${XDG_STATE_HOME:-~/.local/state}/archiver/<platform>/`, not in the skill
+directory, so signing in is once per user rather than once per project and a
+plugin update cannot delete it. The tools are somewhere else again, under
+`${XDG_CACHE_HOME:-~/.cache}/archiver/`, because they are re-derivable and a
+session is not.

@@ -47,7 +47,7 @@ import { checkRoot, stampRoot } from '../shared/archiver.mjs';
 import { saveProfileAssets } from './assets.mjs';
 import { FAILURES, cookieExportArgs } from './gallerydl.mjs';
 import { fetchPosts, outstanding } from './fetch.mjs';
-import { archivesRoot, cookieFile, normalizeRoot, stateDir } from '../shared/paths.mjs';
+import { archivesRoot, cookieFile, normalizeRoot, stateDir, toolPath } from '../shared/paths.mjs';
 import { descriptorFor } from '../shared/platforms.mjs';
 
 const PLATFORM = 'x';
@@ -72,9 +72,8 @@ import {
   sharedNotes,
 } from '../shared/output.mjs';
 import { pickMode } from '../shared/run.mjs';
-import { missingTool, onPath } from '../shared/tools.mjs';
-
-const GALLERY_DL = 'gallery-dl';
+import { hatchToolMissing, onPath } from '../shared/tools.mjs';
+import { ensureEnv } from '../shared/env.mjs';
 
 /** The browsers gallery-dl can read a session out of, for a refusal that lists them. */
 const BROWSERS = ['chrome', 'firefox', 'safari', 'edge', 'brave', 'chromium', 'opera', 'vivaldi'];
@@ -126,7 +125,7 @@ The cached X session is in ${STATE_DIR}.`;
  * closed, and a plan and a go would each pay it — twice per download is the
  * friction that makes people paste a raw token instead.
  */
-async function ensureCookies({ cookies, browser, url, bin = 'gallery-dl' }) {
+async function ensureCookies({ cookies, browser, url, bin = toolPath('gallery-dl') }) {
   if (cookies) return cookies;
 
   try {
@@ -189,7 +188,7 @@ function refreshAssets(accountDir, account) {
 }
 
 async function doPlan({
-  target, root, alias, unalias, cookies, full, threshold, bin = 'gallery-dl', collectImpl = collect,
+  target, root, alias, unalias, cookies, full, threshold, bin = toolPath('gallery-dl'), collectImpl = collect,
 }) {
   // All settled the moment the first row names the account, because none of them
   // can be known before it: the id itself only arrives with the first row, and
@@ -341,7 +340,7 @@ function collectRefusal(failure, stderr) {
  */
 export async function doGo({
   root, dir, alias, unalias, url, handle, cookies, planCommand,
-  bin = 'gallery-dl', fetchImpl = fetchPosts,
+  bin = toolPath('gallery-dl'), fetchImpl = fetchPosts,
 }) {
   // --yes has just enumerated and knows exactly which folder it wrote into, so
   // it passes it in. A bare --go enumerates nothing, never learns the numeric
@@ -424,6 +423,7 @@ export async function main(argv, deps = {}) {
     fetchImpl = fetchPosts,
     onPathImpl = onPath,
     cookiesImpl = ensureCookies,
+    ensureEnvImpl = ensureEnv,
   } = deps;
 
   const { opts, positional, unknown } = parseCommandLine(argv, {
@@ -476,22 +476,25 @@ export async function main(argv, deps = {}) {
   }
 
   // gallery-dl both enumerates and downloads, so nothing past here works
-  // without it. It is checked after the URL because a refusable URL should be
-  // refused on any machine, installed tools or not — and before the session,
-  // because reading cookies out of a browser is a real cost to pay for a run
-  // that cannot proceed anyway.
-  if (!(await onPathImpl(GALLERY_DL))) {
-    return refuseHere(
-      refusalFields(
-        missingTool(GALLERY_DL, {
-          brew: 'brew install gallery-dl',
-          otherwise: 'pipx install gallery-dl',
-          docs: 'https://github.com/mikf/gallery-dl#installation',
-          hasBrew: await onPathImpl('brew'),
-        }),
-      ),
-    );
+  // without it. Built after the URL because a refusable URL should be refused on
+  // any machine — and before the session, because reading cookies out of a
+  // browser is a real cost to pay for a run that cannot proceed anyway. X needs
+  // no browser box: somebody who only ever archives X never downloads Chromium.
+  try {
+    await ensureEnvImpl(['runtime', 'tools'], { platform: PLATFORM });
+  } catch (error) {
+    return refuseHere(refusalFields(error));
   }
+
+  // Answers only under the escape hatch, where the machine's own gallery-dl is
+  // being used and can simply not be there. Off it the box holds gallery-dl, and
+  // a box that could not be built has already refused above.
+  const noGalleryDl = await hatchToolMissing(
+    toolPath('gallery-dl'),
+    { install: 'uv tool install gallery-dl', docs: 'https://github.com/mikf/gallery-dl#installation' },
+    onPathImpl,
+  );
+  if (noGalleryDl) return refuseHere(refusalFields(noGalleryDl));
 
   const browser = optString(opts, 'browser');
   const full = opts.full === true;

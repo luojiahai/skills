@@ -225,9 +225,14 @@ which are refused, failure classification, the archive scan, the `post.json`
 shape and its completeness rule, `sync.json`'s merge and lifetimes, the schema
 check, avatar sniffing, and post folder naming in both directions.
 
-`collect.mjs` is tested against a fake `gallery-dl` shell script, which is what
-covers the streaming, the early-stop kill and the two process-lifecycle races
-above.
+`collect.mjs` and `fetch.mjs` both take a `spawnImpl`, the same seam Douyin's
+downloader has, so what gets spawned can be asserted without anything being
+installed on the machine running the tests.
+
+`collect.mjs` is additionally tested against a fake `gallery-dl` shell script,
+which is what covers the streaming, the early-stop kill and the two
+process-lifecycle races above — those are real process behaviour, and a fake
+emitter cannot reproduce them.
 
 One fixture detail worth keeping: the blocking fake uses `exec sleep`, not
 `sleep`. Without `exec`, the shell forks sleep as a child, killing the shell

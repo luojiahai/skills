@@ -18,10 +18,11 @@ platforms are threaded with a descriptor where they differ.
 | `errors.mjs` | Every refusal this skill can make, as a code with an exit beside it, and the `Refusal` a module raises when it has no business emitting one. |
 | `output.schema.json` | That document's JSON Schema. Every document a test produces is validated against it, so "did we change the contract" is a reviewable diff. |
 | `archiver.mjs` | The archives root's schema version, the id → alias map, and the refusal when the schema is one this build cannot read. |
-| `paths.mjs` | Where state lives, per platform, and where archives land. |
+| `paths.mjs` | Where state lives, where the tool boxes are, and where archives land. |
+| `env.mjs` | Building those boxes before they are needed, and the refusals when that cannot happen. |
 | `cli.mjs` | Argument parsing, file reading, atomic JSON writing, entry-point detection. |
 | `exit.mjs` | One exit table, so a shell caller can tell "rate-limited" from "you typed the flag wrong" without knowing which platform ran. |
-| `tools.mjs` | Whether the platform's downloader is installed, and the refusal when it is not. |
+| `tools.mjs` | Whether a downloader is on PATH, and the refusal when it is not. Reachable only through the `ARCHIVER_SYSTEM_TOOLS` escape hatch. |
 
 ## The archive both platforms write
 
@@ -196,9 +197,9 @@ never relay it verbatim: the prose belongs in `SKILL.md`, and a message read out
 as written is that prose back in the scripts.
 
 `remedy` is present only where one exists, and `run_by` is load-bearing rather
-than decorative: re-running a plan is the agent's to do, while `brew install
-gallery-dl`, signing in to X in a browser, and the `--login` handoff are the
-user's.
+than decorative: re-running a plan is the agent's to do, and so is asking the
+user whether to download the tool environment, while signing in to X in a
+browser and the `--login` handoff are the user's.
 
 A module that cannot compose a document — it knows the archives root is inside
 the skill, but not which command is running — throws a `Refusal` instead, and
@@ -240,3 +241,29 @@ Anything here is read by every platform. Before changing a rule, check what the
 other platform does with it: one archives root read with one mental model is
 what these modules buy, and a rule that holds for one caller's shape and not the
 other's corrupts an archive both of them read.
+
+## The tools every platform runs on
+
+Neither platform runs whatever downloader is on the machine. `env/ensure-env`
+builds keyed directories under `${XDG_CACHE_HOME:-~/.cache}/archiver`,
+`paths.mjs` resolves a tool to a path inside one, and `env.mjs` is what a
+platform calls to have the missing ones built. `../../env/README.md` specifies
+the boxes, the keying and the bootstrap; what belongs here is only what the
+platforms share about reaching them.
+
+- **Build lazily, immediately before the point of need.** Never at dispatch, and
+  never before a URL has been found valid — a refusable URL should be refused on
+  any machine, before a byte is downloaded.
+- **Name only the boxes you need.** X asks for `runtime` and `tools`; Douyin adds
+  `browser`, and only when it is past the login. That is the whole of why
+  somebody who archives X never downloads Chromium.
+- **A build that failed is a refusal, never a fallback.** Quietly running the
+  machine's own copy instead would reintroduce the version ambiguity owning the
+  environment exists to remove, at the moment things are already going wrong.
+  `ARCHIVER_SYSTEM_TOOLS=1` is the one way back to PATH, all-or-nothing and
+  documented as unsupported, and `env-build-failed`'s remedy is the only place it
+  will be discovered at the moment it is needed.
+- **`tool-missing` and `playwright-missing` survive**, reachable only through
+  that hatch. The instinct to give an unsupported path worse errors is backwards:
+  that machine can never be reproduced from here, so the message is the entire
+  diagnostic.

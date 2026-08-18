@@ -1,17 +1,24 @@
 /**
  * tools.mjs — is the external tool there, and what does the user do if not.
  *
- * Each platform runs on a downloader it cannot install for anyone: yt-dlp for
- * Douyin, gallery-dl for X. The preflight belongs to the platform — the
- * dispatcher checks nothing but node — and this is the shape they share.
+ * Reachable only through `ARCHIVER_SYSTEM_TOOLS=1`. Off that hatch a platform's
+ * downloader comes out of a box this skill built, so "is it installed" is not a
+ * question anybody has to ask; on it, the user is back on their own PATH and a
+ * tool can simply not be there.
  *
- * Nothing here installs anything. It reports, with the command that fixes it.
+ * The refusal is as precise here as anywhere else. A machine reached through the
+ * hatch can never be reproduced from here, so the message is the entire
+ * diagnostic.
+ *
+ * Nothing here installs anything, and nothing here names a package manager this
+ * skill does not ship. A command suggested to somebody who does not have that
+ * package manager is not a remedy, it is a second thing to go and install first.
  */
 import { access, constants } from 'node:fs/promises';
-import os from 'node:os';
 import path from 'node:path';
 
 import { Refusal } from './errors.mjs';
+import { systemTools } from './paths.mjs';
 
 /**
  * Whether `bin` can be executed, searching PATH the way a shell would.
@@ -46,24 +53,10 @@ async function defaultCanExecute(candidate) {
 }
 
 /**
- * The command that installs a tool on *this* machine, or null.
- *
- * The brew form is offered only where brew can actually run it: a `brew install`
- * suggested to someone without brew is not a remedy, it is a second thing to go
- * and install first.
- */
-export function installCommand(bin, { brew, otherwise, darwin, hasBrew } = {}) {
-  const onMac = darwin ?? os.platform() === 'darwin';
-  if (brew && onMac && hasBrew) return brew;
-  return otherwise ?? null;
-}
-
-/**
  * The refusal for a tool that is not installed, as a code, its facts, and a
  * remedy that is the user's to run — nothing here installs anything for anyone.
  */
-export function missingTool(bin, { brew, otherwise, docs, darwin, hasBrew } = {}) {
-  const install = installCommand(bin, { brew, otherwise, darwin, hasBrew });
+export function missingTool(bin, { install = null, docs } = {}) {
   return new Refusal('tool-missing', `${bin} is not installed`, {
     details: { tool: bin, install },
     remedy: {
@@ -72,4 +65,19 @@ export function missingTool(bin, { brew, otherwise, docs, darwin, hasBrew } = {}
       run_by: 'user',
     },
   });
+}
+
+/**
+ * The refusal for a downloader this machine does not have, or null when there is
+ * nothing to refuse.
+ *
+ * Off the escape hatch there never is: the tool comes out of a box, and a box
+ * that could not be built has refused already with a code of its own. Both
+ * platforms ask the same question about a different binary, so they ask it here
+ * rather than each keeping a copy of the answer.
+ */
+export async function hatchToolMissing(bin, { install, docs }, onPathImpl = onPath) {
+  if (!systemTools()) return null;
+  if (await onPathImpl(bin)) return null;
+  return missingTool(bin, { install, docs });
 }

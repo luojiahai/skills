@@ -1,0 +1,20 @@
+# The Python half of the archiver's tool environment: the downloaders, pinned.
+#
+# `uv sync --frozen` builds the `tools` box from this and the `uv.lock` beside
+# it, so the transitive tree is fixed and hash-verified rather than resolved
+# afresh on every machine. Bump a version here and run `uv lock` in this
+# directory; the lock is committed and the two are checked against each other at
+# build time.
+#
+# Nothing is packaged from this directory — it exists to name dependencies.
+[project]
+name = "archiver-tools"
+version = "0"
+requires-python = ">=3.13,<3.14"
+dependencies = [
+    "yt-dlp==2026.7.4",
+    "gallery-dl==1.32.9",
+]
+
+[tool.uv]
+package = false

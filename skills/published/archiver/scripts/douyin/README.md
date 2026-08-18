@@ -206,9 +206,9 @@ paths are never derived from its location.
 
 | What | Where | Why |
 | --- | --- | --- |
-| session, cookies, `node_modules` | `${XDG_STATE_HOME:-~/.local/state}/archiver/douyin/` | user-level: sign in once, not once per project; survives skill reinstalls |
+| session, cookies | `${XDG_STATE_HOME:-~/.local/state}/archiver/douyin/` | user-level: sign in once, not once per project; survives skill reinstalls, and cannot be re-derived |
 | archives | `--archives DIR`, else `<git root of cwd, else cwd>/archives/` | project-level: an archive belongs beside the work it is part of, unless the user says otherwise |
-| Chromium binaries | `~/Library/Caches/ms-playwright` | shared across every project, so the ~150MB is paid once |
+| yt-dlp, Playwright, Chromium | `${XDG_CACHE_HOME:-~/.cache}/archiver/<box>-<key>/` | the skill's own, at pinned versions, shared across every project and deletable whole |
 
 **A cwd inside the skill is not a project.** Asked to run `scripts/archive.sh`,
 an agent tends to cd here first — and in a project that is not a git repository,
@@ -225,12 +225,24 @@ The **archives** root, the **state** directory and the `posts/` subdirectory are
 each written down once — in `paths.mjs` and `landed.mjs` — and every caller asks
 rather than recomputing. Two answers to the archives root would name a different
 account folder and silently re-download an entire archive. `../../setup.sh
-douyin` installs into the state directory and is safe to re-run; this folder's
-`package.json` is the version manifest, copied in at install time.
+douyin` builds the boxes ahead of time and is safe to re-run; the versions are
+pinned in `../../env/manifest`.
 
-Playwright is loaded from the state directory by explicit path, since that is
-outside Node's upward module resolution. It is CommonJS, so an import by path
-lands its exports on `.default` — `loadPlaywright()` normalises that.
+Playwright is loaded from the browser box by explicit path, since that is outside
+Node's upward module resolution. It is CommonJS, so an import by path lands its
+exports on `.default` — `loadPlaywright()` normalises that. It also points
+`PLAYWRIGHT_BROWSERS_PATH` at the box, here rather than in the environment the
+process was launched with, so running `run.mjs` directly drives the same browser
+as running it through `archive.sh`.
+
+**`~/Library/Caches/ms-playwright` is not ours.** Other tools write to it; this
+skill never reads it, never writes it, and must never delete it.
+
+**The state directory holds sessions and nothing else.** Every Douyin command
+starts by clearing anything else out of it — a dependency tree is re-derivable
+and belongs in the cache, and a copy here is a hundred megabytes nothing reads.
+`cookies.txt` and `profile/` are never touched: one of them cost a human a QR
+scan, and neither can be rebuilt.
 
 ## Tests
 

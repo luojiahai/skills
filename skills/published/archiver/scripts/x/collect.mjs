@@ -17,6 +17,7 @@ import { spawn } from 'node:child_process';
 import readline from 'node:readline';
 
 import { isLanded, isMissing } from '../shared/landed.mjs';
+import { toolPath } from '../shared/paths.mjs';
 import { classifyFailure, listArgs, parseRow } from './gallerydl.mjs';
 
 /**
@@ -34,8 +35,15 @@ export const DEFAULT_ABORT = 100;
  * halfway through a post's files would write a plan claiming fewer files than
  * the post has, and the count the user approved would then be wrong.
  */
-export async function collect({ url, cookies, shouldStop, onAccount, bin = 'gallery-dl' }) {
-  const child = spawn(bin, listArgs({ url, cookies }), {
+export async function collect({
+  url,
+  cookies,
+  shouldStop,
+  onAccount,
+  bin = toolPath('gallery-dl'),
+  spawnImpl = spawn,
+}) {
+  const child = spawnImpl(bin, listArgs({ url, cookies }), {
     stdio: ['ignore', 'pipe', 'pipe'],
   });
 

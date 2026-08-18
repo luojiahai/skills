@@ -20,6 +20,7 @@ import path from 'node:path';
 import { main } from './run.mjs';
 import { postDir } from './fetch.mjs';
 import { EXIT } from '../shared/exit.mjs';
+import { Refusal } from '../shared/errors.mjs';
 import { buildPost, writePost } from '../shared/post.mjs';
 import { savePlan } from '../shared/sync.mjs';
 import { emitted } from '../testing.mjs';
@@ -54,6 +55,8 @@ function deps(over = {}) {
     hasSessionImpl: async () => true,
     mintImpl: async () => '/tmp/cookies.txt',
     onPathImpl: async () => true,
+    ensureEnvImpl: async () => {},
+    discardImpl: async () => {},
     ...over,
   };
 }
@@ -635,16 +638,61 @@ test('an unusable alias is refused before the browser opens', async () => {
   assert.equal(collected, false);
 });
 
-test('a missing downloader names the tool and how to install it', async () => {
-  const dir = await root();
-  const { document } = await run([URL_MS4W, '--archives', dir, '--plan'], {
-    onPathImpl: async () => false,
+test('under the escape hatch a missing downloader still names itself', async () => {
+  // The hatch is the one way back to PATH, and the machine it leads to can never
+  // be reproduced from here — so the refusal is the entire diagnostic and stays.
+  process.env.ARCHIVER_SYSTEM_TOOLS = '1';
+  try {
+    const dir = await root();
+    const { document } = await run([URL_MS4W, '--archives', dir, '--plan'], {
+      onPathImpl: async () => false,
+    });
+
+    assert.equal(document.exit, EXIT.FAILED);
+    assert.equal(document.error.code, 'tool-missing');
+    assert.equal(document.error.details.tool, 'yt-dlp');
+    assert.equal(document.error.remedy.run_by, 'user', 'nothing here installs anything for anyone');
+  } finally {
+    delete process.env.ARCHIVER_SYSTEM_TOOLS;
+  }
+});
+
+test('signing in downloads a browser but never a downloader', async () => {
+  // An account nobody can collect yet still needs the browser the login happens
+  // in, and yt-dlp is no part of passing a login.
+  let asked = null;
+  const { document } = await run([URL_MS4W, '--login'], {
+    ensureEnvImpl: async (boxes) => {
+      asked = boxes;
+    },
   });
 
-  assert.equal(document.exit, EXIT.FAILED);
-  assert.equal(document.error.code, 'tool-missing');
-  assert.equal(document.error.details.tool, 'yt-dlp');
-  assert.equal(document.error.remedy.run_by, 'user', 'nothing here installs anything for anyone');
+  assert.equal(document.exit, EXIT.OK);
+  assert.deepEqual(asked, ['runtime', 'browser']);
+});
+
+test('the first run asks before downloading anything', async () => {
+  const dir = await root();
+  let collected = false;
+  const { document } = await run([URL_MS4W, '--archives', dir, '--plan'], {
+    collectImpl: async () => {
+      collected = true;
+      return listing();
+    },
+    ensureEnvImpl: async (boxes, { platform }) => {
+      assert.deepEqual(boxes, ['runtime', 'tools', 'browser']);
+      assert.equal(platform, 'douyin');
+      throw new Refusal('env-consent', 'nothing built yet', {
+        details: { boxes, download_mb: 320, dir: '/cache' },
+        remedy: { message: 'ask first', command: '/skill/setup.sh douyin', run_by: 'agent' },
+      });
+    },
+  });
+
+  assert.equal(document.exit, EXIT.REFUSED);
+  assert.equal(document.error.code, 'env-consent');
+  assert.equal(document.error.remedy.run_by, 'agent');
+  assert.equal(collected, false);
 });
 
 // ---- the notes --------------------------------------------------------------

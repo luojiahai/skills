@@ -43,7 +43,7 @@ Two ways to install, two philosophies:
 
 Full entries, including what each one costs you, are in the [catalogue](./skills/README.md).
 
-- **[archiver](./skills/published/archiver/SKILL.md)** — archive a social account's posts to your own disk. It covers **Douyin** (every video an account has posted) and **X, formerly Twitter** (the images, videos and GIFs). You give it a profile URL; the URL says which platform, and you are never asked. Re-runs fetch only what's new.
+- **[archiver](./skills/published/archiver/SKILL.md)** — archive a social account's posts to your own disk. It covers **Douyin** (every video an account has posted) and **X, formerly Twitter** (the images, videos and GIFs). You give it a profile URL; the URL says which platform, and you are never asked. Re-runs fetch only what's new, and it downloads and runs its own pinned copies of the tools it needs rather than asking you to install any.
 
 It runs on your own signed-in session and archives to your own disk — read the catalogue before you point it at anything.
 

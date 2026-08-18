@@ -1,0 +1,95 @@
+name: Tool environment
+
+# CI's suite touches no socket and is platform-independent by construction, so it
+# runs on one OS and matrixing it would buy nothing but minutes. This is the
+# opposite: it actually builds the archiver's tool boxes, which is the only way
+# to find out whether a pinned URL still resolves and whether a darwin-arm64
+# tarball downloads and executes. `ensure-env` has no other coverage.
+#
+# Its own workflow rather than a job in CI, so the filter below can be GitHub's
+# own: a job cannot carry `paths:`, and gating one inside would start four
+# runners on every pull request to have them all decide to do nothing.
+#
+# Not on every change: a yt-dlp release or a network blip would red-light a pull
+# request that never touched this code. Not manual-only either — the change most
+# likely to break it is the one editing what it builds, which is what the filter
+# catches.
+on:
+  pull_request:
+    paths:
+      - 'skills/published/archiver/env/manifest'
+      - 'skills/published/archiver/env/pyproject.toml'
+      - 'skills/published/archiver/env/uv.lock'
+      - 'skills/published/archiver/env/ensure-env'
+      - '.github/workflows/tool-environment.yml'
+  push:
+    branches:
+      - main
+    paths:
+      - 'skills/published/archiver/env/manifest'
+      - 'skills/published/archiver/env/pyproject.toml'
+      - 'skills/published/archiver/env/uv.lock'
+      - 'skills/published/archiver/env/ensure-env'
+      - '.github/workflows/tool-environment.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-15, macos-15-intel, ubuntu-24.04, ubuntu-24.04-arm]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build every box from nothing
+        run: skills/published/archiver/env/ensure-env runtime tools browser
+
+      # Chromium's shared libraries, which `ensure-env` deliberately does not
+      # install: they are a root-owned mutation of the machine, and the skill
+      # only ever writes to directories it owns. A Linux desktop generally
+      # already has them; a bare runner does not.
+      - name: Chromium's system libraries (Linux runners only)
+        if: runner.os == 'Linux'
+        run: |
+          set -euo pipefail
+          box="$(skills/published/archiver/env/ensure-env --print browser)"
+          runtime="$(skills/published/archiver/env/ensure-env --print runtime)"
+          sudo "$runtime/node/bin/node" "$box/node_modules/playwright/cli.js" install-deps chromium
+
+      # The key is one rule written twice - in shell in `ensure-env` and in
+      # JavaScript in `paths.mjs` - and this asserts the box that was just built
+      # is the box the scripts go looking for.
+      - name: Run the tools out of the boxes they were built into
+        run: |
+          set -euo pipefail
+          runtime="$(skills/published/archiver/env/ensure-env --print runtime)"
+          tools="$(skills/published/archiver/env/ensure-env --print tools)"
+          "$runtime/node/bin/node" --version
+          "$runtime/uv/uv" --version
+          "$tools/venv/bin/yt-dlp" --version
+          "$tools/venv/bin/gallery-dl" --version
+          cd skills/published/archiver
+          "$runtime/node/bin/node" --input-type=module -e '
+            import { loadPlaywright } from "./scripts/douyin/playwright.mjs";
+            const pw = await loadPlaywright();
+            const browser = await pw.chromium.launch({ headless: true });
+            const page = await browser.newPage();
+            await page.setContent("<h1>ok</h1>");
+            if ((await page.textContent("h1")) !== "ok") process.exit(1);
+            await browser.close();
+          '
+
+      - name: The refresh path, and clearing it all out
+        run: |
+          set -euo pipefail
+          skills/published/archiver/setup.sh refresh
+          "$(skills/published/archiver/env/ensure-env --print tools)/venv/bin/yt-dlp" --version
+          skills/published/archiver/setup.sh clean

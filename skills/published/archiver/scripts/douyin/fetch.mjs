@@ -26,9 +26,8 @@ import readline from 'node:readline';
 import { POSTS_DIR, isLanded } from '../shared/landed.mjs';
 import { buildPost, writePost } from '../shared/post.mjs';
 import { postFolderName, toTimestamp } from '../shared/naming.mjs';
+import { toolPath } from '../shared/paths.mjs';
 import { permalink } from './target.mjs';
-
-export const YT_DLP = 'yt-dlp';
 
 /**
  * Douyin rate-limits hard; an unthrottled batch starts failing partway through
@@ -132,7 +131,7 @@ export function postDir(accountDir, post) {
  * Runs yt-dlp once, streaming stdout so a line can be acted on while the
  * process is still going. Resolves `{ code, lines, output }`.
  */
-function runYtDlp(args, { bin = YT_DLP, spawnImpl = spawn, onLine = () => {} } = {}) {
+function runYtDlp(args, { bin = toolPath('yt-dlp'), spawnImpl = spawn, onLine = () => {} } = {}) {
   return new Promise((resolve) => {
     const child = spawnImpl(bin, args, { stdio: ['ignore', 'pipe', 'pipe'] });
     const lines = [];
@@ -171,7 +170,7 @@ export async function fetchPosts({
   cookies,
   refreshCookies,
   log = () => {},
-  bin = YT_DLP,
+  bin = toolPath('yt-dlp'),
   spawnImpl = spawn,
 }) {
   let activeCookies = cookies;

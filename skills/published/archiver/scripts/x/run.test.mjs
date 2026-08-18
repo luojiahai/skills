@@ -71,6 +71,7 @@ function deps(over = {}) {
     }),
     onPathImpl: async () => true,
     cookiesImpl: async () => '/tmp/cookies.txt',
+    ensureEnvImpl: async () => {},
     ...over,
     // Wrapped last, so a test's own listing still goes through the account
     // callback. That callback is what settles the folder and reads the archive,
@@ -352,13 +353,60 @@ test('an actually unknown flag still reports as unknown', async () => {
   assert.equal(document.error.details.flag, '--nonsense');
 });
 
-test('a missing downloader names the tool and how to install it', async () => {
-  const { document } = await run(['https://x.com/jack', '--plan'], { onPathImpl: async () => false });
+test('the environment is built before the session is read out of a browser', async () => {
+  // Reading a browser profile prompts for Keychain access and wants the browser
+  // closed. Paying that for a run that cannot proceed is the wrong order.
+  let readCookies = false;
+  const { document } = await run(['https://x.com/jack', '--plan'], {
+    ensureEnvImpl: async () => {
+      throw new Refusal('env-build-failed', 'no network', {
+        details: { boxes: ['tools'], dir: '/cache', output: '' },
+        remedy: { message: 'try again', run_by: 'user' },
+      });
+    },
+    cookiesImpl: async () => {
+      readCookies = true;
+      return '/tmp/cookies.txt';
+    },
+  });
 
   assert.equal(document.exit, EXIT.FAILED);
-  assert.equal(document.error.code, 'tool-missing');
-  assert.equal(document.error.details.tool, 'gallery-dl');
-  assert.equal(document.error.remedy.run_by, 'user');
+  assert.equal(document.error.code, 'env-build-failed');
+  assert.equal(readCookies, false);
+});
+
+test('the first run asks before downloading anything', async () => {
+  const { document } = await run(['https://x.com/jack', '--plan'], {
+    ensureEnvImpl: async (boxes, { platform }) => {
+      assert.deepEqual(boxes, ['runtime', 'tools'], 'X never downloads a browser');
+      assert.equal(platform, 'x');
+      throw new Refusal('env-consent', 'nothing built yet', {
+        details: { boxes, download_mb: 150, dir: '/cache' },
+        remedy: { message: 'ask first', command: '/skill/setup.sh x', run_by: 'agent' },
+      });
+    },
+  });
+
+  assert.equal(document.exit, EXIT.REFUSED);
+  assert.equal(document.error.code, 'env-consent');
+  assert.equal(document.error.details.download_mb, 150);
+  assert.equal(document.error.remedy.run_by, 'agent');
+});
+
+test('under the escape hatch a missing downloader still names itself', async () => {
+  // The hatch is the one way back to PATH, and the machine it leads to can never
+  // be reproduced from here — so the refusal is the entire diagnostic and stays.
+  process.env.ARCHIVER_SYSTEM_TOOLS = '1';
+  try {
+    const { document } = await run(['https://x.com/jack', '--plan'], { onPathImpl: async () => false });
+
+    assert.equal(document.exit, EXIT.FAILED);
+    assert.equal(document.error.code, 'tool-missing');
+    assert.equal(document.error.details.tool, 'gallery-dl');
+    assert.equal(document.error.remedy.run_by, 'user');
+  } finally {
+    delete process.env.ARCHIVER_SYSTEM_TOOLS;
+  }
 });
 
 // ---- what --go downloads ----------------------------------------------------
