@@ -17,7 +17,7 @@
  */
 import { createInterface } from 'node:readline';
 
-import { progress } from '../shared/output.mjs';
+import { progress } from '../../shared/output.mjs';
 import { loadPlaywright } from './playwright.mjs';
 import { hasSession } from './session.mjs';
 

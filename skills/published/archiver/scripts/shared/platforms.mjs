@@ -3,7 +3,8 @@
  *
  * One table. A platform is a name, the folder its scripts live in, the hosts it
  * answers for, and a label a refusal message can print. Adding a platform is a
- * folder under `scripts/` and a line here; there is nowhere else to remember.
+ * folder under `scripts/platforms/` and a line here; there is nowhere else to
+ * remember. The folder is named bare: `dispatch.mjs` composes the path.
  *
  * What this decides is *which* platform a URL belongs to — never whether that
  * URL is something the platform can archive. A single-post URL, a bookmarks

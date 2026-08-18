@@ -16,13 +16,13 @@
 import { spawn } from 'node:child_process';
 import { mkdir } from 'node:fs/promises';
 
-import { outstanding as outstandingIn, postDirFor } from '../shared/landed.mjs';
-import { toolPath } from '../shared/paths.mjs';
-import { postIdKeyFor } from '../shared/platforms.mjs';
-import { SPAWN_FAILED, runTool } from '../shared/subprocess.mjs';
+import { outstanding as outstandingIn, postDirFor } from '../../shared/landed.mjs';
+import { toolPath } from '../../shared/paths.mjs';
+import { postIdKeyFor } from '../../shared/platforms.mjs';
+import { SPAWN_FAILED, runTool } from '../../shared/subprocess.mjs';
 import { classifyFailure, fetchArgs } from './gallerydl.mjs';
 import { permalink } from './target.mjs';
-import { buildPost, toTimestamp, writePost } from '../shared/post.mjs';
+import { buildPost, toTimestamp, writePost } from '../../shared/post.mjs';
 
 const POST_ID_KEY = postIdKeyFor('x');
 

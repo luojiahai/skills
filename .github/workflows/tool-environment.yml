@@ -72,14 +72,19 @@ jobs:
           set -euo pipefail
           runtime="$(skills/published/archiver/env/ensure-env --print runtime)"
           tools="$(skills/published/archiver/env/ensure-env --print tools)"
+          browser="$(skills/published/archiver/env/ensure-env --print browser)"
           "$runtime/node/bin/node" --version
           "$runtime/uv/uv" --version
           "$tools/venv/bin/yt-dlp" --version
           "$tools/venv/bin/gallery-dl" --version
-          cd skills/published/archiver
+          # Driven straight out of the box, as the four above are. What this job
+          # proves is that a box built here holds a working tool, so it addresses
+          # the box and imports nothing from the skill's own modules.
+          PLAYWRIGHT_BROWSERS_PATH="$browser/browsers" \
+          PLAYWRIGHT_ENTRY="$browser/node_modules/playwright/index.js" \
           "$runtime/node/bin/node" --input-type=module -e '
-            import { loadPlaywright } from "./scripts/douyin/playwright.mjs";
-            const pw = await loadPlaywright();
+            const mod = await import(process.env.PLAYWRIGHT_ENTRY);
+            const pw = mod.chromium ? mod : mod.default;
             const browser = await pw.chromium.launch({ headless: true });
             const page = await browser.newPage();
             await page.setContent("<h1>ok</h1>");

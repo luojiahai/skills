@@ -17,8 +17,8 @@
  */
 import path from 'node:path';
 
-import { EXIT } from '../shared/exit.mjs';
-import { Refusal, refusalFields } from '../shared/errors.mjs';
+import { EXIT } from '../../shared/exit.mjs';
+import { Refusal, refusalFields } from '../../shared/errors.mjs';
 import {
   accountFields,
   answer,
@@ -33,9 +33,9 @@ import {
   runCounts,
   self,
   sharedNotes,
-} from '../shared/output.mjs';
-import { pickMode } from '../shared/run.mjs';
-import { hatchToolMissing, onPath } from '../shared/tools.mjs';
+} from '../../shared/output.mjs';
+import { pickMode } from '../../shared/run.mjs';
+import { hatchToolMissing, onPath } from '../../shared/tools.mjs';
 import {
   COMMON_BOOLEAN_FLAGS,
   COMMON_FLAGS,
@@ -43,7 +43,7 @@ import {
   missingValueRefusal,
   optString,
   parseCommandLine,
-} from '../shared/cli.mjs';
+} from '../../shared/cli.mjs';
 import {
   accountDirFor,
   aliasDirFor,
@@ -57,16 +57,16 @@ import {
   readAccount,
   recordIdentity,
   resolveAccountDir,
-} from '../shared/account.mjs';
-import { checkRoot, stampRoot } from '../shared/archiver.mjs';
-import { ensureEnv } from '../shared/env.mjs';
+} from '../../shared/account.mjs';
+import { checkRoot, stampRoot } from '../../shared/archiver.mjs';
+import { ensureEnv } from '../../shared/env.mjs';
 import { collect } from './collect.mjs';
 import { fetchPosts, outstanding } from './fetch.mjs';
-import { duplicateFolders, onDiskIds, readArchive, unlistedIds } from '../shared/landed.mjs';
+import { duplicateFolders, onDiskIds, readArchive, unlistedIds } from '../../shared/landed.mjs';
 import { login } from './login.mjs';
-import { archivesRoot, cookieFile, normalizeRoot, toolPath } from '../shared/paths.mjs';
+import { archivesRoot, cookieFile, normalizeRoot, toolPath } from '../../shared/paths.mjs';
 import { PLATFORM, PROFILE_DIR, discardDerivedState, loadPlaywright } from './playwright.mjs';
-import { descriptorFor, postIdKeyFor } from '../shared/platforms.mjs';
+import { descriptorFor, postIdKeyFor } from '../../shared/platforms.mjs';
 import {
   DEFAULT_TTL_HOURS,
   approved,
@@ -75,10 +75,10 @@ import {
   planRefusal,
   unlistedCountFromPlan,
   validatePlan,
-} from '../shared/plan.mjs';
+} from '../../shared/plan.mjs';
 import { notes } from './notes.mjs';
 import { discardCookies, hasFreshCookies, mintCookies, profileHasSession } from './session.mjs';
-import { clearPlan, loadPlan, previousRoot, recordRun, savePlan } from '../shared/sync.mjs';
+import { clearPlan, loadPlan, previousRoot, recordRun, savePlan } from '../../shared/sync.mjs';
 import { parseTarget } from './target.mjs';
 
 const ACCOUNT = descriptorFor(PLATFORM);

@@ -21,18 +21,18 @@ import { promisify } from 'node:util';
 
 import { main } from './run.mjs';
 import { fetchPosts, postDir } from './fetch.mjs';
-import { recordIdentity } from '../shared/account.mjs';
-import { descriptorFor } from '../shared/platforms.mjs';
-import { EXIT } from '../shared/exit.mjs';
-import { Refusal } from '../shared/errors.mjs';
-import { buildPlan } from '../shared/plan.mjs';
-import { savePlan } from '../shared/sync.mjs';
-import { archiveCounts } from '../shared/output.mjs';
-import { buildPost, writePost } from '../shared/post.mjs';
-import { emitted, validate } from '../testing.mjs';
+import { recordIdentity } from '../../shared/account.mjs';
+import { descriptorFor } from '../../shared/platforms.mjs';
+import { EXIT } from '../../shared/exit.mjs';
+import { Refusal } from '../../shared/errors.mjs';
+import { buildPlan } from '../../shared/plan.mjs';
+import { savePlan } from '../../shared/sync.mjs';
+import { archiveCounts } from '../../shared/output.mjs';
+import { buildPost, writePost } from '../../shared/post.mjs';
+import { emitted, validate } from '../../testing.mjs';
 
 const exec = promisify(execFile);
-const ARCHIVE_SH = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'archive.sh');
+const ARCHIVE_SH = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..', 'archive.sh');
 
 // Realpath'd, because normalizeRoot does: on macOS /var is a symlink to
 // /private/var, and a plan made one way would be refused the other.

@@ -9,7 +9,7 @@
  * A `v.douyin.com` share link cannot be resolved without following it, so it is
  * refused with the one instruction that works: open it and copy where it lands.
  */
-import { Refusal } from '../shared/errors.mjs';
+import { Refusal } from '../../shared/errors.mjs';
 
 const PROFILE = /^(?:https?:\/\/)?(?:[a-z0-9-]+\.)*douyin\.com\/user\/([^/?#]+)/i;
 const SHARE = /^(?:https?:\/\/)?v\.douyin\.com\//i;

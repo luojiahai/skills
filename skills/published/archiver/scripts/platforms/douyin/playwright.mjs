@@ -17,8 +17,8 @@ import { rm } from 'node:fs/promises';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-import { Refusal } from '../shared/errors.mjs';
-import { browserBox, stateDir, systemTools } from '../shared/paths.mjs';
+import { Refusal } from '../../shared/errors.mjs';
+import { browserBox, stateDir, systemTools } from '../../shared/paths.mjs';
 
 export const PLATFORM = 'douyin';
 export const STATE_DIR = stateDir(PLATFORM);

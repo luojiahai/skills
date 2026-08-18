@@ -16,8 +16,9 @@ import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 
-import { main } from './dispatch.mjs';
+import { loadPlatform, main } from './dispatch.mjs';
 import { EXIT } from './shared/exit.mjs';
+import { PLATFORMS } from './shared/platforms.mjs';
 import { capture, emitted } from './testing.mjs';
 
 const run = promisify(execFile);
@@ -55,6 +56,18 @@ test('the whole command line goes through untouched', async () => {
 test('the platform decides the exit code', async () => {
   const { load } = spy(EXIT.UNAUTHORIZED);
   assert.equal(await main(['https://x.com/jack'], { load }), EXIT.UNAUTHORIZED);
+});
+
+test('every platform in the registry is reachable where the dispatcher looks', async () => {
+  // The one line between the registry and the filesystem, and the only one the
+  // tests above replace with a spy. Resolving each platform for real is what
+  // makes an entry naming a folder that is not there a failure of the suite
+  // rather than of somebody's run. Resolved and never invoked: reachability is
+  // the whole invariant, and running one would want the tools and the network.
+  for (const platform of PLATFORMS) {
+    const module = await loadPlatform(platform);
+    assert.equal(typeof module.main, 'function', `${platform.name} exports no main`);
+  }
 });
 
 test('a URL from a platform this skill does not archive is refused by name', async () => {

@@ -19,7 +19,7 @@
 import { access, constants, chmod, mkdir, rm } from 'node:fs/promises';
 import { spawn } from 'node:child_process';
 
-import { duplicateFolders, isLanded, readArchive } from '../shared/landed.mjs';
+import { duplicateFolders, isLanded, readArchive } from '../../shared/landed.mjs';
 import {
   COMMON_BOOLEAN_FLAGS,
   COMMON_FLAGS,
@@ -27,7 +27,7 @@ import {
   missingValueRefusal,
   optString,
   parseCommandLine,
-} from '../shared/cli.mjs';
+} from '../../shared/cli.mjs';
 import { DEFAULT_ABORT, collect, diff, groupFiles, makeStopper } from './collect.mjs';
 import {
   accountDirFor,
@@ -43,19 +43,19 @@ import {
   readAccount,
   recordIdentity,
   resolveAccountDir,
-} from '../shared/account.mjs';
-import { checkRoot, stampRoot } from '../shared/archiver.mjs';
+} from '../../shared/account.mjs';
+import { checkRoot, stampRoot } from '../../shared/archiver.mjs';
 import { saveProfileAssets } from './assets.mjs';
 import { FAILURES, cookieExportArgs } from './gallerydl.mjs';
 import { fetchPosts, outstanding } from './fetch.mjs';
-import { archivesRoot, cookieFile, normalizeRoot, stateDir, toolPath } from '../shared/paths.mjs';
-import { descriptorFor, postIdKeyFor } from '../shared/platforms.mjs';
+import { archivesRoot, cookieFile, normalizeRoot, stateDir, toolPath } from '../../shared/paths.mjs';
+import { descriptorFor, postIdKeyFor } from '../../shared/platforms.mjs';
 
-import { DEFAULT_TTL_HOURS, approved, buildPlan, planRefusal, validatePlan } from '../shared/plan.mjs';
-import { clearPlan, loadPlan, previousRoot, recordRun, savePlan } from '../shared/sync.mjs';
+import { DEFAULT_TTL_HOURS, approved, buildPlan, planRefusal, validatePlan } from '../../shared/plan.mjs';
+import { clearPlan, loadPlan, previousRoot, recordRun, savePlan } from '../../shared/sync.mjs';
 import { parseTarget, permalink } from './target.mjs';
-import { EXIT } from '../shared/exit.mjs';
-import { Refusal, refusalFields } from '../shared/errors.mjs';
+import { EXIT } from '../../shared/exit.mjs';
+import { Refusal, refusalFields } from '../../shared/errors.mjs';
 import {
   accountFields,
   answer,
@@ -68,10 +68,10 @@ import {
   refuse,
   runCounts,
   sharedNotes,
-} from '../shared/output.mjs';
-import { pickMode } from '../shared/run.mjs';
-import { hatchToolMissing, onPath } from '../shared/tools.mjs';
-import { ensureEnv } from '../shared/env.mjs';
+} from '../../shared/output.mjs';
+import { pickMode } from '../../shared/run.mjs';
+import { hatchToolMissing, onPath } from '../../shared/tools.mjs';
+import { ensureEnv } from '../../shared/env.mjs';
 
 const PLATFORM = 'x';
 const ACCOUNT = descriptorFor(PLATFORM);

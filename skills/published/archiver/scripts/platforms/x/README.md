@@ -120,8 +120,9 @@ else. It records identity again after the fetch, with the alias the run finished
 under. What the last run *did* is run history and lives in `sync.json`.
 
 **`sync.json`, `post.json`'s write order and the root's schema version are the
-shared archive's rules,** specified in [`../shared/README.md`](../shared/README.md).
-Two of them bite hardest here. Deleting `sync.json` loses no archive content, so
+shared archive's rules,** specified in
+[`../../shared/README.md`](../../shared/README.md). Two of them bite hardest
+here. Deleting `sync.json` loses no archive content, so
 no resumption cursor may go in it: that would make a run shorter in *result*
 rather than merely cheaper, missing posts a reordered feed has pushed below the
 mark. And a folder whose `post.json` could not be written counts the post as
@@ -164,7 +165,7 @@ is said to the tool and how its output is read back.
 
 The archive itself — `account.json`, `post.json`, `sync.json`, `archiver.json`,
 the post folders and the envelope every command answers in — is
-[`../shared/`](../shared/README.md).
+[`../../shared/`](../../shared/README.md).
 
 ## Why bash holds no logic
 
@@ -178,7 +179,7 @@ going — through the state write and a summary telling the user to re-run the
 
 The split run, what `sync.json` parks between the halves, when a plan is refused
 and why `--yes` outranks a later mode flag are the same on every platform, and
-are specified in [`../shared/README.md`](../shared/README.md).
+are specified in [`../../shared/README.md`](../../shared/README.md).
 
 What is particular here: `--go` runs no collection pass. It fetches each approved
 post by permalink, which is the second reason for one invocation per post —
@@ -277,9 +278,9 @@ matches on.
 ## The archive this shares with the other platform
 
 `account.json`, `post.json`, `sync.json`, `archiver.json` and the
-`posts/<date>_<id>/` layout are written by `../shared/`, and specified in
-[`../shared/README.md`](../shared/README.md). Both platforms write into one
-archives root, so those rules are not this platform's to change alone.
+`posts/<date>_<id>/` layout are written by `../../shared/`, and specified in
+[`../../shared/README.md`](../../shared/README.md). Both platforms write into
+one archives root, so those rules are not this platform's to change alone.
 
 What is particular to this one:
 
@@ -288,7 +289,7 @@ What is particular to this one:
   Douyin's out of the profile page yet, so the directory is simply absent there
   — the layout allows it to be.
 - **Where a media entry's name comes from.** Both platforms build `post.json`
-  with `../shared/post.mjs`, so the *file* is one shape. What differs is what
+  with `../../shared/post.mjs`, so the *file* is one shape. What differs is what
   each hands `mediaEntry`: this platform passes `{num, ext, …}`, because it is
   turning gallery-dl's rows into filenames itself, while Douyin passes `{file}`,
   yt-dlp having already printed the name it is about to write. Reading the name

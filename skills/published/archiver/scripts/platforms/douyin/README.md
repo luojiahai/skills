@@ -51,7 +51,7 @@ for its whole body, so `run_plan … || status=$?` reads like status capture whi
 letting a *refused* plan print its refusal and then keep going, through the
 metadata write and a bogus summary telling the user to re-run the `--go` that
 just failed. Every refusal here is a returned exit code that the caller must
-read, and `../archive.sh` holds only the node preflight and the `--downloads`
+read, and `../../archive.sh` holds only the node preflight and the `--downloads`
 refusal.
 
 **The pauses are what let a long run finish.** `fetch.mjs` runs yt-dlp with
@@ -82,7 +82,7 @@ account, which is the whole reason this layer sits above it.
 
 The archive itself — `account.json`, `post.json`, `sync.json`, `archiver.json`,
 the post folders and the envelope every command answers in — is
-[`../shared/`](../shared/README.md).
+[`../../shared/`](../../shared/README.md).
 
 ## State files, disjoint on purpose
 
@@ -107,7 +107,7 @@ written would read as complete.
 `sync.json` is a third file but not a third source of truth: it holds a cache of
 one collection pass and a note of what the last run did, and deleting it loses no
 archive content — the rule it exists under, specified in
-[`../shared/README.md`](../shared/README.md).
+[`../../shared/README.md`](../../shared/README.md).
 
 There is no fourth file, and there must not be one. The reason is sharp on this
 platform: yt-dlp's `--download-archive` keys on ids, not paths, so it reports a
@@ -120,7 +120,7 @@ this again".
 
 The split run, what `sync.json` parks between the halves, when a plan is refused
 and why `--yes` outranks a later mode flag are the same on every platform, and
-are specified in [`../shared/README.md`](../shared/README.md).
+are specified in [`../../shared/README.md`](../../shared/README.md).
 
 What is particular here: `--go` runs no collection pass and needs none. The
 `sec_uid` is in the profile URL, and `resolveAccountDir` turns it into the folder
@@ -133,10 +133,10 @@ session check and the mint read it first, so an ordinary `--go` costs no browser
 launch at all.
 
 Every document emitted — the plan a user approves, and what a finished run
-reports — is composed by `../shared/output.mjs`, and what is on disk is counted
-in exactly one place (`landed.mjs`'s `onDiskIds`). Do not hand-assemble a second
-copy of either: counting one way here and another way there is all it takes for
-a run to contradict the number the user approved.
+reports — is composed by `../../shared/output.mjs`, and what is on disk is
+counted in exactly one place (`landed.mjs`'s `onDiskIds`). Do not hand-assemble
+a second copy of either: counting one way here and another way there is all it
+takes for a run to contradict the number the user approved.
 
 `loadPlan` returns the parked plan and nothing more; `run.mjs` re-checks it
 against disk with `outstanding` before fetching. Without that re-check a `--go`
@@ -252,9 +252,9 @@ everything.
 The **archives** root, the **state** directory and the `posts/` subdirectory are
 each written down once — in `paths.mjs` and `landed.mjs` — and every caller asks
 rather than recomputing. Two answers to the archives root would name a different
-account folder and silently re-download an entire archive. `../../setup.sh
+account folder and silently re-download an entire archive. `../../../setup.sh
 douyin` builds the boxes ahead of time and is safe to re-run; the versions are
-pinned in `../../env/manifest`.
+pinned in `../../../env/manifest`.
 
 Playwright is loaded from the browser box by explicit path, since that is outside
 Node's upward module resolution. It is CommonJS, so an import by path lands its
@@ -296,10 +296,10 @@ from the URL. Call that rather than this folder:
 
 ```bash
 # sign in once (opens a window, and stops there)
-../archive.sh "https://www.douyin.com/user/MS4w..." --login
+../../archive.sh "https://www.douyin.com/user/MS4w..." --login
 
 # an account, without the two-step confirm
-../archive.sh "https://www.douyin.com/user/MS4w..." --archives ~/Videos/douyin --yes
+../../archive.sh "https://www.douyin.com/user/MS4w..." --archives ~/Videos/douyin --yes
 ```
 
 One post's worth of yt-dlp arguments lives in `fetch.mjs` and nowhere else. Do
@@ -310,9 +310,9 @@ second path into the same folders, with its own flags and its own idea of what
 ## The archive this shares with the other platform
 
 `account.json`, `post.json`, `sync.json`, `archiver.json` and the
-`posts/<date>_<id>/` layout are written by `../shared/`, and specified in
-[`../shared/README.md`](../shared/README.md). Both platforms write into one
-archives root, so those rules are not this platform's to change alone.
+`posts/<date>_<id>/` layout are written by `../../shared/`, and specified in
+[`../../shared/README.md`](../../shared/README.md). Both platforms write into
+one archives root, so those rules are not this platform's to change alone.
 
 What is particular to this one:
 
@@ -323,7 +323,7 @@ What is particular to this one:
   yt-dlp — it is what picks the container, so nothing else can know the
   extension. `--print` fires after extraction and before the download, so the
   name still arrives in time for `post.json` to be written first. Both platforms
-  build the file with `../shared/post.mjs`; what differs is what each hands
+  build the file with `../../shared/post.mjs`; what differs is what each hands
   `mediaEntry`, which is `{file}` here because yt-dlp has already said the name,
   and `{num, ext, …}` on X because that platform assembles the name itself.
 
