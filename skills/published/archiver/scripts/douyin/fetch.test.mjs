@@ -6,7 +6,16 @@ import { mkdtemp, readFile, readdir } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
-import { fetchArgs, fetchPosts, metadataArgs, outstanding, postDir, saysSessionStale } from './fetch.mjs';
+import {
+  classifyFailure,
+  fetchArgs,
+  fetchPosts,
+  metadataArgs,
+  outstanding,
+  postDir,
+  saysSessionStale,
+} from './fetch.mjs';
+import { isComplete } from '../shared/post.mjs';
 
 const root = () => mkdtemp(path.join(os.tmpdir(), 'douyin-fetch-'));
 
@@ -245,4 +254,84 @@ test('a yt-dlp that cannot be spawned is a failed post, not a hung run', async (
   });
 
   assert.equal(result.failed, 1);
+});
+
+test('a post yielding several files lists every one of them', async () => {
+  // MEDIA_NAME numbers a post's files by position because a post can yield more
+  // than one. Recording only the first would let `1.mp4` alone satisfy the
+  // completeness check — so files 2 and 3 stay missing, silently and forever.
+  const dir = await root();
+  const { spawnImpl } = fakeYtDlp([{ lines: ['1.mp4', '2.mp4', '3.mp4'], code: 0 }]);
+
+  const result = await fetchPosts({
+    accountDir: dir,
+    posts: [{ id: '7412', createTime: 1710144139, text: 'three clips' }],
+    cookies: null,
+    bin: '/nonexistent/yt-dlp',
+    spawnImpl,
+  });
+
+  assert.equal(result.fetched, 1);
+
+  const folder = postDir(dir, { id: '7412', createTime: 1710144139 });
+  const post = JSON.parse(await readFile(path.join(folder, 'post.json'), 'utf8'));
+  assert.deepEqual(post.media.map((entry) => entry.file), ['1.mp4', '2.mp4', '3.mp4']);
+
+  // And the point of listing all three: with only the first on disk, the post
+  // is not done.
+  assert.equal(isComplete(post, ['1.mp4']), false);
+  assert.equal(isComplete(post, ['1.mp4', '2.mp4', '3.mp4']), true);
+});
+
+test('a failure the next post would meet too is told apart from this post’s own', async () => {
+  // The one that matters is the rate limit: counting it as a failed post and
+  // carrying on means hundreds more yt-dlp invocations, each with --retries 3,
+  // into a limiter that has just said no. What is at risk is the account.
+  assert.equal(classifyFailure('ERROR: [douyin] 7412: HTTP Error 429: Too Many Requests'), 'rate-limited');
+  assert.equal(classifyFailure('ERROR: unable to download: 访问频繁，请稍后再试'), 'rate-limited');
+  assert.equal(classifyFailure('ERROR: [douyin] HTTP Error 403: Forbidden'), 'session-rejected');
+  assert.equal(classifyFailure('WARNING: risk control triggered, 请完成验证码'), 'session-rejected');
+
+  // This post's own business: the run steps over it and keeps going.
+  assert.equal(classifyFailure('ERROR: Video unavailable'), null);
+  assert.equal(classifyFailure(''), null);
+});
+
+test('a caption or a path is never read as a reason to stop', async () => {
+  // yt-dlp prints resolved filenames and video titles to the same streams an
+  // error goes to. `session-rejected` stops the run *and* discards the cached
+  // session, so a post titled 访问频繁 would cost the user a sign-in.
+  for (const line of [
+    '[download] Destination: /a/访问频繁/1.mp4',
+    '[info] title: 大家不要访问频繁哦',
+    '/Users/someone/archives/douyin/captcha/1.mp4',
+    '[download] 100% of 403.00KiB',
+    '[download] 100% of 429.00KiB in 00:01',
+  ]) {
+    assert.equal(classifyFailure(line), null, line);
+  }
+});
+
+test('a run stops at the first failure the next post would repeat', async () => {
+  const dir = await root();
+  const { spawnImpl, calls } = fakeYtDlp([
+    { lines: ['1.mp4'], code: 0 },
+    { lines: [], stderr: 'ERROR: [douyin] HTTP Error 429: Too Many Requests', code: 1 },
+  ]);
+
+  const result = await fetchPosts({
+    accountDir: dir,
+    posts: [
+      { id: '1', createTime: 1710144139, text: '' },
+      { id: '2', createTime: 1710144139, text: '' },
+      { id: '3', createTime: 1710144139, text: '' },
+    ],
+    cookies: null,
+    bin: '/nonexistent/yt-dlp',
+    spawnImpl,
+  });
+
+  assert.equal(result.stopped, 'rate-limited');
+  assert.equal(result.fetched, 1);
+  assert.equal(calls.length, 2, 'the third post is never asked for');
 });

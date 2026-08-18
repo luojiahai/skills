@@ -37,11 +37,16 @@ set -euo pipefail
 ENV_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MANIFEST="${ENV_DIR}/manifest"
 CACHE_ROOT="${XDG_CACHE_HOME:-$HOME/.cache}/archiver"
-CONSENT_FILE="${CACHE_ROOT}/consented"
 OVERRIDE_FILE="${CACHE_ROOT}/tools-override"
 
 say() { printf '  %s\n' "$*" >&2; }
 die() { printf 'ensure-env: %s\n' "$*" >&2; exit 1; }
+
+# The marker saying the user has agreed to *this* box's download. One per box,
+# because the boxes are nothing like each other in size: agreeing to the ~115 MB
+# X needs is not agreeing to a quarter of a gigabyte of Chromium. `env.mjs`
+# reads these, and the two spellings must agree.
+consent_file() { printf '%s/consented-%s' "$CACHE_ROOT" "$1"; }
 
 # Every cache these builds would otherwise scatter across the home directory,
 # gathered under the one directory `--clean` deletes. `UV_NO_CONFIG` so a
@@ -149,8 +154,13 @@ node_target() {
   printf '%s-%s' "$os" "$arch"
 }
 
+# `--silent` means a stalled transfer shows nothing at all, so the timeouts are
+# what keeps a captive portal or a dead handshake from being an archiver that
+# hangs with no output. 1800s is generous enough for Chromium on a slow link.
 fetch() {
-  curl --fail --silent --show-error --location --retry 3 --output "$2" "$1" ||
+  curl --fail --silent --show-error --location \
+    --retry 3 --retry-connrefused --connect-timeout 20 --max-time 1800 \
+    --output "$2" "$1" ||
     die "could not download $1"
 }
 
@@ -167,6 +177,12 @@ verify() {
 # that publishes it is a rename and not a copy across filesystems.
 new_workdir() {
   mkdir -p "$CACHE_ROOT"
+  # The EXIT trap does not run on SIGKILL, and a refresh interrupted after it
+  # stands the old box aside leaves `.stale-$$` behind. Each is 100–250 MB in a
+  # directory only `--clean` otherwise empties, so a new build sweeps the ones
+  # nothing can still be writing to.
+  find "$CACHE_ROOT" -maxdepth 1 \( -name '.build-*' -o -name '.stale-*' \) -mtime +0 \
+    -exec rm -rf {} + 2>/dev/null || true
   mktemp -d "${CACHE_ROOT}/.build-XXXXXX"
 }
 
@@ -178,15 +194,26 @@ publish() {
     rm -rf "$work"
     return 0
   fi
-  mv "$work" "$target" 2>/dev/null || rm -rf "$work"
-  [[ -d "$target" ]] || die "could not publish $(basename "$target")"
+  mv "$work" "$target" && return 0
+  # A box that appeared between the check and the rename is the same race as
+  # above and is equally harmless. Anything else keeps the finished build and
+  # reports mv's own words: a quarter of a gigabyte is too much to discard over
+  # an error nobody was shown.
+  if [[ -d "$target" ]]; then
+    rm -rf "$work"
+    return 0
+  fi
+  die "could not publish $(basename "$target") — the finished build is still at ${work}"
 }
 
 build_runtime() {
   local work uv_ver uv_tgt node_ver node_tgt tarball sums
   work="$(new_workdir)"
-  # shellcheck disable=SC2064
-  trap "rm -rf '$work'" EXIT
+  # Single-quoted so `$work` is expanded when the trap fires rather than pasted
+  # into a string the shell re-parses then. A cache root holding an apostrophe —
+  # /Users/o'brien/.cache — is a syntax error the other way round, and anything
+  # able to set XDG_CACHE_HOME would be choosing what this runs.
+  trap 'rm -rf "$work"' EXIT
 
   uv_ver="$(pin runtime uv)"
   uv_tgt="$(uv_target)"
@@ -228,8 +255,11 @@ build_tools() {
   local work uv
   ensure runtime
   work="$(new_workdir)"
-  # shellcheck disable=SC2064
-  trap "rm -rf '$work'" EXIT
+  # Single-quoted so `$work` is expanded when the trap fires rather than pasted
+  # into a string the shell re-parses then. A cache root holding an apostrophe —
+  # /Users/o'brien/.cache — is a syntax error the other way round, and anything
+  # able to set XDG_CACHE_HOME would be choosing what this runs.
+  trap 'rm -rf "$work"' EXIT
 
   uv="$(box_dir runtime)/uv/uv"
   export UV_PYTHON_INSTALL_DIR="$(box_dir runtime)/python"
@@ -250,8 +280,11 @@ build_browser() {
   local work node browser
   ensure runtime
   work="$(new_workdir)"
-  # shellcheck disable=SC2064
-  trap "rm -rf '$work'" EXIT
+  # Single-quoted so `$work` is expanded when the trap fires rather than pasted
+  # into a string the shell re-parses then. A cache root holding an apostrophe —
+  # /Users/o'brien/.cache — is a syntax error the other way round, and anything
+  # able to set XDG_CACHE_HOME would be choosing what this runs.
+  trap 'rm -rf "$work"' EXIT
 
   node="$(box_dir runtime)/node/bin"
   browser="$(pin browser playwright)"
@@ -284,6 +317,7 @@ JSON
 ensure() {
   local dir
   drop_overtaken_refresh
+  drop_missing_refresh
   dir="$(box_dir "$1")"
   [[ -d "$dir" ]] && return 0
   say "building the ${1} box in ${CACHE_ROOT}"
@@ -306,6 +340,21 @@ drop_overtaken_refresh() {
   rm -rf "${CACHE_ROOT}/tools-latest-${recorded}" "$OVERRIDE_FILE"
 }
 
+# An override naming a directory that is not there. A refresh killed between
+# standing the old box aside and publishing the new one leaves exactly this, and
+# so does deleting a `tools-latest-` directory by hand. Left in place, the next
+# build would install the *pinned* downloaders into the refreshed path and
+# report the box ready — the user believing they are on latest while running the
+# shipped pins, which is the one thing --refresh exists to escape.
+drop_missing_refresh() {
+  [[ -f "$OVERRIDE_FILE" ]] || return 0
+  local recorded
+  recorded="$(cat "$OVERRIDE_FILE")"
+  [[ -d "${CACHE_ROOT}/tools-latest-${recorded}" ]] && return 0
+  say "the refreshed downloaders are gone — going back to the shipped pins"
+  rm -f "$OVERRIDE_FILE"
+}
+
 # ---- refresh ---------------------------------------------------------------
 # For the user who meets a platform change before we ship a bump. It sticks:
 # the override records the shipped key it was taken against, so the refreshed
@@ -318,8 +367,11 @@ refresh_tools() {
   key="$(box_key tools)"
   target="${CACHE_ROOT}/tools-latest-${key}"
   work="$(new_workdir)"
-  # shellcheck disable=SC2064
-  trap "rm -rf '$work'" EXIT
+  # Single-quoted so `$work` is expanded when the trap fires rather than pasted
+  # into a string the shell re-parses then. A cache root holding an apostrophe —
+  # /Users/o'brien/.cache — is a syntax error the other way round, and anything
+  # able to set XDG_CACHE_HOME would be choosing what this runs.
+  trap 'rm -rf "$work"' EXIT
 
   uv="$(box_dir runtime)/uv/uv"
   export UV_PYTHON_INSTALL_DIR="$(box_dir runtime)/python"
@@ -378,6 +430,6 @@ case "${1:-}" in
   *)
     for box in "$@"; do ensure "$box"; done
     mkdir -p "$CACHE_ROOT"
-    : >"$CONSENT_FILE"
+    for box in "$@"; do : >"$(consent_file "$box")"; done
     ;;
 esac

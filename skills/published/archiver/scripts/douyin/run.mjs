@@ -40,6 +40,7 @@ import {
   COMMON_BOOLEAN_FLAGS,
   COMMON_FLAGS,
   isMainModule,
+  missingValueRefusal,
   optString,
   parseCommandLine,
 } from '../shared/cli.mjs';
@@ -61,14 +62,11 @@ import { checkRoot, stampRoot } from '../shared/archiver.mjs';
 import { ensureEnv } from '../shared/env.mjs';
 import { collect } from './collect.mjs';
 import { fetchPosts, outstanding } from './fetch.mjs';
-import { onDiskIds, readArchive } from '../shared/landed.mjs';
+import { duplicateFolders, onDiskIds, readArchive, unlistedIds } from '../shared/landed.mjs';
 import { login } from './login.mjs';
 import { archivesRoot, cookieFile, normalizeRoot, toolPath } from '../shared/paths.mjs';
 import { PLATFORM, PROFILE_DIR, discardDerivedState, loadPlaywright } from './playwright.mjs';
-import { descriptorFor } from '../shared/platforms.mjs';
-
-const ACCOUNT = descriptorFor(PLATFORM);
-const COOKIE_FILE = cookieFile(PLATFORM);
+import { descriptorFor, postIdKeyFor } from '../shared/platforms.mjs';
 import {
   DEFAULT_TTL_HOURS,
   approved,
@@ -79,9 +77,13 @@ import {
   validatePlan,
 } from '../shared/plan.mjs';
 import { notes } from './notes.mjs';
-import { mintCookies, profileHasSession } from './session.mjs';
+import { discardCookies, hasFreshCookies, mintCookies, profileHasSession } from './session.mjs';
 import { clearPlan, loadPlan, previousRoot, recordRun, savePlan } from '../shared/sync.mjs';
 import { parseTarget } from './target.mjs';
+
+const ACCOUNT = descriptorFor(PLATFORM);
+const POST_ID_KEY = postIdKeyFor(PLATFORM);
+const COOKIE_FILE = cookieFile(PLATFORM);
 
 /** What Douyin adds to the flags every platform shares. */
 const BOOLEAN_FLAGS = new Set([...COMMON_BOOLEAN_FLAGS, 'login']);
@@ -129,9 +131,11 @@ export async function main(argv, deps = {}) {
     onPathImpl = onPath,
     ensureEnvImpl = ensureEnv,
     discardImpl = discardDerivedState,
+    freshCookiesImpl = hasFreshCookies,
+    discardCookiesImpl = discardCookies,
   } = deps;
 
-  const { opts, positional, unknown } = parseCommandLine(argv, {
+  const { opts, positional, unknown, missing } = parseCommandLine(argv, {
     booleans: BOOLEAN_FLAGS,
     known: KNOWN_FLAGS,
   });
@@ -146,17 +150,14 @@ export async function main(argv, deps = {}) {
   const command = opts.login === true ? 'login' : pickMode(opts);
   const refuseHere = (fields) => refuse({ command, platform: PLATFORM, ...fields });
 
-  // Named rather than left to the unknown-flag path below. The old flag is the
-  // one thing likely to still be sitting in a shell history, and "unknown
-  // option" would be true while sending the user to --help to work out why.
-  if (unknown.includes('--downloads')) {
-    return refuseHere({
-      code: 'downloads-renamed',
-      message: '--downloads was renamed to --archives, and the default root is now archives/',
-      remedy: { message: 'the old root is not read: rename downloads/ to archives/, or name the root explicitly', run_by: 'user' },
-    });
-  }
+  // Before the unknown-flag check, so `--alias -foo` names the flag the user
+  // mistyped rather than the value it swallowed. Refused rather than run as if it
+  // had not been typed, which would archive the account under its id and report
+  // that as a success.
+  if (missing.length) return refuseHere(refusalFields(missingValueRefusal(missing[0])));
 
+  // Whatever the user typed is passed through as given, so an unknown flag is
+  // their typo to see rather than something for the agent to guess at.
   if (unknown.length) {
     return refuseHere({
       code: 'unknown-flag',
@@ -267,7 +268,9 @@ export async function main(argv, deps = {}) {
   // only the archives root, so it is decided before the browser opens. The
   // sec_uid is in the URL, so this run always knows whose account it is.
   if (alias) {
-    const existing = await findAccountDir(ACCOUNT, root, { url: target.url, alias, douyinId: null });
+    // No handle: the URL carries a sec_uid, and the 抖音号 only arrives with the
+    // listing. The alias and the URL are what can be matched before then.
+    const existing = await findAccountDir(ACCOUNT, root, { url: target.url, alias });
     const verdict = await checkAlias(ACCOUNT, root, {
       id: existing ? ((await readAccount(existing))?.account?.id ?? null) : target.secUid,
       alias,
@@ -279,7 +282,12 @@ export async function main(argv, deps = {}) {
   // still accepts it — an expired-but-present session is caught later, by a grid
   // that renders nothing — but its absence is knowable now, and turns a
   // confusing half-minute into an instant, correct answer.
-  if (!(await hasSessionImpl(profileDir, { launch: chromium }))) {
+  //
+  // A live cookies.txt answers it without opening anything, which is the whole
+  // point of caching the file: reading the profile means launching Chromium, and
+  // a --go that did that would be paying the cost of having no cache at all.
+  const cached = await freshCookiesImpl(COOKIE_FILE);
+  if (!cached && !(await hasSessionImpl(profileDir, { launch: chromium }))) {
     return refuseHere({
       code: 'session-missing',
       message: `no Douyin session in ${profileDir}`,
@@ -290,10 +298,19 @@ export async function main(argv, deps = {}) {
 
   const planCommand = commandFor(argv, 'plan');
 
+  // Guarded like doPlan below it. Inside, mintCookies raises `session-empty` and
+  // launchPersistentContext throws on a locked or corrupt profile — and an
+  // unguarded throw reaches the dispatcher as `internal-error` with a stack,
+  // where the user should have been handed the code and its remedy.
   if (command === 'go') {
-    return await doGo({
-      command, root, target, alias, unalias, profileDir, chromium, planCommand, fetchImpl, mintImpl,
-    });
+    try {
+      return await doGo({
+        command, root, target, alias, unalias, profileDir, chromium, planCommand, fetchImpl, mintImpl,
+        freshImpl: freshCookiesImpl, discardImpl: discardCookiesImpl,
+      });
+    } catch (error) {
+      return refuseHere(refusalFields(error));
+    }
   }
 
   let planned;
@@ -326,13 +343,18 @@ export async function main(argv, deps = {}) {
     });
   }
 
-  return await doGo({
-    command, root, target, alias, unalias, profileDir, chromium, planCommand, fetchImpl, mintImpl,
-    // A --yes has just announced a rename or a moved root; it must still say so
-    // now the user is past being asked.
-    announced: planned.announced,
-    plan: planned.plan,
-  });
+  try {
+    return await doGo({
+      command, root, target, alias, unalias, profileDir, chromium, planCommand, fetchImpl, mintImpl,
+      freshImpl: freshCookiesImpl, discardImpl: discardCookiesImpl,
+      // A --yes has just announced a rename or a moved root; it must still say so
+      // now the user is past being asked.
+      announced: planned.announced,
+      plan: planned.plan,
+    });
+  } catch (error) {
+    return refuseHere(refusalFields(error));
+  }
 }
 
 /** The one handoff in this skill only a person can complete. */
@@ -421,8 +443,8 @@ async function doPlan({ root, target, alias, unalias, profileDir, chromium, coll
   const onDisk = await onDiskIds(accountDir);
   const pending = outstanding(listing.posts, archive);
 
-  const listed = listedIds(listing.posts);
-  const unlisted = [...onDisk].filter((id) => !listed.has(id)).length;
+  const listed = listedIds(listing.posts, POST_ID_KEY);
+  const unlisted = unlistedIds(listed, onDisk).length;
 
   const plan = buildPlan({
     account,
@@ -445,16 +467,22 @@ async function doPlan({ root, target, alias, unalias, profileDir, chromium, coll
     notes: notes({
       collected: listing.posts.length,
       reported: listing.reported,
+      reportedRounded: listing.reportedRounded,
       skipped: listing.skippedImagePosts,
       unlisted,
+      truncated: listing.hitRoundLimit,
+      unattributed: listing.unattributed,
+      duplicates: await duplicateFolders(accountDir),
     }),
     now: new Date(),
   });
 
-  if (pending.length) await savePlan(accountDir, plan);
-  // A plan left over from an earlier run would otherwise outlive the work it
-  // described, and --go would happily download it.
-  else await clearPlan(accountDir);
+  // Parked whether or not anything is pending, which is also what X does. An
+  // empty plan is refused as `plan-empty` rather than as `plan-missing`, so
+  // "nothing to download" is one code across both platforms instead of two for
+  // one situation. It also replaces any plan an earlier run left behind, which
+  // would otherwise outlive the work it described.
+  await savePlan(accountDir, plan);
 
   // Facts about this run rather than about the profile, so they are worked out
   // the same way on both platforms and kept apart from the plan's own notes —
@@ -472,7 +500,7 @@ async function doPlan({ root, target, alias, unalias, profileDir, chromium, coll
 /** Download the plan that was approved. No collection, no browser. */
 async function doGo({
   command, root, target, alias, unalias, profileDir, chromium, planCommand, fetchImpl, mintImpl,
-  announced = [], plan: made = null,
+  freshImpl, discardImpl, announced = [], plan: made = null,
 }) {
   const refuseHere = (fields) => refuse({ command, platform: PLATFORM, ...fields });
 
@@ -511,6 +539,13 @@ async function doGo({
     return refuseHere(refusalFields(error));
   }
 
+  // Written immediately after the move, because the move is what makes the
+  // records wrong: applyAlias renames and leaves the bookkeeping to the next
+  // write, and without one here archiver.json never learns the alias. The folder
+  // is then a directory the map does not name — which is how an account's own
+  // alias comes to read as another account's id, refusing it forever.
+  await recordIdentity(ACCOUNT, root, accountDir, { account: plan.account, url: target.url });
+
   const archive = await readArchive(accountDir);
   const before = (await onDiskIds(accountDir)).size;
 
@@ -521,12 +556,21 @@ async function doGo({
 
   let fetched = 0;
   let failed = 0;
+  let undated = 0;
+  let stopped = null;
+  let sessionStale = false;
   if (!pending.length) {
     progress('[douyin] every post in the plan is already downloaded');
   } else {
     progress(`[douyin] downloading ${pending.length} post(s) to ${path.join(accountDir, 'posts')}…`);
-    const cookies = await mintImpl(profileDir, COOKIE_FILE, { launch: chromium });
-    ({ fetched, failed } = await fetchImpl({
+    // The cached file where it is still live, and a browser only where it is
+    // not. Minting reads the Playwright profile, which means launching
+    // Chromium — the slowest thing in the skill — so minting on every --go is
+    // paying the whole cost of having no cache at all.
+    const cookies = (await freshImpl(COOKIE_FILE))
+      ? COOKIE_FILE
+      : await mintImpl(profileDir, COOKIE_FILE, { launch: chromium });
+    ({ fetched, failed, undated, stopped, sessionStale } = await fetchImpl({
       accountDir,
       posts: pending,
       cookies,
@@ -535,13 +579,18 @@ async function doGo({
     }));
   }
 
+  // A session even the re-mint could not rescue is thrown away rather than read
+  // back next run, which would fail in exactly the same way forever.
+  if (sessionStale || stopped === 'session-rejected') await discardImpl(COOKIE_FILE);
+
   const landed = await onDiskIds(accountDir);
   const total = landed.size;
 
   // Asked of the folder rather than of the fetcher. A downloader that exits
   // clean without writing the files has archived nothing, and a plan retired on
   // its word would cost a second listing to find that out.
-  const remaining = outstanding(approved(plan), await readArchive(accountDir)).length;
+  const currentArchive = await readArchive(accountDir);
+  const remaining = outstanding(approved(plan), currentArchive).length;
 
   await recordRun(accountDir, {
     root,
@@ -554,44 +603,98 @@ async function doGo({
   // paying for another collection; retired once it has all landed.
   if (remaining === 0) await clearPlan(accountDir);
 
-  const unlisted = unlistedCountFromPlan(plan, landed);
+  const unlisted = unlistedCountFromPlan(plan, landed, POST_ID_KEY);
+
+  const payload = archiveResult({
+    command,
+    platform: PLATFORM,
+    account: accountFields(ACCOUNT, plan.account, target.url),
+    dir: accountDir,
+    root,
+    counts: {
+      ...plan.counts,
+      // The unlisted count is recomputed against what is on disk now; the rest
+      // describe the listing pass and are as true as when it ran.
+      platform: { ...plan.counts?.platform, unlisted },
+    },
+    notes: [
+      // A --yes announced a rename or a moved root before it started, and must
+      // still say so now the user is past being asked. A bare --go announced
+      // nothing, because it is acting on a list that already did.
+      ...announced,
+      // The listing's own notes as the plan recorded them, because a --go lists
+      // nothing and cannot recompute them: whether the header was abbreviated,
+      // whether the scroll was cut short and how many cards went unattributed
+      // are all facts about the pass that made this plan. The one exception is
+      // the unlisted count, which is about the folder as it is now.
+      ...(plan.notes ?? []).filter((note) => note.code !== 'unlisted-posts'),
+      ...notes({
+        collected: 0,
+        reported: null,
+        skipped: 0,
+        unlisted,
+        // Reported here rather than only on stderr. A run that filed forty posts
+        // under `undated_<id>` has said something about the archive, and the
+        // agent reading stdout is the one who tells the user.
+        undated,
+        duplicates: await duplicateFolders(accountDir),
+      }),
+    ],
+    // Carried by the run that made this plan, and by that run only. A --go is
+    // acting on a list already approved, and its window has done its work.
+    plan: made ? planWindow({ createdAt: made.created_at, ttlHours: DEFAULT_TTL_HOURS }) : null,
+    run: runCounts({ downloaded: total - before, total, failed, remaining }),
+  });
+
+  // A run that stopped because the next post would have failed the same way
+  // carries both halves: what landed, and why it stopped. Collapsing it either
+  // way loses something — a rate-limited run that fetched two hundred posts is
+  // neither a success nor a nothing.
+  if (stopped) {
+    const known = FAILURES[stopped];
+    return refuse({
+      command,
+      platform: PLATFORM,
+      code: stopped,
+      message: known?.message ?? `the run stopped: ${stopped}`,
+      remedy: known?.remedy ?? null,
+      result: payload,
+    });
+  }
 
   return answer({
     command,
     platform: PLATFORM,
-    result: archiveResult({
-      account: accountFields(ACCOUNT, plan.account, target.url),
-      dir: accountDir,
-      root,
-      counts: {
-        ...plan.counts,
-        // The unlisted count is recomputed against what is on disk now; the rest
-        // describe the listing pass and are as true as when it ran.
-        platform: { ...plan.counts?.platform, unlisted },
-      },
-      notes: [
-        // A --yes announced a rename or a moved root before it started, and must
-        // still say so now the user is past being asked. A bare --go announced
-        // nothing, because it is acting on a list that already did.
-        ...announced,
-        ...notes({
-          collected: plan.counts?.found ?? 0,
-          reported: plan.counts?.platform?.reported ?? null,
-          skipped: plan.counts?.platform?.skipped_image_posts ?? null,
-          unlisted,
-        }),
-      ],
-      // Carried by the run that made this plan, and by that run only. A --go is
-      // acting on a list already approved, and its window has done its work.
-      plan: made ? planWindow({ createdAt: made.created_at, ttlHours: DEFAULT_TTL_HOURS }) : null,
-      run: runCounts({ downloaded: total - before, total, failed, remaining }),
-    }),
-    // A run that lost posts to the downloader still finished as asked, and its
-    // exit code is what shell callers have always seen. The posts it lost are in
+    result: payload,
+    // A run that lost posts to the downloader still finished as asked. Shell
+    // callers read a lost post as a non-zero exit; the posts it lost are in
     // run.failed, and the plan it kept is what makes the retry cheap.
     exit: failed ? EXIT.FAILED : EXIT.OK,
   });
 }
+
+/**
+ * The fallback sentence for each stop, and how it is put right.
+ *
+ * The sentence is what a refusal carries as `message`, which is not what the
+ * user is told — `SKILL.md` branches on the code and words the outcome itself.
+ */
+const FAILURES = {
+  'rate-limited': {
+    message: 'Douyin rate-limited this run — nothing is broken and nothing is lost',
+    remedy: {
+      message: 'wait a while, then run the download again; it resumes at the first post still missing',
+      run_by: 'agent',
+    },
+  },
+  'session-rejected': {
+    message: 'Douyin rejected the session, and the cached cookies have been discarded',
+    remedy: {
+      message: 'sign in to Douyin again in the browser this opens',
+      run_by: 'user',
+    },
+  },
+};
 
 async function moveIfAsked({ root, alias, unalias, secUid, accountDir }) {
   if (unalias) return (await clearAlias(ACCOUNT, root, { id: secUid })) ?? accountDir;

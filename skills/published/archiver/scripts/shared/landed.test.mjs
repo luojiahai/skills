@@ -4,7 +4,15 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
-import { POSTS_DIR, isLanded, isMissing, onDiskIds, readArchive, unlistedIds } from './landed.mjs';
+import {
+  POSTS_DIR,
+  isLanded,
+  isMissing,
+  onDiskIds,
+  readArchive,
+  duplicateFolders,
+  unlistedIds,
+} from './landed.mjs';
 import { POST_FILE, buildPost, isComplete, writePost } from './post.mjs';
 
 async function fixture() {
@@ -88,8 +96,12 @@ test('isMissing is the one rule X’s plan, collection pass and fetch loop all u
   await seedPost(posts, '2024-03-11_1767', { listed: [{ num: 1, ext: 'jpg' }], files: ['1.jpg'] });
   const archive = await readArchive(dir);
 
-  assert.equal(isMissing({ tweetId: '1767' }, archive), false);
-  assert.equal(isMissing({ tweetId: '9999' }, archive), true);
+  assert.equal(isMissing({ tweetId: '1767' }, archive, 'tweetId'), false);
+  assert.equal(isMissing({ tweetId: '9999' }, archive, 'tweetId'), true);
+
+  // Parameterised rather than hardcoded, so the same rule answers for a platform
+  // whose posts spell their id differently.
+  assert.equal(isMissing({ id: '1767' }, archive, 'id'), false);
 });
 
 // ---- the same rules, reached the way the Douyin side reaches them ----------
@@ -202,4 +214,41 @@ test('unlistedIds finds what is on disk but no longer on the profile', () => {
   assert.deepEqual(unlistedIds(listed, new Set(['111', '333'])), ['333']);
   assert.deepEqual(unlistedIds(listed, new Set(['111', '222'])), []);
   assert.deepEqual(unlistedIds(new Set(), new Set(['111'])), ['111']);
+});
+
+test('one post id in two folders picks the landed one, and counts the other', () => {
+  // `undated_5` from a run that could not date the post and `2024-01-01_5` from
+  // a later one that could. Which one answers for the post must not depend on
+  // the order readdir happened to yield, and the folder that loses is media
+  // nothing is counting.
+  return (async () => {
+    const dir = await root();
+    await post(dir, 'undated_5', []);
+    await post(dir, '2024-01-01_5', ['1.mp4']);
+
+    const archive = await readArchive(dir);
+    assert.equal(archive.size, 1);
+    assert.equal(archive.get('5').folder, '2024-01-01_5', 'the landed folder wins');
+    assert.equal(await duplicateFolders(dir), 1);
+  })();
+});
+
+test('two folders that both landed pick the same one whichever order they are read', () => {
+  return (async () => {
+    const dir = await root();
+    await post(dir, 'undated_6', ['1.mp4']);
+    await post(dir, '2024-01-01_6', ['1.mp4']);
+
+    const archive = await readArchive(dir);
+    assert.equal(archive.get('6').folder, '2024-01-01_6', 'sorted, so it is the same on every machine');
+    assert.equal(await duplicateFolders(dir), 1);
+  })();
+});
+
+test('an archive with no duplicates counts none', () => {
+  return (async () => {
+    const dir = await root();
+    await post(dir, '2024-01-01_7', ['1.mp4']);
+    assert.equal(await duplicateFolders(dir), 0);
+  })();
 });

@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
+import { Readable } from 'node:stream';
 import test from 'node:test';
 
 import { chmod, mkdtemp, writeFile } from 'node:fs/promises';
@@ -83,6 +84,7 @@ test('a post whose media failed entirely still says what it was', async () => {
   const bin = await fakeBin('echo "HttpError: 404 Not Found" >&2; exit 1');
 
   const result = await fetchPosts({
+    intervalMs: 0,
     accountDir: dir,
     handle: 'someone',
     bin,
@@ -105,6 +107,7 @@ test('a reply records what it replies to', async () => {
   const bin = await fakeBin('exit 0');
 
   await fetchPosts({
+    intervalMs: 0,
     accountDir: dir,
     handle: 'someone',
     bin,
@@ -120,6 +123,7 @@ test('a rate limit ends the run instead of grinding through every post', async (
   const bin = await fakeBin('echo "HttpError: 429 Too Many Requests" >&2; exit 1');
 
   const result = await fetchPosts({
+    intervalMs: 0,
     accountDir: dir,
     handle: 'someone',
     bin,
@@ -144,13 +148,14 @@ test('the download pass spawns through the seam it was handed', async () => {
   const spawnImpl = (bin, args) => {
     calls.push({ bin, args });
     const child = new EventEmitter();
-    child.stdout = new EventEmitter();
-    child.stderr = new EventEmitter();
+    child.stdout = Readable.from([]);
+    child.stderr = Readable.from([]);
     setImmediate(() => child.emit('close', 0));
     return child;
   };
 
   const result = await fetchPosts({
+    intervalMs: 0,
     accountDir: dir,
     posts: [{ tweetId: '1', count: 1, files: [file(1)] }],
     handle: 'someone',
@@ -161,4 +166,42 @@ test('the download pass spawns through the seam it was handed', async () => {
   assert.equal(calls.length, 1);
   assert.equal(calls[0].bin, '/box/gallery-dl');
   assert.equal(result.fetched.posts, 1);
+});
+
+test('the loop waits between posts, and does not wait before the first', async () => {
+  // gallery-dl's own --sleep-request is per-process and this loop spawns one
+  // process per post, so every post starts with its budget reset. Without a
+  // pause here the effective interval is however long a process happened to
+  // take, which is the opposite of what the throttle is configured to say.
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'x-dl-pace-'));
+  const bin = await fakeBin('exit 0');
+  const waits = [];
+
+  await fetchPosts({
+    accountDir: dir,
+    handle: 'someone',
+    bin,
+    posts: posts.map((post) => ({ ...post, date: '2024-03-11 07:22:19', content: '' })),
+    intervalMs: 50,
+    sleepImpl: async (ms) => waits.push(ms),
+  });
+
+  assert.deepEqual(waits, [50, 50], 'two pauses for three posts');
+});
+
+test('every post reports its outcome, so a long run is not silent', async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'x-dl-progress-'));
+  const bin = await fakeBin('exit 0');
+  const seen = [];
+
+  await fetchPosts({
+    intervalMs: 0,
+    accountDir: dir,
+    handle: 'someone',
+    bin,
+    posts: posts.map((post) => ({ ...post, date: '2024-03-11 07:22:19', content: '' })),
+    onPost: ({ post, ok }, done) => seen.push([post.tweetId, ok, done]),
+  });
+
+  assert.deepEqual(seen, [['1', true, 1], ['2', true, 2], ['3', true, 3]]);
 });

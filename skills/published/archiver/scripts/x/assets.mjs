@@ -12,7 +12,10 @@
  * Fetched directly rather than through gallery-dl. The URLs arrive on rows the
  * listing pass has already collected, and they point at a public CDN, so an
  * extra gallery-dl invocation would buy nothing and would spend two more
- * requests against the API that is actually rate-limited.
+ * requests against the API that is actually rate-limited. Fetching them
+ * ourselves is also why the scheme, the host and the size are all checked here:
+ * a URL off a subprocess's stdout is a request this skill makes on the user's
+ * behalf, not a fact.
  *
  * Douyin has both concepts too, but nothing over there reads them out of the
  * profile page yet — so `assets/` is optional in the shared layout and a Douyin
@@ -25,6 +28,33 @@ export const ASSETS_DIR = 'assets';
 
 /** How long to wait for an image nobody is blocked on. */
 const TIMEOUT_MS = 20_000;
+
+/**
+ * An avatar is a few tens of kilobytes and a banner a few hundred. The cap is
+ * far above either and exists because the body is buffered whole: a URL that
+ * answers with an endless stream would otherwise be an out-of-memory crash in
+ * the middle of a run that has already fetched an account's history.
+ */
+const MAX_BYTES = 16 * 1024 * 1024;
+
+/**
+ * Where an asset may be fetched from.
+ *
+ * The URLs arrive on gallery-dl's stdout, which is a subprocess's output and not
+ * a promise about where it points. Unchecked, a spoofed or compromised row aims
+ * this skill's own `fetch` at whatever it likes — a link-local metadata address,
+ * a host on the user's network — from the user's machine, and writes the answer
+ * into the archive as an avatar.
+ */
+function isAssetUrl(url) {
+  let parsed;
+  try {
+    parsed = new URL(String(url));
+  } catch {
+    return false;
+  }
+  return parsed.protocol === 'https:' && /(^|\.)twimg\.com$/i.test(parsed.hostname);
+}
 
 /**
  * The file type, read from the bytes rather than from the URL.
@@ -77,13 +107,21 @@ async function removeOtherExtensions(dir, name, keep) {
  * not end a run that is otherwise fetching an account's entire history.
  */
 export async function saveAsset(accountDir, name, url, { fetchImpl = fetch } = {}) {
-  if (!url) return null;
+  if (!url || !isAssetUrl(url)) return null;
 
   let bytes;
   try {
     const response = await fetchImpl(url, { signal: AbortSignal.timeout(TIMEOUT_MS) });
     if (!response?.ok) return null;
+
+    // Refused on the declared length where there is one, and on the bytes
+    // themselves where there is not, because a header is only what the server
+    // chose to say.
+    const declared = Number(response.headers?.get?.('content-length'));
+    if (Number.isFinite(declared) && declared > MAX_BYTES) return null;
+
     bytes = new Uint8Array(await response.arrayBuffer());
+    if (bytes.length > MAX_BYTES) return null;
   } catch {
     return null;
   }

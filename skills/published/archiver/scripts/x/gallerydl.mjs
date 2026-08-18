@@ -5,6 +5,8 @@
  * what we say to it. Two invocations, both built here so the options that make
  * a run survivable cannot drift apart between them.
  */
+import { httpStatus } from '../shared/subprocess.mjs';
+
 
 /**
  * The policy the skill imposes, as gallery-dl config keys.
@@ -208,7 +210,11 @@ export function parseRow(line) {
       avatar: profileImage,
       banner: profileBanner,
     },
-    replyId: replyId && replyId !== '0' ? replyId : '',
+    // Validated the same way tweetId is, and for the same reason: `{reply_id}`
+    // is spelled bare above, so a row that omits the key renders it as the
+    // literal `None` — which would be written into the archive as a permalink to
+    // a post that does not exist.
+    replyId: /^\d+$/.test(replyId) && replyId !== '0' ? replyId : '',
     content: decodeJson(content),
   };
 }
@@ -236,11 +242,15 @@ function decodeJson(value) {
 export function classifyFailure(output) {
   const text = String(output || '');
   if (/\b429\b|Rate.?limit|too many requests/i.test(text)) return 'rate-limited';
-  if (/401|Unauthorized|login required|requires authentication|Auth.*fail/i.test(text)) return 'session-rejected';
+  if (httpStatus(401, 'Unauthorized').test(text) || /login required|requires authentication|Auth.*fail/i.test(text)) {
+    return 'session-rejected';
+  }
   if (/suspended/i.test(text)) return 'suspended';
-  if (/protected|not authorized to view|private account/i.test(text)) return 'protected';
+  if (/\bprotected\s+(?:account|tweets?|user)\b|\baccount\s+is\s+protected\b|not authorized to view|private account/i.test(text)) {
+    return 'protected';
+  }
   if (/does not exist|User not found|No user matches/i.test(text)) return 'no-such-account';
-  if (/\b404\b|Not Found/i.test(text)) return 'post-gone';
+  if (httpStatus(404, 'Not\\s+Found').test(text)) return 'post-gone';
   return null;
 }
 

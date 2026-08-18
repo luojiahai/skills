@@ -24,9 +24,21 @@ test('the URL is rebuilt canonically, so one account is never two archives', () 
 
 test('a post URL is refused rather than read as the account that posted it', () => {
   // This is the whole reason the module exists: refusing "download this one
-  // video" rather than answering it by archiving the entire account.
-  assert.throws(() => parseTarget('https://www.douyin.com/video/7412345'), /profile URL/);
-  assert.throws(() => parseTarget('https://www.douyin.com/note/7412345'), /profile URL/);
+  // video" rather than answering it by archiving the entire account. It gets its
+  // own code, because "that is not a profile URL" is true and unhelpful when the
+  // user pointed at a post on purpose.
+  for (const url of ['https://www.douyin.com/video/7412345', 'https://www.douyin.com/note/7412345']) {
+    assert.throws(
+      () => parseTarget(url),
+      (error) => {
+        assert.equal(error.code, 'url-single-post');
+        assert.equal(error.details.post_id, '7412345');
+        assert.equal(error.remedy.run_by, 'user');
+        return true;
+      },
+      url,
+    );
+  }
 });
 
 test('a share link is its own code, because expanding it is the user’s to do', () => {

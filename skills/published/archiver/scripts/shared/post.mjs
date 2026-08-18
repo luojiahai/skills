@@ -47,6 +47,11 @@ export const POST_VERSION = 1;
  * the basename of whichever variant had the highest bitrate, which changes if X
  * re-encodes — so it is left out rather than recorded as if it were stable.
  * Both keys are absent from a Douyin entry, which has no equivalent to either.
+ *
+ * A row carrying neither `file` nor `num` names no file, and is `null`. There is
+ * no name to invent: anything put here is a name `isComplete` then waits for
+ * forever, so the post never reads as landed and every run re-lists and
+ * re-downloads it.
  */
 export function mediaEntry({ file, num, ext, url, type, id } = {}) {
   // Either the name outright — yt-dlp prints the one it is about to write —
@@ -54,7 +59,10 @@ export function mediaEntry({ file, num, ext, url, type, id } = {}) {
   // {num}.{extension}` assembles it. This list is compared against a directory
   // listing, so a name built by a different rule than the one that wrote the
   // file would report every post as incomplete forever.
-  const entry = { file: file === undefined || file === null ? `${num}.${ext ?? ''}` : String(file) };
+  const named = file !== undefined && file !== null && String(file) !== '';
+  if (!named && (num === undefined || num === null || String(num) === '')) return null;
+
+  const entry = { file: named ? String(file) : `${num}.${ext ?? ''}` };
   if (url) entry.url = String(url);
   if (type) entry.type = String(type);
   if (id) entry.id = String(id);
@@ -76,7 +84,7 @@ export function buildPost({ id, permalink, timestamp, text, replyTo, media } = {
     timestamp: timestamp || null,
     text: typeof text === 'string' ? text : '',
     reply_to: replyTo || null,
-    media: (media ?? []).map((entry) => mediaEntry(entry)),
+    media: (media ?? []).map((entry) => mediaEntry(entry)).filter(Boolean),
   };
 }
 

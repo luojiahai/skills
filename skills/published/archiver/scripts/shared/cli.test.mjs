@@ -34,9 +34,33 @@ test("a platform's own flags are declared, and unknown without that", () => {
 test('a value flag followed by another flag neither eats nor loses it', () => {
   // --alias has no value here, but --plan must still be parsed as a flag in its
   // own right rather than disappearing into --alias.
-  const { opts } = parseCommandLine(['--alias', '--plan']);
-  assert.equal(opts.alias, true);
+  const { opts, missing } = parseCommandLine(['--alias', '--plan']);
+  assert.deepEqual(missing, ['--alias']);
+  assert.equal(opts.alias, undefined);
   assert.equal(opts.plan, true);
+});
+
+test('a value beginning with a dash is a usage error, never a silently dropped one', () => {
+  // The failure this stops is a *successful* run that did not do what was asked:
+  // reading `--alias -foo` as "no alias" archives the account under its id and
+  // reports that as fine.
+  for (const argv of [['--alias', '-foo'], ['--archives', '--plan'], ['--alias']]) {
+    const { missing } = parseCommandLine(argv);
+    assert.equal(missing.length, 1, argv.join(' '));
+  }
+});
+
+test('an empty value is a value, because that is how archive.sh says nothing', () => {
+  const { opts, missing } = parseCommandLine(['--alias', '', '--plan']);
+  assert.deepEqual(missing, []);
+  assert.equal(opts.alias, '');
+  assert.equal(opts.plan, true);
+});
+
+test('a lone dash is a value, not a flag', () => {
+  const { opts, missing } = parseCommandLine(['--archives', '-']);
+  assert.deepEqual(missing, []);
+  assert.equal(opts.archives, '-');
 });
 
 test('--unalias is a flag in its own right, not an alias with a value', () => {

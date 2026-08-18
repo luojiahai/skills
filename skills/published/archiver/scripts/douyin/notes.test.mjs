@@ -58,9 +58,59 @@ test('an archive larger than the listing is not reported as a negative gap', () 
 });
 
 test('every note a run can carry appears in a readable order', () => {
-  assert.deepEqual(codes({ collected: 400, reported: 411, skipped: 4, unlisted: 2 }), [
+  assert.deepEqual(
+    codes({
+      collected: 400,
+      reported: 411,
+      skipped: 4,
+      unlisted: 2,
+      truncated: true,
+      unattributed: 3,
+      undated: 5,
+      duplicates: 1,
+    }),
+    [
+      'listing-truncated',
+      'hidden-posts',
+      'image-posts-skipped',
+      'unlisted-posts',
+      'unattributed-posts',
+      'undated-posts',
+      'duplicate-posts',
+    ],
+  );
+});
+
+test('a rounded header explains no gap, because the subtraction would be wrong', () => {
+  // `作品 1.2万` is anywhere between 11,500 and 12,499. An account with 12,345
+  // posts, every one collected, would be reported as hiding −345 of them — and
+  // collecting 11,800 of 12,345 would report 200, wrong by 545.
+  assert.deepEqual(codes({ collected: 11800, reported: 12000, reportedRounded: true, skipped: 0, unlisted: 0 }), []);
+
+  // An exact header still does.
+  assert.deepEqual(codes({ collected: 11800, reported: 12345, reportedRounded: false, skipped: 0, unlisted: 0 }), [
     'hidden-posts',
-    'image-posts-skipped',
-    'unlisted-posts',
+  ]);
+});
+
+test('a listing cut off at the round limit says so', () => {
+  // It stops after a fixed number of rounds, and a listing cut off there is
+  // short by an unknown amount — which makes every count beside it a comparison
+  // against a partial list.
+  assert.deepEqual(codes({ collected: 5, reported: 5, skipped: 0, unlisted: 0, truncated: true }), [
+    'listing-truncated',
+  ]);
+});
+
+test('cards nothing could attribute to this account are counted', () => {
+  assert.deepEqual(notes({ collected: 5, reported: null, skipped: 0, unlisted: 0, unattributed: 2 }), [
+    { code: 'unattributed-posts', count: 2 },
+  ]);
+});
+
+test('posts nothing could date, and ids in two folders, each say so', () => {
+  assert.deepEqual(notes({ collected: 5, reported: null, skipped: 0, unlisted: 0, undated: 3, duplicates: 1 }), [
+    { code: 'undated-posts', count: 3 },
+    { code: 'duplicate-posts', count: 1 },
   ]);
 });

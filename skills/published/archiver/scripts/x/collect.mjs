@@ -27,7 +27,6 @@ import { classifyFailure, listArgs, parseRow } from './gallerydl.mjs';
  */
 export const DEFAULT_ABORT = 100;
 
-
 /**
  * Runs gallery-dl and returns `{ rows, account, stoppedEarly, failure }`.
  *
@@ -262,9 +261,17 @@ export function classify(posts) {
  * What is missing: every enumerated post whose folder does not already hold all
  * of its files. Incomplete counts as missing, so a run that died mid-post is
  * finished rather than abandoned.
+ *
+ * A post the extractor says carries more files than this pass saw rows for is
+ * missing too, whatever is on disk. That gap is enumeration cut off between two
+ * of one post's rows — a rate limit landing mid-post — and the plan it would
+ * otherwise write lists two of the post's four images. gallery-dl then fetches
+ * all four, `isComplete` is satisfied by the two that were listed, and the
+ * archive under-describes that post for good.
  */
-export function diff(posts, archive) {
-  const toFetch = posts.filter((post) => isMissing(post, archive));
+export function diff(posts, archive, postIdKey) {
+  const cutShort = (post) => post.count > post.files.length;
+  const toFetch = posts.filter((post) => isMissing(post, archive, postIdKey) || cutShort(post));
 
   const foundFiles = posts.reduce((n, p) => n + p.files.length, 0);
   const onDisk = posts.length - toFetch.length;
@@ -277,6 +284,9 @@ export function diff(posts, archive) {
       onDiskPosts: onDisk,
       fetchPosts: toFetch.length,
       fetchFiles: toFetch.reduce((n, p) => n + p.files.length, 0),
+      // Refetching lands the files; it cannot lengthen the list the plan wrote,
+      // so the count is reported rather than quietly put right.
+      underDescribed: posts.filter(cutShort).length,
       ...classify(toFetch),
     },
   };

@@ -21,13 +21,16 @@
 import { mkdir } from 'node:fs/promises';
 import { spawn } from 'node:child_process';
 import path from 'node:path';
-import readline from 'node:readline';
 
-import { POSTS_DIR, isLanded } from '../shared/landed.mjs';
+import { outstanding as outstandingIn, postDirFor } from '../shared/landed.mjs';
 import { buildPost, writePost } from '../shared/post.mjs';
-import { postFolderName, toTimestamp } from '../shared/naming.mjs';
+import { toTimestamp } from '../shared/naming.mjs';
 import { toolPath } from '../shared/paths.mjs';
+import { postIdKeyFor } from '../shared/platforms.mjs';
+import { httpStatus, runTool } from '../shared/subprocess.mjs';
 import { permalink } from './target.mjs';
+
+const POST_ID_KEY = postIdKeyFor('douyin');
 
 /**
  * Douyin rate-limits hard; an unthrottled batch starts failing partway through
@@ -104,57 +107,73 @@ function cookieArgs(cookies) {
  * unavailable. yt-dlp asks for "Fresh cookies" by name when Douyin turns it
  * away, and that is the one failure a retry can fix.
  *
- * A boolean rather than a refusal code, because it never becomes one: it is
- * answered inside the download loop, where the remedy is to re-mint the cookies
- * and try the post again. A session Douyin refuses outright is caught earlier,
- * by a grid that renders nothing.
+ * A boolean rather than a refusal code, because it is answered inside the
+ * download loop, where the remedy is to re-mint the cookies and try the post
+ * again. Only a re-mint that does not help becomes a refusal.
  */
 export function saysSessionStale(output) {
   return /Fresh cookies/i.test(String(output ?? ''));
 }
 
-/** The posts that still need fetching, in the order they were collected. */
-export function outstanding(posts, archive) {
-  return posts.filter((post) => !isLanded(archive.get(post.id)));
-}
+/**
+ * What a yt-dlp failure was, as the refusal code that names it, or null for one
+ * that is this post's own business.
+ *
+ * The distinction is whether the next post would hit it too. A post that is
+ * private, deleted or region-locked is stepped over and counted — one of them
+ * must not end an 800-post run. A rate limit is the opposite: every remaining
+ * post would meet it, and carrying on means 750 more invocations, each with
+ * `--retries 3`, hammering a rate limiter with the user's own session. The
+ * consequence there is the account, not the archive.
+ */
+export function classifyFailure(output) {
+  // Read off the lines yt-dlp marked as problems, and nowhere else. It prints
+  // resolved filenames and video titles to the same streams, and a post whose
+  // caption happens to read 访问频繁 must not stop the run — `session-rejected`
+  // also throws the cached session away, so a false one costs a sign-in.
+  const text = String(output ?? '')
+    .split('\n')
+    .filter((line) => /^\s*(?:ERROR|WARNING)\b|\[(?:error|warning)\]/i.test(line))
+    .join('\n');
+  if (!text) return null;
 
-/** Where one post lives, named from what the listing pass knew about it. */
-export function postDir(accountDir, post) {
-  return path.join(
-    accountDir,
-    POSTS_DIR,
-    postFolderName({ date: post.createTime, postId: post.id }),
-  );
+  if (
+    httpStatus(429, 'Too\\s+Many\\s+Requests').test(text) ||
+    /\brate.?limit|too many requests|too frequent|访问(?:过于)?频繁|操作(?:过于)?频繁/i.test(text)
+  ) {
+    return 'rate-limited';
+  }
+
+  if (
+    httpStatus(403, 'Forbidden').test(text) ||
+    /\brisk control\b|\bcaptcha\b|滑块|验证码/i.test(text)
+  ) {
+    return 'session-rejected';
+  }
+
+  return null;
 }
 
 /**
- * Runs yt-dlp once, streaming stdout so a line can be acted on while the
- * process is still going. Resolves `{ code, lines, output }`.
+ * Failures that end the run rather than the post: the ones the next post would
+ * meet too.
+ *
+ * Each platform has its own set rather than sharing one, because what is fatal
+ * depends on what the platform says and when. X's includes `suspended` and
+ * `protected`, which its listing pass can report mid-download; Douyin answers
+ * both of those long before here, with a grid that renders nothing.
  */
-function runYtDlp(args, { bin = toolPath('yt-dlp'), spawnImpl = spawn, onLine = () => {} } = {}) {
-  return new Promise((resolve) => {
-    const child = spawnImpl(bin, args, { stdio: ['ignore', 'pipe', 'pipe'] });
-    const lines = [];
-    const output = [];
+export const FATAL = new Set(['rate-limited', 'session-rejected']);
 
-    // Attached before anything is read, so a spawn that fails immediately is
-    // still answered rather than hanging the run.
-    child.on('error', (error) => resolve({ code: 1, lines, output: String(error.message) }));
+/** The posts that still need fetching, in the order they were collected. */
+export const outstanding = (posts, archive) => outstandingIn(posts, archive, POST_ID_KEY);
 
-    child.stderr?.on('data', (chunk) => output.push(String(chunk)));
-
-    const reader = readline.createInterface({ input: child.stdout });
-    reader.on('line', (line) => {
-      const trimmed = line.trim();
-      if (!trimmed) return;
-      lines.push(trimmed);
-      output.push(trimmed);
-      onLine(trimmed);
-    });
-
-    child.on('close', (code) => resolve({ code: code ?? 1, lines, output: output.join('\n') }));
-  });
-}
+/**
+ * Where one post lives, named from what the listing pass knew about it. Douyin's
+ * posts spell the moment `createTime` and the id `id`.
+ */
+export const postDir = (accountDir, post) =>
+  postDirFor(accountDir, { date: post.createTime, postId: post.id });
 
 /**
  * Downloads each post, writing its `post.json` before its media.
@@ -163,6 +182,11 @@ function runYtDlp(args, { bin = toolPath('yt-dlp'), spawnImpl = spawn, onLine = 
  * was rejected — the common path costs no browser launch. A post that fails for
  * any other reason is counted and the run carries on, because what landed is on
  * disk and a re-run picks up exactly what is still missing.
+ *
+ * A failure the *next* post would meet too is the exception: the run stops with
+ * the code that names it. Returns `stopped` for that, and `sessionStale` for a
+ * session the re-mint could not rescue, so the caller can discard the cached
+ * cookies rather than read the same dead token back next time.
  */
 export async function fetchPosts({
   accountDir,
@@ -179,6 +203,8 @@ export async function fetchPosts({
   let failed = 0;
   let undescribed = 0;
   let undated = 0;
+  let stopped = null;
+  let sessionStale = false;
 
   for (const post of posts) {
     let described = post;
@@ -200,32 +226,46 @@ export async function fetchPosts({
     await mkdir(dir, { recursive: true });
 
     const attempt = async () => {
-      // Started the moment the filename is printed — which is before the
-      // download begins — and awaited once the process ends, so a write that
-      // failed is a failed post rather than a silent one.
+      // Every filename yt-dlp prints, not just the first. `MEDIA_NAME` numbers a
+      // post's files by position precisely because a post can yield several, and
+      // a post.json listing one of three is satisfied by that one file forever —
+      // so the other two stay missing, silently and permanently.
+      const files = [];
       let writing = null;
-      const result = await runYtDlp(
+
+      // Rewritten as each name arrives rather than once at the end, because
+      // yt-dlp prints a file's name before it downloads that file: the list is
+      // still ahead of every byte it describes, which is the rule post.json
+      // exists to keep.
+      const record = () =>
+        writePost(
+          dir,
+          buildPost({
+            id: post.id,
+            permalink: permalink(post.id),
+            timestamp: toTimestamp(described.createTime),
+            text: described.text ?? '',
+            media: files.map((file) => ({ file, type: 'video' })),
+          }),
+        );
+
+      const result = await runTool(
+        bin,
         fetchArgs({ url: permalink(post.id), dir, cookies: activeCookies }),
         {
-          bin,
           spawnImpl,
           onLine: (line) => {
-            if (writing || !MEDIA_LINE.test(line)) return;
-            writing = writePost(
-              dir,
-              buildPost({
-                id: post.id,
-                permalink: permalink(post.id),
-                timestamp: toTimestamp(described.createTime),
-                text: described.text ?? '',
-                media: [{ file: line, type: 'video' }],
-              }),
-            );
+            if (!MEDIA_LINE.test(line) || files.includes(line)) return;
+            files.push(line);
+            // Chained, never concurrent. Two writes racing on one path let
+            // whichever finishes last decide the list, and a shorter list
+            // winning is a post that reads as complete without its later files.
+            writing = writing ? writing.then(record) : record();
           },
         },
       );
 
-      if (!writing) return { ...result, code: result.code || 1 };
+      if (!files.length) return { ...result, code: result.code || 1 };
       try {
         await writing;
       } catch (error) {
@@ -246,10 +286,25 @@ export async function fetchPosts({
     if (result.code === 0) {
       fetched += 1;
       log(`[douyin] ${fetched}/${posts.length} — ${path.basename(dir)}`, { progress: true });
-    } else {
-      failed += 1;
-      log(`[douyin] failed: ${permalink(post.id)}`);
+      continue;
     }
+
+    // A failure the next post would meet too stops the run and says which one.
+    // Counting it as one failed post and carrying on is how a rate limit
+    // becomes hundreds more requests into the limiter that just said no.
+    const kind = classifyFailure(result.output);
+    if (kind && FATAL.has(kind)) {
+      stopped = kind;
+      log(`[douyin] stopping: ${kind}`);
+      break;
+    }
+
+    failed += 1;
+    log(`[douyin] failed: ${permalink(post.id)}`);
+
+    // A stale session the re-mint could not fix. Reported so the run throws the
+    // cached cookies away rather than reading the same dead token back next time.
+    if (saysSessionStale(result.output)) sessionStale = true;
   }
 
   if (undescribed) {
@@ -266,13 +321,12 @@ export async function fetchPosts({
     );
   }
 
-  return { fetched, failed, undescribed, undated };
+  return { fetched, failed, undescribed, undated, stopped, sessionStale };
 }
 
 /** One post's timestamp and caption, asked of yt-dlp because the feed did not say. */
 async function describe(post, { cookies, bin, spawnImpl }) {
-  const { code, lines } = await runYtDlp(metadataArgs({ url: permalink(post.id), cookies }), {
-    bin,
+  const { code, lines } = await runTool(bin, metadataArgs({ url: permalink(post.id), cookies }), {
     spawnImpl,
   });
   if (code !== 0 || !lines.length) return post;

@@ -22,7 +22,7 @@
  */
 import { detect, platformHelp, supported, supportedPlatforms } from './shared/platforms.mjs';
 import { EXIT } from './shared/exit.mjs';
-import { isMainModule, optString, parseCommandLine } from './shared/cli.mjs';
+import { isMainModule, missingValueRefusal, optString, parseCommandLine } from './shared/cli.mjs';
 import { listArchive } from './shared/listing.mjs';
 import { archivesRoot, normalizeRoot } from './shared/paths.mjs';
 import { refusalFields } from './shared/errors.mjs';
@@ -75,7 +75,7 @@ const wantsHelp = (argv) => argv.includes('-h') || argv.includes('--help');
  * archive an account ends up looking at a listing instead.
  */
 async function runListing(argv, platform) {
-  const { opts, positional, unknown } = parseCommandLine(argv, {
+  const { opts, positional, unknown, missing } = parseCommandLine(argv, {
     booleans: LIST_BOOLEANS,
     known: LIST_FLAGS,
   });
@@ -102,6 +102,9 @@ async function runListing(argv, platform) {
       message: `--list takes only --archives DIR, not ${JSON.stringify(positional[0])}`,
       details: { argument: positional[0] },
     });
+  }
+  if (missing.length) {
+    return refuse({ command: 'list', ...refusalFields(missingValueRefusal(missing[0])) });
   }
 
   const given = optString(opts, 'archives');

@@ -54,6 +54,9 @@ function deps(over = {}) {
     playwrightImpl: async () => ({ chromium: {} }),
     hasSessionImpl: async () => true,
     mintImpl: async () => '/tmp/cookies.txt',
+    // No cached session by default, so a test says so when it means to have one.
+    freshCookiesImpl: async () => false,
+    discardCookiesImpl: async () => {},
     onPathImpl: async () => true,
     ensureEnvImpl: async () => {},
     discardImpl: async () => {},
@@ -249,6 +252,32 @@ test('--go performs the move the plan announced, before downloading', async () =
 
   assert.equal(fetchedInto, path.join(dir, 'douyin', '小明'));
   assert.ok(!existsSync(path.join(dir, 'douyin', 'MS4wSEC')));
+
+  // The move is only half of it. Without the mapping, the folder is a directory
+  // archiver.json does not name — which reads as another account's id, so the
+  // user is refused their own alias from then on, permanently.
+  const map = JSON.parse(await readFile(path.join(dir, 'archiver.json'), 'utf8'));
+  assert.equal(map.accounts.douyin.MS4wSEC, '小明');
+
+  const again = await run([URL_MS4W, '--archives', dir, '--alias', '小明', '--plan']);
+  assert.equal(again.document.ok, true, 'the alias is still the account’s own on the next run');
+});
+
+test('an account keeps its own alias when archiver.json is gone', async () => {
+  // Deleting archiver.json is documented as safe: it is a cache the tree can
+  // rebuild. What must not happen is the rebuild reading the account's own
+  // folder as somebody else's id and refusing the name from then on.
+  const dir = await root();
+  await run([URL_MS4W, '--archives', dir, '--alias', '小明', '--plan']);
+  await run([URL_MS4W, '--archives', dir, '--alias', '小明', '--go'], {
+    fetchImpl: async ({ posts }) => ({ fetched: posts.length, failed: 0 }),
+  });
+
+  await rm(path.join(dir, 'archiver.json'));
+
+  const { document } = await run([URL_MS4W, '--archives', dir, '--alias', '小明', '--plan']);
+  assert.equal(document.ok, true, document.error?.message);
+  assert.equal(document.result.dir, path.join(dir, 'douyin', '小明'));
 });
 
 test('account.json holds identity and no progress', async () => {
@@ -273,9 +302,11 @@ test('the plan is parked where --go will look for it', async () => {
   assert.deepEqual(sync.plan.pending.map((p) => p.id), ['7111', '7222']);
 });
 
-test('an account with nothing left to fetch parks no plan', async () => {
-  // A plan left over from an earlier run would outlive the work it described,
-  // and --go would happily download it.
+test('a plan with nothing pending replaces the last one, and --go says so by name', async () => {
+  // The plan is parked whether or not anything is pending, so a plan an earlier
+  // run left behind cannot outlive the work it described. What a bare --go then
+  // meets is `plan-empty` — the same code X answers with, rather than a second
+  // code for one situation.
   const dir = await root();
   const { document } = await run([URL_MS4W, '--archives', dir, '--plan'], {
     collectImpl: async () => listing({ posts: [] }),
@@ -283,7 +314,10 @@ test('an account with nothing left to fetch parks no plan', async () => {
 
   assert.equal(document.result.counts.to_fetch, 0);
   const sync = await syncJson(path.join(dir, 'douyin', 'MS4wSEC'));
-  assert.equal(sync.plan ?? null, null);
+  assert.deepEqual(sync.plan.pending, []);
+
+  const go = await run([URL_MS4W, '--archives', dir, '--go']);
+  assert.equal(go.document.error.code, 'plan-empty');
 });
 
 // ---- what --go refuses ------------------------------------------------------
@@ -602,7 +636,7 @@ test('a post URL is refused before anything is fetched', async () => {
   const { document } = await run(['https://www.douyin.com/video/7412', '--yes', '--archives', dir]);
 
   assert.equal(document.exit, EXIT.USAGE);
-  assert.equal(document.error.code, 'url-not-profile');
+  assert.equal(document.error.code, 'url-single-post');
   assert.ok(!existsSync(path.join(dir, 'douyin')), 'nothing was written');
 });
 
@@ -611,12 +645,6 @@ test('an unknown flag is the user’s typo to see', async () => {
   assert.equal(document.exit, EXIT.USAGE);
   assert.equal(document.error.code, 'unknown-flag');
   assert.equal(document.error.details.flag, '--nonsense');
-});
-
-test('--downloads is refused by name rather than as a generic unknown flag', async () => {
-  const { document } = await run([URL_MS4W, '--downloads', '/data']);
-  assert.equal(document.exit, EXIT.USAGE);
-  assert.equal(document.error.code, 'downloads-renamed');
 });
 
 test('--alias and --unalias together is refused rather than guessed at', async () => {
@@ -722,4 +750,133 @@ test('a finished run repeats the notes the plan carried', async () => {
   });
 
   assert.equal(noteWith(document, 'image-posts-skipped').count, 3);
+});
+
+test('a cached session still works, and costs no browser launch', async () => {
+  // Minting reads the Playwright profile, which means launching Chromium — the
+  // slowest thing in the skill. A --go that mints unconditionally is paying the
+  // whole cost of having no cache at all, twice: once to check the profile holds
+  // a session and once to export it.
+  const dir = await root();
+  await run([URL_MS4W, '--archives', dir, '--plan']);
+
+  let launches = 0;
+  const { document } = await run([URL_MS4W, '--archives', dir, '--go'], {
+    freshCookiesImpl: async () => true,
+    hasSessionImpl: async () => (launches++, true),
+    mintImpl: async () => (launches++, '/tmp/cookies.txt'),
+    fetchImpl: async ({ posts, cookies }) => {
+      assert.match(cookies, /cookies\.txt$/, 'the cached file is what yt-dlp is handed');
+      return { fetched: posts.length, failed: 0 };
+    },
+  });
+
+  assert.equal(document.ok, true, document.error?.message);
+  assert.equal(launches, 0, 'no browser was opened');
+});
+
+test('a session the re-mint could not rescue is thrown away, so the next run mints', async () => {
+  const dir = await root();
+  await run([URL_MS4W, '--archives', dir, '--plan']);
+
+  let discarded = 0;
+  await run([URL_MS4W, '--archives', dir, '--go'], {
+    freshCookiesImpl: async () => true,
+    discardCookiesImpl: async () => discarded++,
+    fetchImpl: async ({ posts }) => ({ fetched: 0, failed: posts.length, sessionStale: true }),
+  });
+
+  assert.equal(discarded, 1);
+});
+
+test('a rate limit stops the run rather than hammering the limiter', async () => {
+  // 750 more yt-dlp invocations, each with --retries 3, against a limiter that
+  // has just said no. What is at risk there is the user's account, not the
+  // archive — and the run has to say which of the two it stopped for.
+  const dir = await root();
+  await run([URL_MS4W, '--archives', dir, '--plan']);
+
+  const { document } = await run([URL_MS4W, '--archives', dir, '--go'], {
+    fetchImpl: async () => ({ fetched: 0, failed: 0, stopped: 'rate-limited' }),
+  });
+
+  assert.equal(document.ok, false);
+  assert.equal(document.error.code, 'rate-limited');
+  assert.equal(document.error.remedy.run_by, 'agent');
+  assert.ok(document.result, 'what did land is still reported');
+});
+
+test('a --go whose session mint refuses says so by name, not as a crash', async () => {
+  // mintCookies raises session-empty and launchPersistentContext throws on a
+  // locked profile. Unguarded, both reach the dispatcher as internal-error with
+  // a stack, where the user should have had the code and its remedy.
+  const dir = await root();
+  await run([URL_MS4W, '--archives', dir, '--plan']);
+
+  const { document } = await run([URL_MS4W, '--archives', dir, '--go'], {
+    mintImpl: async () => {
+      throw new Refusal('session-empty', 'no douyin.com cookies in the browser profile');
+    },
+  });
+
+  assert.equal(document.error.code, 'session-empty');
+  assert.equal(document.exit, EXIT.UNAUTHORIZED);
+});
+
+test('a listing that hit the round limit says so in the document', async () => {
+  // A listing cut off at the round limit is short by an unknown amount. Silent,
+  // it reads as a complete one — with a hidden-posts count blaming every post
+  // below the cut.
+  const dir = await root();
+  const { document } = await run([URL_MS4W, '--archives', dir, '--plan'], {
+    collectImpl: async () => listing({ hitRoundLimit: true }),
+  });
+
+  assert.ok(noteWith(document, 'listing-truncated'), 'the caveat every other count is read under');
+});
+
+test('an abbreviated profile count explains no gap', async () => {
+  const dir = await root();
+  const { document } = await run([URL_MS4W, '--archives', dir, '--plan'], {
+    collectImpl: async () => listing({ reported: 12000, reportedRounded: true }),
+  });
+
+  assert.equal(noteWith(document, 'hidden-posts'), undefined);
+});
+
+test('cards no feed response named are counted rather than collected', async () => {
+  const dir = await root();
+  const { document } = await run([URL_MS4W, '--archives', dir, '--plan'], {
+    collectImpl: async () => listing({ unattributed: 2 }),
+  });
+
+  assert.equal(noteWith(document, 'unattributed-posts').count, 2);
+});
+
+test('posts that could not be dated reach the document, not just stderr', async () => {
+  // 40 posts landing as undated_<id> is something the archive should say out
+  // loud. The agent reads stdout; a count that only ever reached stderr is a
+  // count nobody sees.
+  const dir = await root();
+  await run([URL_MS4W, '--archives', dir, '--plan']);
+
+  const { document } = await run([URL_MS4W, '--archives', dir, '--go'], {
+    fetchImpl: async ({ posts }) => ({ fetched: posts.length, failed: 0, undated: 2, undescribed: 2 }),
+  });
+
+  assert.equal(noteWith(document, 'undated-posts').count, 2);
+});
+
+test('a --go repeats the listing’s own caveats, which it cannot recompute', async () => {
+  const dir = await root();
+  await run([URL_MS4W, '--archives', dir, '--plan'], {
+    collectImpl: async () => listing({ hitRoundLimit: true, unattributed: 1 }),
+  });
+
+  const { document } = await run([URL_MS4W, '--archives', dir, '--go'], {
+    fetchImpl: async ({ posts }) => ({ fetched: posts.length, failed: 0 }),
+  });
+
+  assert.ok(noteWith(document, 'listing-truncated'));
+  assert.equal(noteWith(document, 'unattributed-posts').count, 1);
 });

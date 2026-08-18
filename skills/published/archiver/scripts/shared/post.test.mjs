@@ -146,3 +146,17 @@ test('reply_to is written even though Douyin has nothing to put in it', () => {
   // shape, which is the whole reason the platform folders were introduced.
   assert.equal(buildPost({ id: '1' }).reply_to, null);
 });
+
+test('a media row naming no file is dropped, not recorded as "undefined."', () => {
+  // A name nothing on disk can ever match is worse than no entry at all: the
+  // post reads as incomplete on every run, so every --plan re-lists it and every
+  // --go re-downloads it, forever.
+  const post = buildPost({
+    id: '1767',
+    media: [{ url: 'https://pbs.twimg.com/a.jpg' }, { num: 1, ext: 'jpg' }],
+  });
+
+  assert.deepEqual(mediaNames(post), ['1.jpg']);
+  assert.equal(post.media.length, 1);
+  assert.ok(isComplete(post, ['1.jpg']), 'the post lands once its one real file is on disk');
+});

@@ -72,15 +72,48 @@ export const PLATFORMS = [
   },
 ];
 
+/**
+ * The flags whose *next* argument is a value, so detection can step over it.
+ *
+ * Derived from the table above — a platform's own flag is spelled `--browser
+ * NAME` there precisely because it takes one — plus the two every platform
+ * shares. Nothing else has to be remembered when a platform is added.
+ *
+ * It is needed because an alias and an archives path are free to look like
+ * hosts. `--alias douyin.com` is a legal folder name, and a scan that read it
+ * would dispatch the run into a platform the command line never named.
+ */
+const VALUE_FLAGS = new Set([
+  '--archives',
+  '--alias',
+  ...PLATFORMS.flatMap((platform) =>
+    platform.flags
+      .filter(([flag]) => /^--\S+\s+\S/.test(flag))
+      .map(([flag]) => flag.split(/\s+/)[0])),
+]);
+
 /** One platform's account descriptor, by name. */
 export function descriptorFor(name) {
+  return byName(name).account;
+}
+
+/** What one platform's collected posts call their own id. */
+export function postIdKeyFor(name) {
+  return byName(name).postIdKey;
+}
+
+function byName(name) {
   const platform = PLATFORMS.find((candidate) => candidate.name === name);
   if (!platform) throw new Error(`no platform called '${name}'`);
-  return platform.account;
+  return platform;
 }
 
 /**
  * The platform a command line is about, or null if no argument names one.
+ *
+ * Every argument is scanned except the value of a flag that takes one, because
+ * the URL may sit anywhere: `--archives ~/data <url> --plan` is as valid as
+ * `<url> --archives ~/data`.
  *
  * Throws when two platforms are named at once. That is a refusal rather than a
  * choice because the run archives one account into one folder: picking either
@@ -91,11 +124,28 @@ export function detect(argv) {
   const named = new Set();
   const urls = [];
   let found = null;
-  for (const arg of argv) {
-    const platform = PLATFORMS.find((candidate) => candidate.match(String(arg)));
+  let terminated = false;
+
+  for (let i = 0; i < argv.length; i++) {
+    const arg = String(argv[i]);
+
+    if (!terminated) {
+      if (arg === '--') {
+        terminated = true;
+        continue;
+      }
+      // A flag's value is the flag's business, never a URL. Stepping over it is
+      // what keeps `--alias douyin.com --plan <x url>` an X run.
+      if (VALUE_FLAGS.has(arg)) {
+        i++;
+        continue;
+      }
+    }
+
+    const platform = PLATFORMS.find((candidate) => candidate.match(arg));
     if (!platform) continue;
     named.add(platform.name);
-    urls.push(String(arg));
+    urls.push(arg);
     found = found ?? platform;
   }
 

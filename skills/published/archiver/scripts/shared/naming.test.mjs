@@ -66,3 +66,28 @@ test('a folder name survives the round trip', () => {
     assert.equal(postIdFromFolder(name), '7412345678901234567', String(date));
   }
 });
+
+test('a microsecond epoch is not a moment, and reading one does not throw', () => {
+  // A downloader emitting microseconds where the field is documented as seconds
+  // is one malformed field, not a reason for the collection pass to die with a
+  // RangeError three frames up.
+  assert.equal(toTimestamp(1.7e15), null);
+  assert.equal(datePart(1.7e15), 'undated');
+  assert.equal(toTimestamp(-1e300), null);
+  assert.equal(datePart(1e300), 'undated');
+});
+
+test('an id that would mean another directory is refused, not put in the name', () => {
+  for (const postId of ['../../evil', 'a/b', '..', '', 'x\u0000y']) {
+    assert.throws(
+      () => postFolderName({ date: '2024-01-01', postId }),
+      (error) => {
+        assert.equal(error.code, 'unsafe-post-id');
+        return true;
+      },
+      JSON.stringify(postId),
+    );
+  }
+
+  assert.equal(postFolderName({ date: '2024-01-01', postId: '1767' }), '2024-01-01_1767');
+});

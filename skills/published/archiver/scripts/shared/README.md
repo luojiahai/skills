@@ -6,7 +6,7 @@ platforms are threaded with a descriptor where they differ.
 
 | File | Role |
 | --- | --- |
-| `platforms.mjs` | The registry: every platform this skill knows, the host patterns that resolve a URL to one, and each one's account descriptor. |
+| `platforms.mjs` | The registry: every platform this skill knows, the host patterns that resolve a URL to one, each one's account descriptor, and what its collected posts call their own id. |
 | `plan.mjs` | The confirm step: what a plan means, and the rules that refuse a stale or foreign one. |
 | `account.mjs` | Where an account's folder is, and the identity written inside it. Takes a descriptor, because the platform folder and the name of the readable handle are the only things that vary. |
 | `landed.mjs` | What is already downloaded, answered from the post folders themselves. |
@@ -23,6 +23,8 @@ platforms are threaded with a descriptor where they differ.
 | `cli.mjs` | Argument parsing, file reading, atomic JSON writing, entry-point detection. |
 | `exit.mjs` | One exit table, so a shell caller can tell "rate-limited" from "you typed the flag wrong" without knowing which platform ran. |
 | `tools.mjs` | Whether a downloader is on PATH, and the refusal when it is not. Reachable only through the `ARCHIVER_SYSTEM_TOOLS` escape hatch. |
+| `subprocess.mjs` | Running a downloader and reading what it said, so both platforms answer "what did it exit with" the same way — including for a process that never started. |
+| `run.mjs` | Which mode a command line asked for, in one place, so `--yes` outranks a `--plan` appended after it on both platforms. |
 
 ## The archive both platforms write
 
@@ -154,8 +156,8 @@ in one fixed English layout for all of them.
   posts and then stopped is neither a success nor a nothing.
 - `ok` answers "was this run refused or stopped", which is not "did the exit
   code say zero". A Douyin `--go` that lost three posts to the downloader
-  finished as asked and still exits `FAILED`, because that is the exit its shell
-  callers have always seen. It is `ok`, with the posts it lost in
+  finished as asked and still exits `FAILED`, because shell callers read a lost
+  post as a non-zero exit. It is `ok`, with the posts it lost in
   `result.run.failed`.
 
 The document a user approves and the one a finished run reports have to agree —

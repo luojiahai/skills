@@ -81,3 +81,19 @@ test('every platform names a folder and a label', () => {
 test('the supported list reads as prose for a refusal message', () => {
   assert.equal(supported(), 'Douyin (douyin.com) and X, formerly Twitter (x.com, twitter.com)');
 });
+
+test('a flag value is never read as a URL, however much it looks like one', () => {
+  // Both of these are legal: an alias is a folder name the user chose, and an
+  // archives root is a directory. Reading either would put the run on a platform
+  // the command line never named.
+  assert.equal(detect(['--alias', 'douyin.com', '--plan', 'https://x.com/jack']).name, 'x');
+  assert.equal(detect(['--archives', 'x.com/backup', '--list']), null);
+  assert.equal(detect(['--profile', 'douyin.com', 'https://x.com/jack']).name, 'x');
+  assert.equal(detect(['--cookies', 'douyin.com/c.txt', 'https://x.com/jack']).name, 'x');
+});
+
+test('the URL is still found wherever it sits among the flags', () => {
+  assert.equal(detect(['--archives', '~/data', 'https://douyin.com/user/abc', '--plan']).name, 'douyin');
+  assert.equal(detect(['https://douyin.com/user/abc', '--archives', '~/data']).name, 'douyin');
+  assert.equal(detect(['--', 'https://x.com/jack']).name, 'x');
+});

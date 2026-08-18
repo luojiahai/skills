@@ -95,10 +95,14 @@ The codes worth knowing:
 | `session-expired-grid` | Douyin only: the profile counts posts but the grid is blank. That is the sign-in handoff below. |
 | `session-missing`, `session-empty` | Douyin only: no session yet. Same handoff. |
 | `login-abandoned`, `login-timed-out` | The sign-in did not finish. Offer it again. |
-| `env-consent`, `node-missing` | The tools have not been built yet. **Yours to act on** — see below. |
+| `env-consent` | The tools have not been built yet. **Yours to act on** — see below. |
+| `node-missing` | The runtime has not been built yet. **Theirs to run** — see below. |
 | `env-build-failed` | The build failed. Say what `details.output` ends with, and that it needs the network. |
 | `tool-missing`, `playwright-missing` | Only under the escape hatch. They install it — `details.install` names the command. |
-| `plan-*`, `no-archive` | The prepared list is gone, stale, or for something else. Re-collect with `remedy.command`, then **ask again** before downloading. |
+| `plan-*`, `no-archive` | The prepared list is gone, stale, or for something else. Re-collect with `remedy.command`, then **ask again** before downloading. `plan-empty` is the one that means there was simply nothing left to download. |
+| `url-single-post` | They pointed at one post. This archives whole accounts; `details` names the account to archive instead. |
+| `flag-needs-value` | A flag was typed with no value. `details.flag` names it. Ask what they meant rather than dropping it. |
+| `alias-move-failed`, `alias-target-occupied`, `unalias-target-occupied` | The folder could not be moved. Say where it is and what is in the way. |
 | `internal-error` | The scripts crashed. Say so and stop; `details.stack` is for a bug report, not for the user. |
 
 ## Invoked with no URL
@@ -217,7 +221,12 @@ The `--go` document is the run's whole result. Report it and stop.
 | `image-posts-skipped` | Douyin. **Say `count` out loud whenever it is there** — their archive is short by that many. |
 | `hidden-posts` | Douyin. `count` posts the profile counts but never shows: private, deleted, region-locked. |
 | `unlisted-posts` | Douyin. `count` archived posts the profile no longer lists. |
-| `sweep` | X. `mode: "incremental"` with `stopped_early: true` means it stopped after `threshold` known posts rather than reaching the end — so "nothing new" is not proven. Say so. |
+| `listing-truncated` | Douyin. The scroll hit its round limit, so the listing is short by an unknown amount. **Every other count in the document is a comparison against a partial list.** Say so. |
+| `unattributed-posts` | Douyin. `count` cards on the page that no profile-feed response named, and so were not collected — a recommendation rail, or a run that missed those responses. |
+| `undated-posts` | Douyin. `count` posts filed under `undated_<id>`, because nothing would say when they were published. |
+| `duplicate-posts` | Both. `count` post ids found in two folders each. One answers for the post; the other's media is counted by nothing, so every figure beside it is short by that much. |
+| `under-described-posts` | X. `count` posts whose listing was cut off mid-post. They are fetched again, but their `post.json` lists fewer files than they carry. |
+| `sweep` | X. `mode: "incremental"` with `stopped_early: true` means it stopped after `threshold` known posts rather than reaching the end — so "nothing new" is not proven. Say so. A `--go` repeats the note its plan recorded, which may be up to a day old. |
 | `moving-to` | `--alias` will rename the folder to `dir` on the download step. Say it before they say yes; nothing has moved yet. |
 | `root-changed` | The last run archived into `previous`. Say it — otherwise an `on_disk` of zero reads as an archive that lost its files. |
 
@@ -225,8 +234,8 @@ The `--go` document is the run's whole result. Report it and stop.
 
 `--archives DIR` sets the root, and the account folder is
 `DIR/<platform>/<alias>` if the account has one and `DIR/<platform>/<id>` if it
-does not. Without the flag the root is `<git root of the current directory, else
-cwd>/archives`.
+does not. Without the flag the root is `<nearest ancestor holding a .git, else the current
+directory>/archives`, with symlinks resolved.
 
 The platform folder is what lets one root hold both: Douyin files accounts under
 `douyin/<sec_uid>` and X under `x/<numeric user id>`, so there is no id the two
@@ -260,16 +269,19 @@ Resuming means passing the same `--archives` again. A different root is a
 different archive and starts from nothing, so if the user has archived this
 account before, use the root they used before.
 
-A working directory inside the skill itself is not a project: the run stops and
-asks for `--archives DIR` rather than archiving into a folder the next update
-deletes.
+A working directory inside the skill itself is not a project. Where the install
+path names one — the `<project>/.claude/skills/` and `<project>/.agents/skills/`
+layouts — the archive goes to `<project>/archives`, which for a skill under
+`~/.claude/skills` is `~/archives`. Where it names none, the run stops and asks
+for `--archives DIR` rather than archiving into a folder the next update
+deletes. Naming the root explicitly is always the unambiguous thing to do.
 
 ## The tools it runs on
 
 **There is nothing for the user to install.** The skill downloads and runs its
 own `yt-dlp`, `gallery-dl`, Playwright and Chromium, at versions it pins, and
-never consults what is already on the machine. `curl` is the only thing it
-assumes. Say this once if they ask what it needs.
+never consults what is already on the machine. A shell, `curl` and the POSIX
+userland are all it assumes. Say this once if they ask what it needs.
 
 They go in `${XDG_CACHE_HOME:-~/.cache}/archiver` — about 115MB to download and
 400MB on disk for X, and 365MB to download and a little over a gigabyte on disk
@@ -289,13 +301,18 @@ refusal is **yours to act on**:
 2. **Give the turn back and wait for their answer.**
 3. If they agree, run `remedy.command`. Then run the original command again.
 
-**`node-missing`** is the same conversation, one step earlier. The skill runs on
-the Node it built and on no other, so on a machine where nothing has been built
-yet this is what **every** command answers — `--list` included. Ask the same way,
-then run `<skill-dir>/setup.sh` and re-run the original command.
+**`node-missing`** is the same conversation, one step earlier, and the step
+`setup.sh` takes is **theirs to run**: it downloads roughly 115MB, which is
+exactly the class of act the consent gate exists to stop happening silently. The
+skill runs on the Node it built and on no other, so on a machine where nothing
+has been built yet this is what **every** command answers — `--list` included.
+Tell them what it does and ask them to run `<skill-dir>/setup.sh`, then re-run
+the original command.
 
-Every run after that is silent, including one that needs a box the last one did
-not.
+Consent is remembered per box. A run needing a box the user has already agreed to
+is silent; the first Douyin run after an X-only setup asks once more, because
+Chromium is a quarter of a gigabyte and agreeing to the downloaders was not
+agreeing to that.
 
 **`env-build-failed`** means it could not be built — almost always the network.
 `details.output` holds the last thing the builder said; report the gist of it.

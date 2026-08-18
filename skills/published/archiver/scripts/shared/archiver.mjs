@@ -33,6 +33,11 @@
  * archive. What is *not* tolerated is a file this build cannot parse: that may
  * be a schema from the future, and rebuilding it would clobber it.
  *
+ * That is also why there is no locking. Two platform runs against one root
+ * read-modify-write this file, and one can lose the other's update — which costs
+ * the next run a scan and nothing else. Do not add a lock: stale-lock handling
+ * would be real machinery bought to save a rescan.
+ *
  * Every platform writes this file, with this number, into the root they share.
  * The contract has one home here so that a schema bump is one edit rather than a
  * negotiation between platforms.
@@ -40,15 +45,16 @@
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 
-import { readJson, writeJson } from './cli.mjs';
+import { writeJson } from './cli.mjs';
 import { Refusal } from './errors.mjs';
 
 export const ARCHIVER_FILE = 'archiver.json';
 
 /**
- * 3, not 2. Schema 2 filed every account under its id and had no alias map; 3
- * lets a folder be named for an alias instead. Nothing moved between them, which
- * is why 2 is *readable* rather than refused — see READABLE_SCHEMAS.
+ * Schema 2 archives are readable because schema 2 filed every account under its
+ * id and had no alias map, and 3 lets a folder be named for an alias instead —
+ * so nothing has to move between them. That is what READABLE_SCHEMAS below
+ * rests on.
  *
  * Schema 1 is the flat `x_<handle>` / `douyin_<抖音号>` layout, which has no root
  * file at all — so it is indistinguishable from the "missing" case and reads as
@@ -70,48 +76,45 @@ export const SCHEMA_VERSION = 3;
 const READABLE_SCHEMAS = new Set([2, SCHEMA_VERSION]);
 
 /**
- * The root file as it was parsed, or null when there is not a readable one.
- *
- * The second reader of this file, and deliberately the blunter one: readSchema
- * below tells "absent" from "present but unparseable" because the difference
- * decides whether a run may proceed, while this collapses both to null because
- * by the time anything asks for the alias map, checkRoot has already refused
- * every archive where that distinction mattered. Nothing here may be called
- * before that refusal.
- */
-async function readArchiverFile(root) {
-  return readJson(path.join(root, ARCHIVER_FILE));
-}
-
-/**
- * `{ present, schema }` for the root's archiver.json.
+ * `{ present, schema, json }` for the root's archiver.json — one read, answering
+ * every question anything here asks of the file.
  *
  * `schema` is whatever the file held, unexamined — a string, an object, a
  * missing key. Judging it is checkSchema's job, so that "what does the file say"
- * and "may we act on it" stay two questions with one answer each.
+ * and "may we act on it" stay two questions with one answer each. `json` is the
+ * parsed object, or null where there is not one to have.
  *
- * Absent and unreadable are told apart *here*, and it matters more than it
- * looks. Absent means "carry on", so anything that collapses into it is a way
- * of reaching the one permissive answer by accident — a file truncated by a
- * full disk would read as no file at all, and the run would then overwrite it
- * with a stamp claiming a schema nobody verified. A file that exists but cannot
- * be parsed is reported as present with no schema, which checkSchema refuses.
+ * Absent and unreadable are told apart, and it matters more than it looks.
+ * Absent means "carry on", so anything that collapses into it is a way of
+ * reaching the one permissive answer by accident — a file truncated by a full
+ * disk would read as no file at all, and the run would then overwrite it with a
+ * stamp claiming a schema nobody verified. A file that exists but cannot be
+ * parsed is reported as present with no schema, which checkSchema refuses.
+ *
+ * Anything that only wants the alias map may ignore the distinction: by the time
+ * it asks, checkRoot has already refused every archive where it mattered.
  */
-export async function readSchema(root) {
+async function readArchiverFile(root) {
   let raw;
   try {
     raw = await readFile(path.join(root, ARCHIVER_FILE), 'utf8');
   } catch {
-    return { present: false, schema: null };
+    return { present: false, schema: null, json: null };
   }
 
   try {
     const json = JSON.parse(raw);
-    if (json === null || typeof json !== 'object') return { present: true, schema: null };
-    return { present: true, schema: json.schema ?? null };
+    if (json === null || typeof json !== 'object') return { present: true, schema: null, json: null };
+    return { present: true, schema: json.schema ?? null, json };
   } catch {
-    return { present: true, schema: null };
+    return { present: true, schema: null, json: null };
   }
+}
+
+/** The root's schema, for a caller that only has to decide whether to proceed. */
+export async function readSchema(root) {
+  const { present, schema } = await readArchiverFile(root);
+  return { present, schema };
 }
 
 /**
@@ -189,7 +192,7 @@ export async function checkRoot(root) {
  * answer.
  */
 export async function stampRoot(root) {
-  const { present, schema } = await readSchema(root);
+  const { present, schema, json } = await readArchiverFile(root);
   if (present && schema === SCHEMA_VERSION) return SCHEMA_VERSION;
 
   if (!present) {
@@ -199,7 +202,7 @@ export async function stampRoot(root) {
 
   // Present and readable but not current — schema 2, the only other member of
   // READABLE_SCHEMAS. Anything else never reaches here, because checkRoot threw.
-  const file = (await readArchiverFile(root)) ?? {};
+  const file = json ?? {};
   await writeJson(path.join(root, ARCHIVER_FILE), {
     ...file,
     schema: SCHEMA_VERSION,
@@ -224,7 +227,7 @@ function aliasTable(accounts) {
  * trusting it is a number or a null reaching a path.
  */
 export async function readAliases(root, platform) {
-  const byPlatform = aliasTable((await readArchiverFile(root))?.accounts);
+  const byPlatform = aliasTable((await readArchiverFile(root)).json?.accounts);
   const table = aliasTable(byPlatform[platform]);
 
   return Object.fromEntries(
@@ -246,7 +249,7 @@ export async function readAliases(root, platform) {
  * merely a cache, so a crash before it lands is repaired by the next scan.
  */
 export async function writeAlias(root, platform, id, alias) {
-  const file = (await readArchiverFile(root)) ?? {};
+  const file = (await readArchiverFile(root)).json ?? {};
   const accounts = { ...aliasTable(file.accounts) };
   const table = { ...aliasTable(accounts[platform]) };
 

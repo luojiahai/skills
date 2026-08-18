@@ -56,10 +56,14 @@ Every other flag beside it is refused rather than ignored, because `--list` and
 `--plan` ask for different things and letting one quietly win is how somebody
 who asked to archive an account ends up looking at a listing.
 
-Because the URL may sit anywhere among the flags, **every** argument is scanned —
-so the host patterns in `platforms.mjs` are anchored at the start and must end at
-a path, query, fragment or the end of the string. Loosen them and `--archives
-./douyin.com` starts dispatching.
+The URL may sit anywhere among the flags, so every argument is scanned except
+the value of a flag that takes one. Both halves of that matter. The host patterns
+in `platforms.mjs` are anchored at the start and must end at a path, query,
+fragment or the end of the string, so `./douyin.com` and `/data/x.com-backup`
+cannot answer for a URL; and an alias or an archives root is free to be spelled
+exactly like a host, so `--alias douyin.com` must not put the run on Douyin.
+Which flags take a value is derived from the platform registry rather than
+listed, so adding one stays a single edit there.
 
 Detection answers *which* platform, never whether the URL is archivable. A
 single-post URL, a bookmarks page and a suspended account all belong to a
@@ -89,9 +93,9 @@ nothing.
 
 `archive.sh` works out which node to run on, plus the `--downloads` refusal. Both
 are there because they must happen before node runs or before a platform is
-reached: a platform refuses `--downloads` too, but only past its own tool
-preflight, so that order would report a build instead of the flag that is
-actually wrong.
+reached — and `--downloads` is refused *only* there. A platform could refuse it
+too, but only past its own tool preflight, so that order would report a missing
+tool instead of the flag that is actually wrong.
 
 **`archive.sh` runs on the runtime box's node and no other, and builds nothing.**
 A `node` on PATH is never used: the interpreter running the scripts is as much

@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
-import test from 'node:test';
+import { chmod, mkdir, mkdtemp, writeFile } from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
+import test from 'node:test';
 
 import { hatchToolMissing, missingTool, onPath } from './tools.mjs';
 
@@ -86,4 +88,20 @@ test('where the docs are goes in the remedy, not in the command', () => {
 
   assert.equal(refusal.remedy.command, 'uv tool install yt-dlp');
   assert.match(refusal.remedy.message, /github\.com\/yt-dlp/);
+});
+
+test('a directory named like a tool on PATH is not an executable', async () => {
+  // A directory carries the execute bit, so `access(X_OK)` alone says yes to
+  // one. The preflight then passes and the failure resurfaces later as an
+  // opaque spawn error, in a run that has already read a session.
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'archiver-tools-'));
+  await mkdir(path.join(dir, 'yt-dlp'));
+
+  assert.equal(await onPath('yt-dlp', { PATH: dir }), false);
+
+  // And a real one still satisfies it.
+  const bin = path.join(dir, 'gallery-dl');
+  await writeFile(bin, '#!/bin/sh\nexit 0\n');
+  await chmod(bin, 0o755);
+  assert.equal(await onPath('gallery-dl', { PATH: dir }), true);
 });

@@ -42,13 +42,23 @@ const TYPES = {
 function resolve(schema, root) {
   if (!schema?.$ref) return schema;
   const parts = schema.$ref.replace(/^#\//, '').split('/');
-  return parts.reduce((node, key) => node[key], root);
+  return parts.reduce((node, key) => (node == null ? undefined : node[key]), root);
 }
 
-/** Every way `value` fails `schema`, as paths a failing test can be read from. */
+/**
+ * Every way `value` fails `schema`, as paths a failing test can be read from.
+ *
+ * A `$ref` that resolves to nothing is a failure of the schema, not a subtree
+ * that happens to have no rules: were it read as the latter, one typo in
+ * `output.schema.json` would make every assertion under that key vacuous while
+ * the suite stayed green.
+ */
 function check(value, schema, root, where, problems) {
   const node = resolve(schema, root);
-  if (!node) return problems;
+  if (!node) {
+    problems.push(`${where}: unresolvable schema reference ${JSON.stringify(schema?.$ref ?? schema)}`);
+    return problems;
+  }
 
   if ('const' in node && value !== node.const) {
     problems.push(`${where}: expected ${JSON.stringify(node.const)}, got ${JSON.stringify(value)}`);

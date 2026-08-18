@@ -87,20 +87,20 @@ test('diff of an empty archive is everything', () => {
 
 test('diff omits posts already complete on disk', () => {
   const archive = new Map([onDisk('1', ['1.jpg', '2.jpg'])]);
-  const result = diff(groupFiles(rows), archive);
+  const result = diff(groupFiles(rows), archive, 'tweetId');
   assert.deepEqual(result.toFetch.map((p) => p.tweetId), ['2']);
   assert.equal(result.counts.onDiskPosts, 1);
 });
 
 test('diff re-fetches a post whose files are only half there', () => {
   const archive = new Map([onDisk('1', ['1.jpg', '2.jpg'], ['1.jpg'])]);
-  const result = diff(groupFiles(rows), archive);
+  const result = diff(groupFiles(rows), archive, 'tweetId');
   assert.deepEqual(result.toFetch.map((p) => p.tweetId), ['1', '2']);
 });
 
 test('diff counts found files across every post, fetched or not', () => {
   const archive = new Map([onDisk('1', ['1.jpg', '2.jpg'])]);
-  const result = diff(groupFiles(rows), archive);
+  const result = diff(groupFiles(rows), archive, 'tweetId');
   assert.equal(result.counts.foundPosts, 2);
   assert.equal(result.counts.foundFiles, 3);
 });
@@ -112,3 +112,21 @@ const goodPlan = {
   url: 'https://x.com/someone',
 };
 const now = 1_700_000_000_000 + 60_000;
+
+test('a post the extractor says has more files than were seen is fetched again', () => {
+  // Enumeration cut off between two of one post's rows — a rate limit landing
+  // mid-post. The plan would otherwise list two of the post's four images,
+  // gallery-dl would fetch all four, and the completeness check would be
+  // satisfied by the two that were listed, for good.
+  const post = { tweetId: '9', count: 4, files: [{ num: 1, ext: 'jpg' }, { num: 2, ext: 'jpg' }] };
+  const archive = new Map([onDisk('9', ['1.jpg', '2.jpg'])]);
+
+  const result = diff([post], archive, 'tweetId');
+  assert.deepEqual(result.toFetch.map((p) => p.tweetId), ['9']);
+  assert.equal(result.counts.underDescribed, 1);
+});
+
+test('a post whose file count matches what was seen is not counted as short', () => {
+  const post = { tweetId: '9', count: 2, files: [{ num: 1, ext: 'jpg' }, { num: 2, ext: 'jpg' }] };
+  assert.equal(diff([post], new Map(), 'tweetId').counts.underDescribed, 0);
+});

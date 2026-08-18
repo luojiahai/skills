@@ -19,13 +19,16 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 
-import { doGo, main } from './run.mjs';
-import { postDir } from './fetch.mjs';
+import { main } from './run.mjs';
+import { fetchPosts, postDir } from './fetch.mjs';
+import { recordIdentity } from '../shared/account.mjs';
+import { descriptorFor } from '../shared/platforms.mjs';
 import { EXIT } from '../shared/exit.mjs';
 import { Refusal } from '../shared/errors.mjs';
 import { buildPlan } from '../shared/plan.mjs';
 import { savePlan } from '../shared/sync.mjs';
 import { archiveCounts } from '../shared/output.mjs';
+import { buildPost, writePost } from '../shared/post.mjs';
 import { emitted, validate } from '../testing.mjs';
 
 const exec = promisify(execFile);
@@ -64,11 +67,15 @@ const collected = (over = {}) => ({
 function deps(over = {}) {
   const listing = over.collectImpl ?? (async () => collected());
   return {
-    fetchImpl: async ({ posts }) => ({
-      fetched: { posts: posts.length, files: posts.length },
-      failed: 0,
-      stopped: null,
-    }),
+    // Lands each post the way the real fetcher does — post.json written, media
+    // listed and present — because the run reports its total by asking the
+    // folder, and a fetcher that wrote nothing would be reporting on nothing.
+    fetchImpl: async ({ accountDir, posts }) => {
+      for (const post of posts) {
+        await writePost(postDir(accountDir, post), buildPost({ id: post.tweetId }));
+      }
+      return { fetched: { posts: posts.length, files: posts.length }, failed: 0, stopped: null };
+    },
     onPathImpl: async () => true,
     cookiesImpl: async () => '/tmp/cookies.txt',
     ensureEnvImpl: async () => {},
@@ -278,23 +285,17 @@ test('no session and no browser to read one from names the browsers it accepts',
 
 // ---- the command line -------------------------------------------------------
 
-test('--downloads is refused by name rather than as a generic unknown flag', async () => {
-  // Dropping the flag from KNOWN_FLAGS alone would report it as an unknown
-  // option — true, but it sends the user to --help to work out what happened.
-  // The whole risk of this rename is a stale command still in someone's shell
-  // history, so the refusal names its replacement.
-  const { document } = await run(['https://x.com/someone', '--downloads', '/data']);
-
-  assert.equal(document.exit, EXIT.USAGE);
-  assert.equal(document.error.code, 'downloads-renamed');
-});
-
-test('archive.sh refuses --downloads before any platform preflights its tools', async () => {
-  // A platform refuses it too, but only past its own tool preflight — so on a
-  // machine without gallery-dl a stale command would report the missing tool
-  // instead of the rename that actually broke it. Exiting before dispatch is
-  // also what makes this test independent of what is installed here. It happens
-  // before node exists to compose a document, so the shell writes one by hand.
+test('archive.sh is where --downloads is refused, and it is refused by name', async () => {
+  // Reporting it as an unknown option would be true and useless — it sends the
+  // user to --help to work out what happened, and the whole risk here is a stale
+  // command still sitting in somebody's shell history.
+  //
+  // Refused in archive.sh and only there. A platform could refuse it too, but
+  // only past its own tool preflight — so on a machine without gallery-dl a
+  // stale command would report the missing tool instead of the flag that is
+  // actually wrong. Exiting before dispatch is also what makes this test
+  // independent of what is installed here. It happens before node exists to
+  // compose a document, so the shell writes one by hand.
   const failed = await exec(ARCHIVE_SH, ['https://x.com/someone', '--downloads', '/data']).then(
     () => null,
     (error) => error,
@@ -305,6 +306,19 @@ test('archive.sh refuses --downloads before any platform preflights its tools', 
   const document = validate(JSON.parse(failed.stdout));
   assert.equal(document.error.code, 'downloads-renamed');
   assert.equal(document.exit, 2);
+});
+
+test('--downloads is the flag wherever it appears on the line', async () => {
+  // It cannot be a flag's value: a value beginning with `-` is refused as a
+  // missing one by the argument parser. So the shim needs no list of which flags
+  // take a value in order to know it is looking at the flag.
+  const failed = await exec(ARCHIVE_SH, ['https://x.com/someone', '--alias', '--downloads']).then(
+    () => null,
+    (error) => error,
+  );
+
+  assert.ok(failed, 'expected a non-zero exit');
+  assert.equal(validate(JSON.parse(failed.stdout)).error.code, 'downloads-renamed');
 });
 
 test('a post URL is refused before anything is fetched', async () => {
@@ -318,8 +332,8 @@ test('a post URL is refused before anything is fetched', async () => {
   ]);
 
   assert.equal(document.exit, EXIT.USAGE);
-  assert.equal(document.error.code, 'url-out-of-scope');
-  assert.equal(document.error.details.section, 'status');
+  assert.equal(document.error.code, 'url-single-post');
+  assert.equal(document.error.details.handle, 'someone');
   // An empty root means no folder was resolved, no schema stamped, nothing
   // fetched.
   assert.ok(!existsSync(path.join(dir, 'x')));
@@ -340,7 +354,7 @@ test('every flag the usage text offers is declared, and the ones taking a value 
     'https://x.com/someone/status/1767',
   ]);
 
-  assert.equal(document.error.code, 'url-out-of-scope');
+  assert.equal(document.error.code, 'url-single-post');
 });
 
 test('an actually unknown flag still reports as unknown', async () => {
@@ -417,10 +431,20 @@ const tweet = (tweetId) => ({ tweetId, date: '2024-03-11T09:22:19Z', content: ''
  * The download half against a parked plan, with a downloader that succeeds and
  * writes nothing. fetchPosts makes each post's folder before it spawns anything,
  * so the folders that appear are the posts it was handed.
+ *
+ * Driven through `main` like every other test here, so the answer is the
+ * validated document rather than an intermediate `doGo` returns on its way to
+ * composing one.
  */
-async function go(root, { collected: seen, pending }) {
+async function go(root, { collected: seen, pending, counts } = {}) {
   const accountDir = path.join(root, 'x', '55');
   await mkdir(accountDir, { recursive: true });
+
+  // A bare --go knows only the URL, so the folder has to be findable by it.
+  await recordIdentity(descriptorFor('x'), root, accountDir, {
+    account: { id: '55', handle: 'jack' },
+    url: 'https://x.com/jack',
+  });
 
   await savePlan(
     accountDir,
@@ -429,21 +453,21 @@ async function go(root, { collected: seen, pending }) {
       root,
       collected: seen,
       pending,
-      counts: archiveCounts({ found: seen.length, onDisk: seen.length - pending.length, toFetch: pending.length }),
+      counts:
+        counts ??
+        archiveCounts({ found: seen.length, onDisk: seen.length - pending.length, toFetch: pending.length }),
       now: new Date(),
     }),
   );
 
-  const result = await doGo({
-    root,
-    dir: accountDir,
-    url: 'https://x.com/jack',
-    handle: 'jack',
-    planCommand: 'archive.sh https://x.com/jack --plan',
-    bin: '/usr/bin/true',
+  const { document } = await run(['https://x.com/jack', '--archives', root, '--go'], {
+    // The real fetcher against a downloader that succeeds and writes nothing,
+    // because what is being asserted is which folders it makes. The pacing
+    // between posts is real and is asserted in fetch.test.mjs; here it is off.
+    fetchImpl: (args) => fetchPosts({ ...args, bin: '/usr/bin/true', intervalMs: 0 }),
   });
 
-  return { accountDir, result };
+  return { accountDir, document };
 }
 
 test('--go fetches what the plan counted, not everything the listing saw', async () => {
@@ -465,9 +489,9 @@ test('a plan is retired once every post in it has landed', async () => {
   const root = await archivesRoot();
   const fresh = tweet('3');
 
-  const { accountDir, result } = await go(root, { collected: [tweet('1'), fresh], pending: [fresh] });
+  const { accountDir, document } = await go(root, { collected: [tweet('1'), fresh], pending: [fresh] });
 
-  assert.equal(result.remaining, 0);
+  assert.equal(document.result.run.remaining, 0);
   const sync = JSON.parse(await readFile(path.join(accountDir, 'sync.json'), 'utf8'));
   assert.equal(sync.plan ?? null, null);
 });
@@ -481,4 +505,52 @@ test('--go without an archive under this root is refused, and says how to make o
   assert.equal(document.error.details.root, root);
   assert.match(document.error.remedy.command, /--plan$/);
   assert.equal(document.error.remedy.run_by, 'agent');
+});
+
+test('a resumed --go reports the archive, not its own increment', async () => {
+  // The plan's on_disk is frozen at plan time. Plan finds 100 with none on
+  // disk; the first --go fetches 40 and is rate-limited; the second fetches 60
+  // and would report a total of 60 for an archive holding 100.
+  const root = await archivesRoot();
+  const [first, second] = [tweet('1'), tweet('2')];
+
+  await go(root, { collected: [first, second], pending: [first, second] });
+
+  // Both are on disk now. A second --go against the same plan fetches nothing
+  // and must still report two.
+  const { document } = await go(root, {
+    collected: [first, second],
+    pending: [first, second],
+    counts: archiveCounts({ found: 2, onDisk: 0, toFetch: 2 }),
+  });
+
+  assert.equal(document.result.run.downloaded, 0, 'nothing was left to fetch');
+  assert.equal(document.result.run.total, 2, 'and the archive holds two');
+});
+
+test('a flag given no value is refused, never run as if it had not been typed', async () => {
+  // The failure this stops is a *successful* run that did not do what was asked:
+  // reading `--alias -foo` as "no alias" archives the account under its numeric
+  // id and reports that as fine.
+  const dir = await archivesRoot();
+  const { document } = await run(['https://x.com/jack', '--archives', dir, '--alias', '-foo', '--plan']);
+
+  assert.equal(document.exit, EXIT.USAGE);
+  assert.equal(document.error.code, 'flag-needs-value');
+  assert.equal(document.error.details.flag, '--alias');
+  assert.ok(!existsSync(path.join(dir, 'x')), 'nothing was written');
+});
+
+test('one post id in two folders is reported, on X as on Douyin', async () => {
+  // `undated_5` from a run that could not date the post and `2024-01-01_5` from
+  // a later one. One of them answers for the post; the other's media is counted
+  // by nothing, so every figure in the document is short by however much it holds.
+  const root = await archivesRoot();
+  const fresh = tweet('3');
+  const { accountDir } = await go(root, { collected: [fresh], pending: [fresh] });
+
+  await mkdir(path.join(accountDir, 'posts', 'undated_3'), { recursive: true });
+
+  const { document } = await go(root, { collected: [fresh], pending: [fresh] });
+  assert.equal(noteWith(document, 'duplicate-posts').count, 1);
 });

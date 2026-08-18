@@ -14,7 +14,7 @@
  * skill does not ship. A command suggested to somebody who does not have that
  * package manager is not a remedy, it is a second thing to go and install first.
  */
-import { access, constants } from 'node:fs/promises';
+import { access, constants, stat } from 'node:fs/promises';
 import path from 'node:path';
 
 import { Refusal } from './errors.mjs';
@@ -45,6 +45,11 @@ export async function onPath(bin, env = {}) {
 
 async function defaultCanExecute(candidate) {
   try {
+    // A directory carries the execute bit too, so `access` alone answers yes for
+    // a folder named `yt-dlp` on PATH — the preflight passes and the failure
+    // resurfaces later as an opaque spawn error nobody can read.
+    const info = await stat(candidate);
+    if (!info.isFile()) return false;
     await access(candidate, constants.X_OK);
     return true;
   } catch {
