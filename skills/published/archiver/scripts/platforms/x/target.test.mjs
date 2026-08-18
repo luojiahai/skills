@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { parseTarget, permalink } from './target.mjs';
-import { ERROR_EXITS } from '../shared/errors.mjs';
+import { ERROR_EXITS } from '../../shared/errors.mjs';
 
 test('a profile URL is an account', () => {
   assert.deepEqual(parseTarget('https://x.com/someone'), {

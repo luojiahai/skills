@@ -19,11 +19,11 @@ import path from 'node:path';
 
 import { main } from './run.mjs';
 import { postDir } from './fetch.mjs';
-import { EXIT } from '../shared/exit.mjs';
-import { Refusal } from '../shared/errors.mjs';
-import { buildPost, writePost } from '../shared/post.mjs';
-import { savePlan } from '../shared/sync.mjs';
-import { emitted } from '../testing.mjs';
+import { EXIT } from '../../shared/exit.mjs';
+import { Refusal } from '../../shared/errors.mjs';
+import { buildPost, writePost } from '../../shared/post.mjs';
+import { savePlan } from '../../shared/sync.mjs';
+import { emitted } from '../../testing.mjs';
 
 // Realpath'd, because normalizeRoot does: on macOS /var is a symlink to
 // /private/var, and a plan made one way would be refused the other.

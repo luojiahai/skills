@@ -5,7 +5,7 @@
  * what we say to it. Two invocations, both built here so the options that make
  * a run survivable cannot drift apart between them.
  */
-import { httpStatus } from '../shared/subprocess.mjs';
+import { httpStatus } from '../../shared/subprocess.mjs';
 
 
 /**

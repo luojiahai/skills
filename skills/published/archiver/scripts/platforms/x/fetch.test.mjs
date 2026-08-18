@@ -8,8 +8,8 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { fetchPosts, outstanding } from './fetch.mjs';
-import { approved } from '../shared/plan.mjs';
-import { buildPost, readPost } from '../shared/post.mjs';
+import { approved } from '../../shared/plan.mjs';
+import { buildPost, readPost } from '../../shared/post.mjs';
 
 async function fakeBin(script) {
   const dir = await mkdtemp(path.join(os.tmpdir(), 'x-dl-bin-'));

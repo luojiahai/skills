@@ -15,7 +15,7 @@ import {
   postDir,
   saysSessionStale,
 } from './fetch.mjs';
-import { isComplete } from '../shared/post.mjs';
+import { isComplete } from '../../shared/post.mjs';
 
 const root = () => mkdtemp(path.join(os.tmpdir(), 'douyin-fetch-'));
 

@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { classify, diff, groupFiles } from './collect.mjs';
-import { buildPost } from '../shared/post.mjs';
+import { buildPost } from '../../shared/post.mjs';
 
 const rows = [
   { tweetId: '1', num: 1, count: 2, ext: 'jpg', date: '2024-03-11 07:22:19', content: 'a' },

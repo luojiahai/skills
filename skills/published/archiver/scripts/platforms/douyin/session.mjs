@@ -11,7 +11,7 @@
 import { chmod, readFile, rm, writeFile, mkdir } from 'node:fs/promises';
 import path from 'node:path';
 
-import { Refusal } from '../shared/errors.mjs';
+import { Refusal } from '../../shared/errors.mjs';
 import { loadPlaywright } from './playwright.mjs';
 
 /**

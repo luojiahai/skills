@@ -10,7 +10,7 @@
  * the same position a profile URL does, so anything that stopped reading after
  * the handle would answer "download this post" by archiving the whole account.
  */
-import { Refusal } from '../shared/errors.mjs';
+import { Refusal } from '../../shared/errors.mjs';
 
 const HOST = /^(?:https?:\/\/)?(?:www\.|mobile\.)?(?:twitter|x)\.com\//i;
 
