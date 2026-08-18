@@ -11,8 +11,7 @@ archive.sh          the entry point — find a node, then dispatch.mjs
 dispatch.mjs        resolve the platform from the URL, call its main(argv)
 testing.mjs         the seam every run-level test goes through — not a test
 shared/             what more than one platform needs — README.md beside it
-douyin/             the Douyin platform — README.md beside it
-x/                  the X platform — README.md beside it
+platforms/          one folder per platform — README.md beside them
 ```
 
 The tools these scripts run — yt-dlp, gallery-dl, Playwright, Chromium, and the
@@ -77,17 +76,9 @@ the other.
 
 ## Adding a platform
 
-A folder under `scripts/` exporting `main(argv)` from its `run.mjs`, and one
-entry in `PLATFORMS`. There is nowhere else to remember. What the platform owes
-the archive — the folder layout, the seven `post.json` keys, the alias rules — it
-gets by using `shared/`, which is where that contract is written down once.
-
-A module that runs as an entry point dispatches behind `isMainModule()` from
-`shared/cli.mjs`, never a hand-written `import.meta.url` comparison. This skill
-is installed by symlink, and node resolves the entry module to its real location
-while `process.argv[1]` keeps the path it was handed — so comparing the two
-unresolved is false on every installed copy, and the file exits 0 having run
-nothing.
+A folder under `platforms/` and one entry in `PLATFORMS`. What that folder owes
+is specified in [`platforms/README.md`](./platforms/README.md), beside the
+folders it governs.
 
 ## Preflight sits where it can act
 
