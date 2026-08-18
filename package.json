@@ -12,7 +12,7 @@
     "changeset": "changeset",
     "sync:skills": "node scripts/sync-plugin-skills.mjs",
     "check:skills": "node scripts/sync-plugin-skills.mjs --check",
-    "test": "node --test scripts/*.test.mjs skills/published/*/scripts/*.test.mjs skills/published/*/scripts/*/*.test.mjs",
+    "test": "node --test 'scripts/**/*.test.mjs' 'skills/**/*.test.mjs'",
     "version": "changeset version && node scripts/sync-plugin-version.mjs && node scripts/sync-plugin-skills.mjs"
   },
   "devDependencies": {
