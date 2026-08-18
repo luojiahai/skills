@@ -109,9 +109,8 @@ Typed bare, this asks what is already archived rather than doing nothing:
 <skill-dir>/scripts/archive.sh --list [--archives DIR]
 ```
 
-It reads the tree and downloads nothing, so it answers before any tool has been
-built and with no session. Its `result` is `{ "root": …, "accounts": [ … ] }`,
-and each account carries:
+It reads the tree and downloads nothing, and needs no session. Its `result` is
+`{ "root": …, "accounts": [ … ] }`, and each account carries:
 
 | | |
 | --- | --- |
@@ -290,8 +289,9 @@ refusal is **yours to act on**:
 2. **Give the turn back and wait for their answer.**
 3. If they agree, run `remedy.command`. Then run the original command again.
 
-**`node-missing`** is the same conversation on a machine with no Node at all —
-the skill brings its own, but not before it has been told to. Ask the same way,
+**`node-missing`** is the same conversation, one step earlier. The skill runs on
+the Node it built and on no other, so on a machine where nothing has been built
+yet this is what **every** command answers — `--list` included. Ask the same way,
 then run `<skill-dir>/setup.sh` and re-run the original command.
 
 Every run after that is silent, including one that needs a box the last one did

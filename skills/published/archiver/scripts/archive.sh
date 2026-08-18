@@ -53,24 +53,29 @@ JSON
   fi
 done
 
-# The Node this skill runs on comes out of the runtime box, so a machine with
-# none can still archive — the box is built by curl and a shell, and needs no
-# Node to exist first. Nothing is built here: `--help` and a mistyped flag must
-# go on answering without touching the network, so a box that is not there yet
-# falls through to whatever the machine has, and to a refusal if it has nothing.
-# Building is each platform's to do, once it knows it is going to download.
-NODE=""
-if [[ "${ARCHIVER_SYSTEM_TOOLS:-}" != "1" ]]; then
+# The Node this skill runs on is the one in the runtime box, and only that one.
+# A `node` on PATH is never used and never consulted: the version that runs the
+# scripts is as much a part of the environment this skill owns as the downloaders
+# are, and "which node did this run on" must have exactly one answer.
+#
+# Nothing is built here. Building at dispatch would mean `--help` and a mistyped
+# flag touching the network, so a box that is not there yet is a refusal naming
+# setup.sh, and building stays each platform's to do once it knows it is going to
+# download. Every command needs the box, `--list` and `--help` included.
+#
+# `ARCHIVER_SYSTEM_TOOLS=1` is the documented escape hatch, and the one thing
+# that is not a fallback: it is set deliberately, all-or-nothing, and it puts the
+# whole run back on PATH-resolved tools including this one.
+if [[ "${ARCHIVER_SYSTEM_TOOLS:-}" == "1" ]]; then
+  NODE="node"
+  command -v node >/dev/null 2>&1 || NODE=""
+else
   # `|| true` because errexit would kill an assignment whose substitution failed,
   # and this script must never exit with nothing on stdout. A builder that cannot
   # even say where the box would be simply means there is no box.
   RUNTIME_BOX="$("${SCRIPT_DIR}/../env/ensure-env" --print runtime 2>/dev/null || true)"
-  if [[ -n "$RUNTIME_BOX" && -x "${RUNTIME_BOX}/node/bin/node" ]]; then
-    NODE="${RUNTIME_BOX}/node/bin/node"
-  fi
-fi
-if [[ -z "$NODE" ]] && command -v node >/dev/null 2>&1; then
-  NODE="node"
+  NODE="${RUNTIME_BOX:-/nonexistent}/node/bin/node"
+  [[ -x "$NODE" ]] || NODE=""
 fi
 
 if [[ -z "$NODE" ]]; then
@@ -83,9 +88,9 @@ if [[ -z "$NODE" ]]; then
   "exit": 4,
   "error": {
     "code": "node-missing",
-    "message": "there is no node to run this on, and the skill has not built its own yet",
+    "message": "the skill has not built the tools it runs on yet, and runs on no others",
     "remedy": {
-      "message": "run the skill's setup.sh, which downloads a Node of its own with nothing but curl",
+      "message": "run the skill's setup.sh — it downloads a Node of its own, and everything else this skill runs, with nothing but curl",
       "run_by": "user"
     }
   }

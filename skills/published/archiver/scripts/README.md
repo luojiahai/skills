@@ -93,11 +93,17 @@ reached: a platform refuses `--downloads` too, but only past its own tool
 preflight, so that order would report a build instead of the flag that is
 actually wrong.
 
-**`archive.sh` builds nothing.** It uses the runtime box's node when that box is
-already there and the machine's own when it is not, and refuses when there is
-neither. Building at dispatch would mean `--help` and a mistyped flag touching
-the network, and it is what would break the guarantee `dispatch.test.mjs` rests
-on — that what is installed on this machine cannot affect the result.
+**`archive.sh` runs on the runtime box's node and no other, and builds nothing.**
+A `node` on PATH is never used: the interpreter running the scripts is as much
+part of the environment this skill owns as the downloaders are, so "which node
+did this run on" has exactly one answer. With no box there is no run — `--help`
+and `--list` included — only a `node-missing` refusal naming `setup.sh`.
+Building here instead would mean `--help` and a mistyped flag touching the
+network, which is the one thing dispatch must never do.
+
+`ARCHIVER_SYSTEM_TOOLS=1` is the exception and is not a fallback: it is set
+deliberately, all-or-nothing, and puts the whole run back on PATH — which is
+also how the one test that spawns a real `archive.sh` stays hermetic.
 
 Building belongs to the platform that needs it, after its URL is found valid and
 immediately before the first tool is reached — a refusable URL should be refused

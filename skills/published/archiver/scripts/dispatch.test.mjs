@@ -238,11 +238,39 @@ test('the skill runs when it is reached through a symlink', async () => {
   // real location while argv[1] keeps the path archive.sh was given, so an entry
   // guard comparing the two unresolved never fires. Only a spawn reaches that
   // guard, and --help without a URL answers from the dispatcher without loading
-  // a platform, so what is installed on this machine cannot affect the result.
+  // a platform, so no platform's tools can affect the result.
+  //
+  // Spawned through the escape hatch, because the run needs an interpreter and
+  // the suite may not build one: every other test here calls main() in-process,
+  // and this is the one that has to be a real process. What it asserts —
+  // where node resolves the entry module from — is the same either way.
   const dir = realpathSync(await mkdtemp(path.join(os.tmpdir(), 'archiver-symlink-')));
   await symlink(SKILL_DIR, path.join(dir, 'archiver'));
 
-  const { stdout } = await run(path.join(dir, 'archiver', 'scripts', 'archive.sh'), ['--help']);
+  const { stdout } = await run(path.join(dir, 'archiver', 'scripts', 'archive.sh'), ['--help'], {
+    env: { ...process.env, ARCHIVER_SYSTEM_TOOLS: '1' },
+  });
 
   assert.match(stdout, /Usage:/);
+});
+
+test('with no tools built, every command refuses rather than borrowing a node', async () => {
+  // The version that runs the scripts is as much a part of the environment this
+  // skill owns as the downloaders are, so "which node did this run on" has
+  // exactly one answer. A node on PATH is not consulted, and --help is no
+  // exception — the refusal is a document like any other, written by hand
+  // because there is nothing to compose one with.
+  const cache = await mkdtemp(path.join(os.tmpdir(), 'archiver-nobox-'));
+  const failed = await run(path.join(SKILL_DIR, 'scripts', 'archive.sh'), ['--help'], {
+    env: { ...process.env, XDG_CACHE_HOME: cache, ARCHIVER_SYSTEM_TOOLS: '' },
+  }).then(() => null, (error) => error);
+
+  assert.ok(failed, 'a machine with nothing built cannot answer');
+  assert.equal(failed.code, EXIT.FAILED);
+
+  const document = JSON.parse(failed.stdout);
+  assert.equal(document.ok, false);
+  assert.equal(document.error.code, 'node-missing');
+  assert.equal(document.error.remedy.run_by, 'user');
+  assert.match(document.error.remedy.message, /setup\.sh/);
 });
