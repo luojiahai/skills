@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
+import { cookieArgs } from '../../shared/session.mjs';
 import {
   PRINT_FORMAT,
   ROW_MARKER,
   classifyFailure,
-  cookieArgs,
   fetchArgs,
   listArgs,
   parseRow,

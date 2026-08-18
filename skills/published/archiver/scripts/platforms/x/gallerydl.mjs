@@ -5,6 +5,7 @@
  * what we say to it. Two invocations, both built here so the options that make
  * a run survivable cannot drift apart between them.
  */
+import { cookieArgs } from '../../shared/session.mjs';
 import { httpStatus } from '../../shared/subprocess.mjs';
 
 
@@ -144,34 +145,6 @@ export function fetchArgs({ url, directory, cookies }) {
     directory,
     '--filename',
     '{num}.{extension}',
-    url,
-  ];
-}
-
-/**
- * Always a cookies.txt path, never a live browser read.
- *
- * run.mjs resolves the session to a file before anything here is called —
- * cached from a previous run, or exported from the browser once by
- * `cookieExportArgs`. Reading the browser prompts for Keychain access on macOS
- * and wants the browser closed, and a plan and a go would each pay it; twice per
- * download is the friction that makes people paste a raw token instead.
- */
-export function cookieArgs({ cookies }) {
-  return cookies ? ['--cookies', cookies] : [];
-}
-
-/** Seed the cache: read the browser once, write what it found to `cookies`. */
-export function cookieExportArgs({ browser, cookies, url }) {
-  return [
-    '--config-ignore',
-    '--cookies-from-browser',
-    browser,
-    '--cookies-export',
-    cookies,
-    '--simulate',
-    '--range',
-    '1',
     url,
   ];
 }

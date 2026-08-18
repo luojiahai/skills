@@ -26,6 +26,14 @@ import { Refusal } from './errors.mjs';
  */
 const DOUYIN = /^(?:https?:\/\/)?(?:[a-z0-9-]+\.)*douyin\.com(?:[/?#]|$)/i;
 const X = /^(?:https?:\/\/)?(?:[a-z0-9-]+\.)*(?:twitter|x)\.com(?:[/?#]|$)/i;
+/**
+ * `instagr.am` is Instagram's own shortener and resolves to the same site. The
+ * third-party embed mirrors — ddinstagram.com and its kin — are somebody else's
+ * rewriting proxy and are deliberately absent: the subdomain group needs a
+ * literal dot to match, so `ddinstagram.com` fails the anchor the same way
+ * `foox.com` fails X's.
+ */
+const INSTAGRAM = /^(?:https?:\/\/)?(?:[a-z0-9-]+\.)*(?:instagram\.com|instagr\.am)(?:[/?#]|$)/i;
 
 /**
  * `account` is the descriptor the shared account store is threaded with: the
@@ -71,6 +79,24 @@ export const PLATFORMS = [
       ['--full', 'List the whole timeline even when a re-run could stop early.'],
     ],
   },
+  {
+    name: 'instagram',
+    dir: 'instagram',
+    label: 'Instagram',
+    hosts: ['instagram.com', 'instagr.am'],
+    match: (arg) => INSTAGRAM.test(arg),
+    account: { platform: 'instagram', handleKey: 'username' },
+    // A shortcode rather than the numeric media id: it is what a permalink is
+    // built from, and `--go` fetches every approved post by permalink.
+    postIdKey: 'shortcode',
+    usage: 'instagram.com/<handle>',
+    flags: [
+      ['--browser NAME', 'Browser to read the Instagram session from the first time'],
+      ['', '(chrome, firefox, safari, edge, brave, chromium...).'],
+      ['--cookies FILE', 'Use this cookies.txt instead of a browser or the cache.'],
+      ['--full', 'List the whole profile even when a re-run could stop early.'],
+    ],
+  },
 ];
 
 /**
@@ -101,6 +127,17 @@ export function descriptorFor(name) {
 /** What one platform's collected posts call their own id. */
 export function postIdKeyFor(name) {
   return byName(name).postIdKey;
+}
+
+/**
+ * What a platform is called in prose, by name.
+ *
+ * The session refusals name the site — "no saved Instagram session yet" — and a
+ * platform's run.mjs respelling its own label is a second copy free to drift
+ * from the one the refusal listing prints.
+ */
+export function labelFor(name) {
+  return byName(name).label;
 }
 
 function byName(name) {

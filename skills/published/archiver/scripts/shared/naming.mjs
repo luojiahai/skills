@@ -30,8 +30,17 @@ import { Refusal } from './errors.mjs';
 /** An id that may sit in a path, the same rule `isSafeId` holds account ids to. */
 const SAFE_POST_ID = /^[A-Za-z0-9._-]+$/;
 
-/** A folder name we could have written ourselves, and the id inside it. */
-const POST_FOLDER = /^(?:\d{4}-\d{2}-\d{2}|undated)_(\d+)$/;
+/**
+ * A folder name we could have written ourselves, and the id inside it.
+ *
+ * The id half is `SAFE_POST_ID` again rather than a narrower charset, because
+ * these two are one rule read from both ends: a name this file writes and
+ * cannot read back is a post counted as missing forever and re-downloaded on
+ * every run. Not every platform's id is numeric — Instagram identifies a post
+ * by its base64ish shortcode — and the date prefix is fixed-width, so an id
+ * containing `_` is still unambiguous.
+ */
+const POST_FOLDER = /^(?:\d{4}-\d{2}-\d{2}|undated)_([A-Za-z0-9._-]+)$/;
 
 /** `2024-03-11 07:22:19` and `2024-03-11T07:22:19Z` — gallery-dl's form and ISO. */
 const WALL_CLOCK = /^(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2}:\d{2})/;
@@ -124,5 +133,8 @@ export function postFolderName({ date, postId }) {
  */
 export function postIdFromFolder(name) {
   const m = POST_FOLDER.exec(String(name ?? ''));
-  return m ? m[1] : null;
+  // `.` and `..` are excluded on the way in, so they are excluded on the way
+  // back out: a name this file would refuse to write is not a name it wrote.
+  if (!m || m[1] === '.' || m[1] === '..') return null;
+  return m[1];
 }

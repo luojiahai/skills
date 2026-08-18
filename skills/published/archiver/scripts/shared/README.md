@@ -1,7 +1,7 @@
 # Shared modules
 
 What more than one platform needs. A rule that drifts between two copies of
-these corrupts an archive both platforms read, so there is one copy and the
+these corrupts an archive every platform reads, so there is one copy and the
 platforms are threaded with a descriptor where they differ.
 
 | File | Role |
@@ -22,11 +22,12 @@ platforms are threaded with a descriptor where they differ.
 | `env.mjs` | Building those boxes before they are needed, and the refusals when that cannot happen. |
 | `cli.mjs` | Argument parsing, file reading, atomic JSON writing, entry-point detection. |
 | `exit.mjs` | One exit table, so a shell caller can tell "rate-limited" from "you typed the flag wrong" without knowing which platform ran. |
+| `session.mjs` | The browser session a gallery-dl platform runs on, as a cookies.txt: where it is cached, how it is minted, and when it is thrown away. Takes a descriptor, because the platform's name and its label in a refusal are the only things that vary. |
 | `tools.mjs` | Whether a downloader is on PATH, and the refusal when it is not. Reachable only through the `ARCHIVER_SYSTEM_TOOLS` escape hatch. |
-| `subprocess.mjs` | Running a downloader and reading what it said, so both platforms answer "what did it exit with" the same way — including for a process that never started. |
-| `run.mjs` | Which mode a command line asked for, in one place, so `--yes` outranks a `--plan` appended after it on both platforms. |
+| `subprocess.mjs` | Running a downloader and reading what it said, so every platform answers "what did it exit with" the same way — including for a process that never started. |
+| `run.mjs` | Which mode a command line asked for, in one place, so `--yes` outranks a `--plan` appended after it on every platform. |
 
-## The archive both platforms write
+## The archive every platform writes
 
 One root, one shape. This is the contract the modules above implement, and the
 reason they are shared rather than copied.
@@ -35,6 +36,7 @@ reason they are shared rather than copied.
 <archives root>/
   archiver.json                 {"schema": 3, "accounts": {…}}
   x/<alias, else user id>/      douyin/<alias, else sec_uid>/
+  instagram/<alias, else user id>/
     account.json
     sync.json
     assets/                     (x only — see below)
@@ -45,7 +47,11 @@ reason they are shared rather than copied.
 
 ### The post folders
 
-- `posts/<YYYY-MM-DD|undated>_<id>/`, one folder per post, `undated` a literal
+- `posts/<YYYY-MM-DD|undated>_<id>/`, one folder per post, `undated` a literal.
+  The id is whatever that platform calls a post: a numeric id on X and Douyin, a
+  base64ish shortcode on Instagram. `naming.mjs` writes and reads it by one
+  charset rule — a name written by one half and unreadable to the other is a
+  post counted as missing forever and re-downloaded on every run
 - media numbered by position — `1.jpg`, `2.mp4`
 - `post.json`: `version`, `id`, `permalink`, `timestamp`, `text`, `reply_to`,
   `media`, in that order and holding nothing else. Written **before** the media.
@@ -170,12 +176,13 @@ What genuinely differs arrives as data the platform supplied:
 - `account` — the identity fields, with the readable handle named by the
   descriptor (`handle`, `douyin_id`)
 - `counts.platform` — what only one platform knows, as counts: X's file totals
-  and image/video split, Douyin's header count and skipped image posts. They
+  and image/video split, Instagram's the same plus how many of the posts are
+  reels, Douyin's header count and skipped image posts. They
   nest inside `counts` because they *are* counts, which leaves `details` meaning
   one thing only — the facts behind a refusal.
-- `notes` — anything one platform has to say and the other does not, each a
+- `notes` — anything one platform has to say and the others do not, each a
   `{ code, … }` with its numbers beside it: Douyin's unfetchable image posts,
-  X's sweep that stopped early
+  X's sweep that stopped early, one such sweep per feed on Instagram
 
 A rule keyed off wording is a rule that breaks the next time the wording
 changes, which is the whole reason a note is a code and a count is an integer.
@@ -230,19 +237,21 @@ indistinguishable from a command with nothing to say.
 
 `account.mjs` is threaded with `{ platform, handleKey }` — the folder a
 platform's accounts live under, and what `account.json` calls the readable
-handle (`douyin_id`, `handle`). Explicit rather than closed over, because a
-descriptor in an argument list can be followed from the registry to the call.
+handle (`douyin_id`, `handle`, `username`). Explicit rather than closed over,
+because a descriptor in an argument list can be followed from the registry to
+the call. `session.mjs` is threaded the same way, with `{ platform, label }`:
+the state directory it caches into, and what its refusals call the site.
 
-Two things follow from the platform folder being part of the path: a sec_uid and
-an X user id can never name the same directory, and an alias chosen on one
-platform can never collide with one chosen on the other.
+Two things follow from the platform folder being part of the path: a sec_uid, an
+X user id and an Instagram user id can never name the same directory, and an
+alias chosen on one platform can never collide with one chosen on another.
 
 ## Adding to these
 
 Anything here is read by every platform. Before changing a rule, check what the
 other platform does with it: one archives root read with one mental model is
 what these modules buy, and a rule that holds for one caller's shape and not the
-other's corrupts an archive both of them read.
+others' corrupts an archive all of them read.
 
 ## The tools every platform runs on
 
@@ -256,8 +265,8 @@ platforms share about reaching them.
 - **Build lazily, immediately before the point of need.** Never at dispatch, and
   never before a URL has been found valid — a refusable URL should be refused on
   any machine, before a byte is downloaded.
-- **Name only the boxes you need.** X asks for `runtime` and `tools`; Douyin adds
-  `browser`, and only when it is past the login. That is the whole of why
+- **Name only the boxes you need.** X and Instagram ask for `runtime` and
+  `tools`; Douyin adds `browser`, and only when it is past the login. That is the whole of why
   somebody who archives X never downloads Chromium.
 - **A build that failed is a refusal, never a fallback.** Quietly running the
   machine's own copy instead would reintroduce the version ambiguity owning the

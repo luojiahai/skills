@@ -10,7 +10,10 @@ simplifications they rule out are named as they come up.
 outright on username/password — "not supported. Use browser cookies instead."
 Authentication is the `auth_token` cookie on `.x.com`, plus `ct0` for CSRF.
 There is no automated sign-in to write, for any tool, so the session has to come
-out of a browser a human already signed in to.
+out of a browser a human already signed in to. Instagram is the same shape for
+the same reason, so where that session is cached, how it is minted and when it
+is discarded live in [`../../shared/session.mjs`](../../shared/session.mjs),
+threaded with this platform's name and label.
 
 **gallery-dl's `--download-archive` is SQLite, not a text file.** Using it as
 the record of what has landed would mean either a SQLite dependency in every
@@ -275,27 +278,30 @@ Verifying it takes a run against a live account: the print format's field names,
 the policy keys, the throttling numbers, and every string `classifyFailure`
 matches on.
 
-## The archive this shares with the other platform
+## The archive this shares with the other platforms
 
 `account.json`, `post.json`, `sync.json`, `archiver.json` and the
 `posts/<date>_<id>/` layout are written by `../../shared/`, and specified in
-[`../../shared/README.md`](../../shared/README.md). Both platforms write into
+[`../../shared/README.md`](../../shared/README.md). Every platform writes into
 one archives root, so those rules are not this platform's to change alone.
 
 What is particular to this one:
 
 - **`assets/` is X-only.** gallery-dl puts the avatar and banner URLs on every
-  row the collection pass already reads, so they cost nothing here. Nothing reads
-  Douyin's out of the profile page yet, so the directory is simply absent there
-  — the layout allows it to be.
-- **Where a media entry's name comes from.** Both platforms build `post.json`
+  row the collection pass already reads, so they cost nothing here. Nothing
+  reads Douyin's out of the profile page yet, and Instagram's rows carry no
+  profile image at all, so the directory is simply absent on both — the layout
+  allows it to be.
+- **Where a media entry's name comes from.** Every platform builds `post.json`
   with `../../shared/post.mjs`, so the *file* is one shape. What differs is what
-  each hands `mediaEntry`: this platform passes `{num, ext, …}`, because it is
-  turning gallery-dl's rows into filenames itself, while Douyin passes `{file}`,
-  yt-dlp having already printed the name it is about to write. Reading the name
+  each hands `mediaEntry`: the gallery-dl platforms pass `{num, ext, …}`,
+  because they are turning gallery-dl's rows into filenames themselves, while
+  Douyin passes `{file}`, yt-dlp having already printed the name it is about to
+  write. Reading the name
   back out of yt-dlp is what makes the extension knowable — it is the thing that
   picks the container — without a second metadata request per post.
-- **`media[].id` exists here and never there.** For an image it is the
-  pbs.twimg.com media token; yt-dlp exposes no per-item identifier for Douyin at
-  all. It is also absent for X videos, whose only candidate is a variant name a
-  re-encode can change.
+- **`media[].id` is absent for X videos, and for Douyin entirely.** For an X
+  image it is the pbs.twimg.com media token; a video's only candidate is a
+  variant name a re-encode can change, and yt-dlp exposes no per-item identifier
+  for Douyin at all. Instagram gives every item of a carousel its own id, so it
+  is recorded there for both.

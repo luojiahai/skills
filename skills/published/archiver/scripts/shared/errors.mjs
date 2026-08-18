@@ -81,6 +81,9 @@ export const ERROR_EXITS = {
   'login-abandoned': EXIT.UNAUTHORIZED,
   'login-timed-out': EXIT.UNAUTHORIZED,
   'session-rejected': EXIT.UNAUTHORIZED,
+  // Not a rejected session: the cookies are fine and the account is held. The
+  // remedy is in the app, and the cached session is deliberately kept.
+  'checkpoint-required': EXIT.UNAUTHORIZED,
   'no-session-source': EXIT.FAILED,
   'session-unreadable': EXIT.FAILED,
 

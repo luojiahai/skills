@@ -72,7 +72,7 @@ test('every platform in the registry is reachable where the dispatcher looks', a
 
 test('a URL from a platform this skill does not archive is refused by name', async () => {
   const { load, seen } = spy();
-  const { document } = await dispatched(['https://www.instagram.com/someone'], load);
+  const { document } = await dispatched(['https://www.youtube.com/@someone'], load);
 
   assert.equal(seen.length, 0, 'nothing should be loaded');
   assert.equal(document.error.code, 'unsupported-platform');
@@ -82,7 +82,7 @@ test('a URL from a platform this skill does not archive is refused by name', asy
   assert.equal(document.platform, null);
   assert.deepEqual(
     document.error.details.supported.map((platform) => platform.name).sort(),
-    ['douyin', 'x'],
+    ['douyin', 'instagram', 'x'],
   );
 });
 

@@ -1,13 +1,14 @@
 ---
 name: archiver
-description: "Archive a social account's posts to your own disk — Douyin videos, or the images, videos and GIFs an account has posted on X (formerly Twitter). The URL says which. It reports what it would fetch and waits for your yes, and a re-run fetches only what is new."
+description: "Archive a social account's posts to your own disk — Douyin videos, the images, videos and GIFs an account has posted on X (formerly Twitter), or an Instagram account's posts and reels. The URL says which. It reports what it would fetch and waits for your yes, and a re-run fetches only what is new."
 argument-hint: "[profile URL] [--archives DIR] [--alias NAME]"
 disable-model-invocation: true
 ---
 
-This archives **Douyin** (`douyin.com`) and **X, formerly Twitter** (`x.com`,
-and `twitter.com` links too). Say which platforms it covers on the first run,
-before fetching anything — the name does not tell the user what is in it.
+This archives **Douyin** (`douyin.com`), **X, formerly Twitter** (`x.com`, and
+`twitter.com` links too) and **Instagram** (`instagram.com`). Say which
+platforms it covers on the first run, before fetching anything — the name does
+not tell the user what is in it.
 
 The URL decides the platform; nothing else does, and the user is never asked.
 
@@ -90,7 +91,8 @@ The codes worth knowing:
 | --- | --- |
 | `rate-limited` | Wait and come back later. **Do not re-run now.** Report what landed. |
 | `session-rejected` | The saved session was refused and thrown away. They sign in again. |
-| `protected`, `suspended`, `no-such-account` | Three different things. Say which. **Never** "up to date". |
+| `checkpoint-required` | Instagram only. The account is held behind a challenge. **Not a sign-in problem** — the session still works and has been kept. They clear the prompt in the app or a browser, then this runs again. Never tell them to sign in again. |
+| `protected`, `suspended`, `no-such-account` | Three different things. Say which. **Never** "up to date". Instagram reports no `suspended`: it does not distinguish one from an account that never existed. |
 | `empty`, `empty-grid` | The account has nothing this skill can fetch. Also never "up to date". |
 | `session-expired-grid` | Douyin only: the profile counts posts but the grid is blank. That is the sign-in handoff below. |
 | `session-missing`, `session-empty` | Douyin only: no session yet. Same handoff. |
@@ -118,7 +120,7 @@ It reads the tree and downloads nothing, and needs no session. Its `result` is
 
 | | |
 | --- | --- |
-| `platform` | `douyin` or `x` — group by it, since one root holds both |
+| `platform` | `douyin`, `x` or `instagram` — group by it, since one root holds them all |
 | `folder` | what the folder is called: the user's alias, else the account's id |
 | `nickname` | what the account calls itself, or `null` |
 | `dir` | where the archive is, if you need to say so or look inside |
@@ -224,9 +226,10 @@ The `--go` document is the run's whole result. Report it and stop.
 | `listing-truncated` | Douyin. The scroll hit its round limit, so the listing is short by an unknown amount. **Every other count in the document is a comparison against a partial list.** Say so. |
 | `unattributed-posts` | Douyin. `count` cards on the page that no profile-feed response named, and so were not collected — a recommendation rail, or a run that missed those responses. |
 | `undated-posts` | Douyin. `count` posts filed under `undated_<id>`, because nothing would say when they were published. |
-| `duplicate-posts` | Both. `count` post ids found in two folders each. One answers for the post; the other's media is counted by nothing, so every figure beside it is short by that much. |
+| `duplicate-posts` | Any platform. `count` post ids found in two folders each. One answers for the post; the other's media is counted by nothing, so every figure beside it is short by that much. |
 | `under-described-posts` | X. `count` posts whose listing was cut off mid-post. They are fetched again, but their `post.json` lists fewer files than they carry. |
-| `sweep` | X. `mode: "incremental"` with `stopped_early: true` means it stopped after `threshold` known posts rather than reaching the end — so "nothing new" is not proven. Say so. A `--go` repeats the note its plan recorded, which may be up to a day old. |
+| `under-described-posts` | Instagram too, for the same reason: a listing cut off mid-carousel. |
+| `sweep` | X and Instagram. `mode: "incremental"` with `stopped_early: true` means it stopped after `threshold` known posts rather than reaching the end — so "nothing new" is not proven. Say so. A `--go` repeats the note its plan recorded, which may be up to a day old. **Instagram carries one of these per feed**, each with a `category` of `posts` or `reels`: say which feed was cut short, because "your posts are complete but I stopped partway through your reels" is the whole point of there being two. |
 | `moving-to` | `--alias` will rename the folder to `dir` on the download step. Say it before they say yes; nothing has moved yet. |
 | `root-changed` | The last run archived into `previous`. Say it — otherwise an `on_disk` of zero reads as an archive that lost its files. |
 
@@ -237,9 +240,9 @@ The `--go` document is the run's whole result. Report it and stop.
 does not. Without the flag the root is `<nearest ancestor holding a .git, else the current
 directory>/archives`, with symlinks resolved.
 
-The platform folder is what lets one root hold both: Douyin files accounts under
-`douyin/<sec_uid>` and X under `x/<numeric user id>`, so there is no id the two
-could collide on.
+The platform folder is what lets one root hold them all: Douyin files accounts
+under `douyin/<sec_uid>`, X under `x/<numeric user id>` and Instagram under
+`instagram/<numeric user id>`, so there is no id two of them could collide on.
 
 An account id is immutable and a handle is not, which is why the id is the
 default folder. Changing a 抖音号, or renaming an X account, cannot orphan an
@@ -310,9 +313,10 @@ Tell them what it does and ask them to run `<skill-dir>/setup.sh`, then re-run
 the original command.
 
 Consent is remembered per box. A run needing a box the user has already agreed to
-is silent; the first Douyin run after an X-only setup asks once more, because
-Chromium is a quarter of a gigabyte and agreeing to the downloaders was not
-agreeing to that.
+is silent; the first Douyin run after an X or Instagram setup asks once more,
+because Chromium is a quarter of a gigabyte and agreeing to the downloaders was
+not agreeing to that. X and Instagram share their boxes exactly, so somebody set
+up for one is set up for the other.
 
 **`env-build-failed`** means it could not be built — almost always the network.
 `details.output` holds the last thing the builder said; report the gist of it.
@@ -323,6 +327,7 @@ agreeing to that.
 <skill-dir>/setup.sh            # report what is built, build nothing
 <skill-dir>/setup.sh douyin     # build everything Douyin needs, now
 <skill-dir>/setup.sh x          # build everything X needs, now
+<skill-dir>/setup.sh instagram  # build everything Instagram needs, now
 <skill-dir>/setup.sh refresh    # rebuild the downloaders at their latest release
 <skill-dir>/setup.sh clean      # delete the tools; sessions are untouched
 ```
@@ -331,7 +336,7 @@ agreeing to that.
 takes `yt-dlp` and `gallery-dl` at their latest release and keeps them until a
 shipped bump passes them. It costs seconds and a few megabytes.
 
-Somebody who only ever archives X never downloads Chromium.
+Somebody who only ever archives X or Instagram never downloads Chromium.
 
 ## Douyin
 
@@ -425,6 +430,68 @@ cookies, so they sign in again; `protected`, `suspended` and `no-such-account`
 are three different things, and none is ever reported as "up to date". A post
 whose media is gone is skipped, counted in `run.failed`, and the run carries on.
 
+## Instagram
+
+Needs a browser on this machine already signed in to Instagram, exactly as X
+does. There is no sign-in step to automate: Instagram's login cannot be
+scripted into anything but a challenge, so the first run reads the session out
+of that browser:
+
+```bash
+<skill-dir>/scripts/archive.sh <url> --browser chrome --plan
+```
+
+`--browser` takes the same names as X's, and the same caveats apply — macOS asks
+for Keychain access, Chrome-family browsers generally need to be closed, and it
+happens **once**. The session is cached separately from X's, so signing in to
+one says nothing about the other.
+
+**Whose account is being spent.** This runs on the user's own signed-in
+Instagram session, and the realistic failure is not a failed download — it is
+their account being rate-limited or challenged. Say this once, plainly, before
+the first run, and say it more firmly than for X: Instagram answers a client
+going too fast by holding the *account* rather than by refusing the request, and
+clearing that is something only they can do, in the app. The pauses between
+requests are deliberately long for exactly this reason; a run that seems slow is
+a run that is working. A live session token is also now sitting in a file on
+their disk.
+
+**What it takes, and what it leaves.** The account's own posts — single images,
+carousels and videos — and its reels, plus the caption of each. **Not stories,
+not highlights, and not tagged posts.** Say so if they ask for any of them: a
+story is gone within a day, so "a re-run fetches only what is new" could never be
+true of one, and an archive quietly missing every day nobody ran would be worse
+than one that never claimed to have them. Highlights are the account's own
+permanent media and are the candidate for a later flag; they are not fetched
+today. A URL naming a story, the tagged tab or a single post is refused by name.
+
+`--full` collects the whole profile even when a re-run could stop early.
+`--cookies FILE` uses an exported `cookies.txt` instead of a browser or the
+cached session.
+
+**Posts and reels are collected separately**, because each has to be able to
+stop early without ending the other — so a run makes two passes and carries two
+`sweep` notes. A post that appears in both is archived once.
+
+Instagram's `counts.platform` is `found_files`, `fetch_files`, `images`,
+`videos` and `reels`. The first four count **files**; `reels` counts **posts**,
+which is the number a user could check against their own profile.
+
+There is no `assets/` directory here: Instagram's listing carries no profile
+image, and fetching one would cost an extra request per run against the limiter
+that challenges accounts.
+
+Its distinct hard stops: `rate-limited` stops cleanly and carries a `result`
+with what landed — report it, tell the user to come back later, and **do not
+re-run**; `checkpoint-required` means Instagram is holding their account behind
+a challenge, which **is not a session problem** — the cached login still works
+and has deliberately been kept, so tell them to clear the prompt in the app or a
+browser and then run again, and never tell them to sign in again;
+`session-rejected` has already discarded the cached cookies, so they do sign in
+again; `protected` means a private account that has not approved this session.
+A post whose media is gone is skipped, counted in `run.failed`, and the run
+carries on.
+
 ## What it fetches, and whose judgement that is
 
 Posts the account has published publicly, archived to the user's own disk.
@@ -464,6 +531,12 @@ for the tool environment — read that before touching a pin, the lock, or
     posts/<YYYY-MM-DD|undated>_<id>/
       post.json
       1.jpg, 2.mp4, …
+  instagram/<alias, else numeric user id>/
+    account.json
+    sync.json
+    posts/<YYYY-MM-DD|undated>_<shortcode>/
+      post.json
+      1.jpg, 2.mp4, …
 ```
 
 - `posts/<date>_<id>/` — one folder per post, holding a `post.json` and the
@@ -483,7 +556,8 @@ for the tool environment — read that before touching a pin, the lock, or
   24 hours anyway.
 - `assets/` — the account's current avatar and banner, overwritten each run. A
   history of them is not kept. X only: nothing reads Douyin's out of the profile
-  page yet, so the directory is simply absent there.
+  page yet, and Instagram's listing carries no profile image, so the directory is
+  simply absent on both.
 - `archiver.json` — at the root, holding the schema this archive uses and each
   account's id mapped to its alias, per platform. A schema this build does not
   know stops the run before anything is read or written. The map is a **cache,

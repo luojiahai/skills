@@ -5,6 +5,7 @@
 #   setup.sh              check every platform, install nothing
 #   setup.sh douyin       build everything Douyin needs, before it is needed
 #   setup.sh x            build everything X needs, before it is needed
+#   setup.sh instagram    build everything Instagram needs, before it is needed
 #   setup.sh refresh      rebuild the downloaders at their latest release
 #   setup.sh clean        delete the tools this skill built
 #
@@ -15,7 +16,7 @@
 #
 # A bare run reports and downloads nothing — somebody who only ever archives X
 # should never be handed a Chromium download — and building is asked for by
-# name. The two platforms still cost very different things: X needs the
+# name. The platforms still cost very different things: X and Instagram need the
 # downloaders, Douyin needs those plus a browser and an interactive sign-in.
 #
 # Everything re-derivable goes to ${XDG_CACHE_HOME:-~/.cache}/archiver, and
@@ -72,6 +73,32 @@ build_x() {
   check_x
 }
 
+# ---- instagram -------------------------------------------------------------
+
+check_instagram() {
+  local state="${STATE_ROOT}/instagram"
+  echo "Instagram — state: ${state}"
+
+  report_box runtime "the runtime"
+  report_box tools "gallery-dl"
+
+  if [[ -f "${state}/cookies.txt" ]]; then
+    ok "an Instagram session is cached"
+  else
+    warn "no Instagram session cached yet"
+    echo "      Instagram's login cannot be scripted into anything but a"
+    echo "      checkpoint, so the session is read out of a browser you are"
+    echo "      already signed in to:"
+    echo "        ${SKILL_DIR}/scripts/archive.sh <url> --browser chrome --plan"
+  fi
+  echo
+}
+
+build_instagram() {
+  "$ENSURE" runtime tools
+  check_instagram
+}
+
 # ---- douyin ----------------------------------------------------------------
 
 check_douyin() {
@@ -106,6 +133,7 @@ case "${1:-}" in
     echo
     check_douyin
     check_x
+    check_instagram
     echo "The skill builds the tools it runs on the first time it needs them,"
     echo "into ${CACHE_ROOT}. Name a platform here to build them now instead."
     exit 0
@@ -120,6 +148,11 @@ case "${1:-}" in
     echo
     build_x
     ;;
+  instagram)
+    echo "Setting up Instagram…"
+    echo
+    build_instagram
+    ;;
   refresh)
     echo "Rebuilding the downloaders at their latest release…"
     echo
@@ -133,11 +166,11 @@ case "${1:-}" in
     exit 0
     ;;
   -h|--help)
-    sed -n '3,9p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+    sed -n '3,10p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
     exit 0
     ;;
   *)
-    echo "error: no platform called '$1' — try: douyin, x, refresh, clean, or no argument for all" >&2
+    echo "error: no platform called '$1' — try: douyin, x, instagram, refresh, clean, or no argument for all" >&2
     exit 2
     ;;
 esac
