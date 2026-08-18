@@ -51,7 +51,7 @@ async function playwrightIn(box, body) {
  * named export off the file. What comes back then carries `chromium` on
  * `.default` alone, which is the shape the loader has to cope with.
  */
-const exporting = (shape) => `const build = () => (${shape});\nmodule.exports = build();\n`;
+const commonJsExporting = (shape) => `const build = () => (${shape});\nmodule.exports = build();\n`;
 
 test('a browser box that was never built refuses, and says where it looked', async (t) => {
   const box = await aBrowserBox(t);
@@ -66,7 +66,7 @@ test('a browser box that was never built refuses, and says where it looked', asy
 });
 
 test('playwright is reached through its default export, because a box holds CommonJS', async (t) => {
-  const box = await aBrowserBox(t, (dir) => playwrightIn(dir, exporting("{ chromium: { stub: true } }")));
+  const box = await aBrowserBox(t, (dir) => playwrightIn(dir, commonJsExporting("{ chromium: { stub: true } }")));
 
   // Asserted first: a stub that exposed `chromium` directly would pass the test
   // below without the unwrapping ever running, and prove nothing.
@@ -82,7 +82,7 @@ test('playwright is reached through its default export, because a box holds Comm
 });
 
 test('a box holding something that is not playwright refuses rather than driving nothing', async (t) => {
-  const box = await aBrowserBox(t, (dir) => playwrightIn(dir, exporting("{ firefox: {} }")));
+  const box = await aBrowserBox(t, (dir) => playwrightIn(dir, commonJsExporting("{ firefox: {} }")));
 
   const failed = await loadPlaywright().then(() => null, (error) => error);
 

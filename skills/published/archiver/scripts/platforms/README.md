@@ -17,12 +17,8 @@ written down once.
 A `README.md` beside `run.mjs`, carrying what is particular to that platform:
 what the site refuses, what it needs signed in, which downloader it drives.
 
-A module that runs as an entry point dispatches behind `isMainModule()` from
-`../shared/cli.mjs`, never a hand-written `import.meta.url` comparison. This
-skill is installed by symlink, and node resolves the entry module to its real
-location while `process.argv[1]` keeps the path it was handed — so comparing the
-two unresolved is false on every installed copy, and the file exits 0 having run
-nothing.
+`run.mjs` is an entry point, so it dispatches behind `isMainModule()` under the
+rule in [`../README.md`](../README.md) that governs every entry point here.
 
 Every registered platform is resolved for real by `dispatch.test.mjs`, so an
 entry naming a folder that is not here fails the suite rather than somebody's

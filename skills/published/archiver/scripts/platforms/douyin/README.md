@@ -133,10 +133,10 @@ session check and the mint read it first, so an ordinary `--go` costs no browser
 launch at all.
 
 Every document emitted — the plan a user approves, and what a finished run
-reports — is composed by `../../shared/output.mjs`, and what is on disk is counted
-in exactly one place (`landed.mjs`'s `onDiskIds`). Do not hand-assemble a second
-copy of either: counting one way here and another way there is all it takes for
-a run to contradict the number the user approved.
+reports — is composed by `../../shared/output.mjs`, and what is on disk is
+counted in exactly one place (`landed.mjs`'s `onDiskIds`). Do not hand-assemble
+a second copy of either: counting one way here and another way there is all it
+takes for a run to contradict the number the user approved.
 
 `loadPlan` returns the parked plan and nothing more; `run.mjs` re-checks it
 against disk with `outstanding` before fetching. Without that re-check a `--go`
@@ -311,8 +311,8 @@ second path into the same folders, with its own flags and its own idea of what
 
 `account.json`, `post.json`, `sync.json`, `archiver.json` and the
 `posts/<date>_<id>/` layout are written by `../../shared/`, and specified in
-[`../../shared/README.md`](../../shared/README.md). Both platforms write into one
-archives root, so those rules are not this platform's to change alone.
+[`../../shared/README.md`](../../shared/README.md). Both platforms write into
+one archives root, so those rules are not this platform's to change alone.
 
 What is particular to this one:
 

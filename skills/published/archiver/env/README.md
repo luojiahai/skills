@@ -166,9 +166,10 @@ change to the machine, and the skill only ever writes to directories it owns, so
 browser on it already has them; a bare container does not, and Playwright's own
 `install-deps` is the remedy there. CI does exactly that on its Linux runners.
 
-**X still needs a browser the skill does not own.** `scripts/platforms/x/run.mjs` reads a
-session out of the user's own signed-in Chrome, Firefox, Safari, Edge, Brave,
-Chromium, Opera or Vivaldi, and no box can supply one. "The environment is ours"
+**X still needs a browser the skill does not own.**
+`scripts/platforms/x/run.mjs` reads a session out of the user's own signed-in
+Chrome, Firefox, Safari, Edge, Brave, Chromium, Opera or Vivaldi, and no box can
+supply one. "The environment is ours"
 is true of every tool the skill executes by default, and false of that one
 prerequisite — and false wholesale under `ARCHIVER_SYSTEM_TOOLS`, below.
 

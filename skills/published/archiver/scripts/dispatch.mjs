@@ -190,8 +190,8 @@ async function dispatch(argv, load) {
 /**
  * Where a platform's entry module is, composed in this one place.
  *
- * The registry names a bare folder and nothing more; that those folders sit
- * under `platforms/` is known here alone. Exported so that the test asserting
+ * The registry names a bare folder and nothing more; the path it resolves to is
+ * composed here and nowhere else. Exported so that the test asserting
  * every registered platform is reachable resolves it through the call the
  * dispatcher makes — a test composing the path itself would be a second copy of
  * the one rule that keeps this file the only thing that knows the layout.

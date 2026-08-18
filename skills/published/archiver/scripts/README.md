@@ -80,6 +80,15 @@ A folder under `platforms/` and one entry in `PLATFORMS`. What that folder owes
 is specified in [`platforms/README.md`](./platforms/README.md), beside the
 folders it governs.
 
+## An entry point dispatches behind `isMainModule()`
+
+A module that runs as one uses `isMainModule()` from `shared/cli.mjs`, never a
+hand-written `import.meta.url` comparison. This skill is installed by symlink,
+and node resolves the entry module to its real location while `process.argv[1]`
+keeps the path it was handed — so comparing the two unresolved is false on
+every installed copy, and the file exits 0 having run nothing. `dispatch.mjs`
+and every platform's `run.mjs` are entry points.
+
 ## Preflight sits where it can act
 
 `archive.sh` works out which node to run on, plus the `--downloads` refusal. Both

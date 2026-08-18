@@ -120,8 +120,9 @@ else. It records identity again after the fetch, with the alias the run finished
 under. What the last run *did* is run history and lives in `sync.json`.
 
 **`sync.json`, `post.json`'s write order and the root's schema version are the
-shared archive's rules,** specified in [`../../shared/README.md`](../../shared/README.md).
-Two of them bite hardest here. Deleting `sync.json` loses no archive content, so
+shared archive's rules,** specified in
+[`../../shared/README.md`](../../shared/README.md). Two of them bite hardest
+here. Deleting `sync.json` loses no archive content, so
 no resumption cursor may go in it: that would make a run shorter in *result*
 rather than merely cheaper, missing posts a reordered feed has pushed below the
 mark. And a folder whose `post.json` could not be written counts the post as
@@ -278,8 +279,8 @@ matches on.
 
 `account.json`, `post.json`, `sync.json`, `archiver.json` and the
 `posts/<date>_<id>/` layout are written by `../../shared/`, and specified in
-[`../../shared/README.md`](../../shared/README.md). Both platforms write into one
-archives root, so those rules are not this platform's to change alone.
+[`../../shared/README.md`](../../shared/README.md). Both platforms write into
+one archives root, so those rules are not this platform's to change alone.
 
 What is particular to this one:
 
