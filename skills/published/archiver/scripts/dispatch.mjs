@@ -187,7 +187,16 @@ async function dispatch(argv, load) {
   return await run(argv);
 }
 
-function loadPlatform(platform) {
+/**
+ * Where a platform's entry module is, composed in this one place.
+ *
+ * The registry names a bare folder and nothing more; the path it sits at is
+ * known here alone. Exported so that the test asserting every registered
+ * platform is reachable resolves it through the call the dispatcher makes — a
+ * test composing the path itself would be a second copy of the one rule that
+ * keeps this file the only thing that knows the layout.
+ */
+export function loadPlatform(platform) {
   return import(`./${platform.dir}/run.mjs`);
 }
 
