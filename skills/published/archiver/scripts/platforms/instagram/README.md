@@ -46,11 +46,10 @@ up to date.
 
 **The shortcode is the post's identity, not the numeric media id.** `--go`
 fetches each approved post by permalink and the permalink is built from the
-shortcode. That is what widened `POST_FOLDER` in
-[`../../shared/naming.mjs`](../../shared/naming.mjs) to the charset
-`postFolderName` already wrote: the read rule was digits-only, so a folder this
-platform writes could not be read back, and every post would have counted as
-missing forever and been re-downloaded on every run.
+shortcode. A post id here is therefore base64ish rather than numeric, which is
+the charset [`../../shared/naming.mjs`](../../shared/naming.mjs) has to write
+*and* read: a folder name this archive writes and cannot read back is a post
+counted as missing forever and re-downloaded on every run.
 
 **The permalink carries no handle.** `/p/<shortcode>` resolves whoever owns the
 post. Putting the handle in it would break the whole approved list the day an
@@ -152,7 +151,7 @@ is said to the tool and how its output is read back.
 | `target.mjs` | The account a URL names, a post's permalink, and each feed's URL. Everything else on instagram.com — a single post, a story, the tagged tab — is refused rather than read as an account. |
 | `collect.mjs` | The two listing passes: drives gallery-dl, reads rows as they arrive, decides when enough of each feed has been seen, and folds per-file rows into posts. |
 | `fetch.mjs` | Downloads a list of posts, one gallery-dl invocation each, writing each post's `post.json` before its media. |
-| `gallerydl.mjs` | Everything said to gallery-dl and read back from it: policy, throttling, the print format, the row parser, failure classification. |
+| `gallerydl.mjs` | What is particular to this extractor: its policy, its throttling, the row format it is asked for, the row parser and the failure classification. The two invocations those feed are [`../../shared/gallerydl.mjs`](../../shared/gallerydl.mjs), which every gallery-dl platform builds the same way. |
 
 The archive itself — `account.json`, `post.json`, `sync.json`, `archiver.json`,
 the post folders and the envelope every command answers in — is

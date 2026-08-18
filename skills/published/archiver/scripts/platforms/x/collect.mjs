@@ -18,7 +18,8 @@ import readline from 'node:readline';
 
 import { isLanded, isMissing } from '../../shared/landed.mjs';
 import { toolPath } from '../../shared/paths.mjs';
-import { classifyFailure, listArgs, parseRow } from './gallerydl.mjs';
+import { TOOL, classifyFailure, parseRow } from './gallerydl.mjs';
+import { listArgs } from '../../shared/gallerydl.mjs';
 
 /**
  * Generous on purpose. X pins a post to the top of a timeline regardless of its
@@ -42,7 +43,7 @@ export async function collect({
   bin = toolPath('gallery-dl'),
   spawnImpl = spawn,
 }) {
-  const child = spawnImpl(bin, listArgs({ url, cookies }), {
+  const child = spawnImpl(bin, listArgs(TOOL, { url, cookies }), {
     stdio: ['ignore', 'pipe', 'pipe'],
   });
 

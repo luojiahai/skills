@@ -22,7 +22,8 @@ import readline from 'node:readline';
 
 import { isLanded, isMissing } from '../../shared/landed.mjs';
 import { toolPath } from '../../shared/paths.mjs';
-import { classifyFailure, listArgs, parseRow } from './gallerydl.mjs';
+import { TOOL, classifyFailure, parseRow } from './gallerydl.mjs';
+import { listArgs } from '../../shared/gallerydl.mjs';
 import { feedUrl } from './target.mjs';
 
 /**
@@ -50,7 +51,7 @@ export async function collect({
   bin = toolPath('gallery-dl'),
   spawnImpl = spawn,
 }) {
-  const child = spawnImpl(bin, listArgs({ url, cookies }), {
+  const child = spawnImpl(bin, listArgs(TOOL, { url, cookies }), {
     stdio: ['ignore', 'pipe', 'pipe'],
   });
 
@@ -201,12 +202,11 @@ export async function collectFeeds({
   bin = toolPath('gallery-dl'),
   spawnImpl = spawn,
   collectImpl = collect,
-  categories = CATEGORIES,
 }) {
   const rows = [];
   const sweeps = [];
   let account = null;
-  let settled = null;
+  let stopRule = null;
 
   // Fired on the first row of every pass; the real `onAccount` runs only the
   // first time, because resolving the folder and reading the archive again
@@ -214,18 +214,18 @@ export async function collectFeeds({
   const perPass = async (found) => {
     if (!account) {
       account = found;
-      settled = (await onAccount?.(found)) ?? null;
+      stopRule = (await onAccount?.(found)) ?? null;
     }
-    if (!settled) return undefined;
+    if (!stopRule) return undefined;
     // The caller found something about this account it will not archive under —
     // an id that cannot be a folder name. Ending the pass here rather than
     // throwing, because a throw inside the row loop surfaces as an unexplained
     // stream failure rather than as the refusal it is.
-    if (settled.stopNow) return () => true;
-    return makeStopper({ archive: settled.archive, threshold, enabled: settled.incremental });
+    if (stopRule.stopNow) return () => true;
+    return makeStopper({ archive: stopRule.archive, threshold, enabled: stopRule.incremental });
   };
 
-  for (const category of categories) {
+  for (const category of CATEGORIES) {
     const result = await collectImpl({
       url: feedUrl(url, category),
       cookies,

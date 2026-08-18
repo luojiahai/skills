@@ -111,8 +111,13 @@ test('every name the archive will write is a name it can read back', () => {
 });
 
 test('a folder holding a name we would refuse to write yields no id', () => {
-  // Read and write are one rule. `.` and `..` are refused on the way in, so a
-  // folder carrying one was not written here and is not read as a post.
+  // Read and write are one rule, in full. `.` and `..` are refused on the way
+  // in, and so is an id past the length bound — a folder carrying either was
+  // not written here and is not read as a post.
   assert.equal(postIdFromFolder('2024-03-11_.'), null);
   assert.equal(postIdFromFolder('2024-03-11_..'), null);
+
+  const tooLong = 'a'.repeat(129);
+  assert.throws(() => postFolderName({ date: '2024-03-11', postId: tooLong }));
+  assert.equal(postIdFromFolder(`2024-03-11_${tooLong}`), null);
 });

@@ -2,13 +2,13 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { cookieArgs } from '../../shared/session.mjs';
+import { fetchArgs as sharedFetchArgs, listArgs as sharedListArgs } from '../../shared/gallerydl.mjs';
 import {
   PRINT_FORMAT,
   ROW_MARKER,
   classifyFailure,
-  fetchArgs,
-  listArgs,
   parseRow,
+  TOOL,
 } from './gallerydl.mjs';
 
 test('the print format carries an explicit event prefix', () => {
@@ -218,3 +218,12 @@ test('a row whose reply field renders as None carries no reply', () => {
   fields[14] = '1766';
   assert.equal(parseRow(fields.join('\t')).replyId, '1766');
 });
+
+/** Bound to this platform's descriptor, which is the only thing it supplies. */
+function listArgs(options) {
+  return sharedListArgs(TOOL, options);
+}
+
+function fetchArgs(options) {
+  return sharedFetchArgs(TOOL, options);
+}

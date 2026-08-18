@@ -5,7 +5,6 @@
  * what we say to it. Two invocations, both built here so the options that make
  * a run survivable cannot drift apart between them.
  */
-import { cookieArgs } from '../../shared/session.mjs';
 import { httpStatus } from '../../shared/subprocess.mjs';
 
 /**
@@ -114,51 +113,12 @@ export const PRINT_FORMAT = `prepare:${[ROW_MARKER, ...FIELDS].join('\t')}`;
  */
 const SHORTCODE = /^[A-Za-z0-9_-]+$/;
 
-function optionArgs(options) {
-  return Object.entries(options).flatMap(([key, value]) => ['-o', `${key}=${JSON.stringify(value)}`]);
-}
-
 /**
- * The listing pass: enumerate, print a row per file, download nothing.
- *
- * No archive is passed. gallery-dl's own skip-and-abort machinery does not run
- * in a listing pass anyway, and we need to see every post to report both "found"
- * and "on disk" honestly — a pass that only showed new posts could not tell the
- * user what fraction of the account they already have. The diff and the decision
- * to stop early are ours, in collect.mjs.
+ * What this platform says to gallery-dl that another would not: its extractor's
+ * config keys, its pauses, and the rows it asks for. The two invocations those
+ * feed are `../../shared/gallerydl.mjs`.
  */
-export function listArgs({ url, cookies }) {
-  return [
-    '--config-ignore',
-    ...cookieArgs({ cookies }),
-    ...optionArgs(POLICY),
-    ...THROTTLE,
-    '--print',
-    PRINT_FORMAT,
-    url,
-  ];
-}
-
-/**
- * One post, into a folder we have already named.
- *
- * `--directory` is an exact path, which is what lets naming.mjs own the layout
- * rather than expressing it as a gallery-dl format string — the naming rules are
- * ours, they are unit-tested, and they are not re-implemented in a config file.
- */
-export function fetchArgs({ url, directory, cookies }) {
-  return [
-    '--config-ignore',
-    ...cookieArgs({ cookies }),
-    ...optionArgs(POLICY),
-    ...THROTTLE,
-    '--directory',
-    directory,
-    '--filename',
-    '{num}.{extension}',
-    url,
-  ];
-}
+export const TOOL = { policy: POLICY, throttle: THROTTLE, printFormat: PRINT_FORMAT };
 
 /**
  * One printed row back into a file record, or null for anything that is not one

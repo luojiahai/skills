@@ -163,7 +163,7 @@ is said to the tool and how its output is read back.
 | `target.mjs` | The account a URL names, and a post's permalink. Everything else on x.com — a single post included — is refused rather than read as an account. |
 | `collect.mjs` | The collection pass: drives gallery-dl, reads rows as they arrive, decides when enough of the timeline has been seen, and folds per-file rows into posts. |
 | `fetch.mjs` | Downloads a list of posts, one gallery-dl invocation each, writing each post's `post.json` before its media. |
-| `gallerydl.mjs` | Everything said to gallery-dl and read back from it: policy, throttling, the print format, the row parser, failure classification. |
+| `gallerydl.mjs` | What is particular to this extractor: its policy, its throttling, the row format it is asked for, the row parser and the failure classification. The two invocations those feed are [`../../shared/gallerydl.mjs`](../../shared/gallerydl.mjs), which every gallery-dl platform builds the same way. |
 | `assets.mjs` | The account's current avatar and banner, fetched from the URLs the collection pass already carried. |
 
 The archive itself — `account.json`, `post.json`, `sync.json`, `archiver.json`,

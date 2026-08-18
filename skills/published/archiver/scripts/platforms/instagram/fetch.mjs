@@ -20,7 +20,8 @@ import { outstanding as outstandingIn, postDirFor } from '../../shared/landed.mj
 import { toolPath } from '../../shared/paths.mjs';
 import { postIdKeyFor } from '../../shared/platforms.mjs';
 import { SPAWN_FAILED, runTool } from '../../shared/subprocess.mjs';
-import { classifyFailure, fetchArgs } from './gallerydl.mjs';
+import { TOOL, classifyFailure } from './gallerydl.mjs';
+import { fetchArgs } from '../../shared/gallerydl.mjs';
 import { permalink } from './target.mjs';
 import { buildPost, toTimestamp, writePost } from '../../shared/post.mjs';
 
@@ -134,7 +135,7 @@ export async function fetchPosts({
       continue;
     }
 
-    const result = await runTool(bin, fetchArgs({ url, directory: dir, cookies }), { spawnImpl });
+    const result = await runTool(bin, fetchArgs(TOOL, { url, directory: dir, cookies }), { spawnImpl });
 
     const kind =
       result.code === 0

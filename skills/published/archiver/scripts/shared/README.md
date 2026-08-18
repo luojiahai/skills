@@ -22,6 +22,7 @@ platforms are threaded with a descriptor where they differ.
 | `env.mjs` | Building those boxes before they are needed, and the refusals when that cannot happen. |
 | `cli.mjs` | Argument parsing, file reading, atomic JSON writing, entry-point detection. |
 | `exit.mjs` | One exit table, so a shell caller can tell "rate-limited" from "you typed the flag wrong" without knowing which platform ran. |
+| `gallerydl.mjs` | The two command lines every gallery-dl platform builds — one listing, one fetch. Takes a descriptor, because the extractor's config keys, its pauses and the rows it prints are the only things that vary. |
 | `session.mjs` | The browser session a gallery-dl platform runs on, as a cookies.txt: where it is cached, how it is minted, and when it is thrown away. Takes a descriptor, because the platform's name and its label in a refusal are the only things that vary. |
 | `tools.mjs` | Whether a downloader is on PATH, and the refusal when it is not. Reachable only through the `ARCHIVER_SYSTEM_TOOLS` escape hatch. |
 | `subprocess.mjs` | Running a downloader and reading what it said, so every platform answers "what did it exit with" the same way — including for a process that never started. |
@@ -249,9 +250,9 @@ alias chosen on one platform can never collide with one chosen on another.
 ## Adding to these
 
 Anything here is read by every platform. Before changing a rule, check what the
-other platform does with it: one archives root read with one mental model is
-what these modules buy, and a rule that holds for one caller's shape and not the
-others' corrupts an archive all of them read.
+others do with it: one archives root read with one mental model is what these
+modules buy, and a rule that holds for one caller's shape and not the others'
+corrupts an archive all of them read.
 
 ## The tools every platform runs on
 

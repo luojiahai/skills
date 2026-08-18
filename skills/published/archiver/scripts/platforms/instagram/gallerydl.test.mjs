@@ -2,15 +2,15 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { cookieArgs } from '../../shared/session.mjs';
+import { fetchArgs as sharedFetchArgs, listArgs as sharedListArgs } from '../../shared/gallerydl.mjs';
 import {
   FAILURES,
   PRINT_FORMAT,
   ROW_MARKER,
   THROTTLE,
   classifyFailure,
-  fetchArgs,
-  listArgs,
   parseRow,
+  TOOL,
 } from './gallerydl.mjs';
 import { ERROR_EXITS } from '../../shared/errors.mjs';
 
@@ -238,3 +238,12 @@ test('a checkpoint tells the user to clear it, and never to sign in again', () =
   assert.equal(remedy.run_by, 'user');
   assert.doesNotMatch(remedy.message, /sign in again/i);
 });
+
+/** Bound to this platform's descriptor, which is the only thing it supplies. */
+function listArgs(options) {
+  return sharedListArgs(TOOL, options);
+}
+
+function fetchArgs(options) {
+  return sharedFetchArgs(TOOL, options);
+}

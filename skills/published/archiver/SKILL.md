@@ -227,8 +227,7 @@ The `--go` document is the run's whole result. Report it and stop.
 | `unattributed-posts` | Douyin. `count` cards on the page that no profile-feed response named, and so were not collected — a recommendation rail, or a run that missed those responses. |
 | `undated-posts` | Douyin. `count` posts filed under `undated_<id>`, because nothing would say when they were published. |
 | `duplicate-posts` | Any platform. `count` post ids found in two folders each. One answers for the post; the other's media is counted by nothing, so every figure beside it is short by that much. |
-| `under-described-posts` | X. `count` posts whose listing was cut off mid-post. They are fetched again, but their `post.json` lists fewer files than they carry. |
-| `under-described-posts` | Instagram too, for the same reason: a listing cut off mid-carousel. |
+| `under-described-posts` | X and Instagram. `count` posts whose listing was cut off mid-post, or mid-carousel. They are fetched again, but their `post.json` lists fewer files than they carry. |
 | `sweep` | X and Instagram. `mode: "incremental"` with `stopped_early: true` means it stopped after `threshold` known posts rather than reaching the end — so "nothing new" is not proven. Say so. A `--go` repeats the note its plan recorded, which may be up to a day old. **Instagram carries one of these per feed**, each with a `category` of `posts` or `reels`: say which feed was cut short, because "your posts are complete but I stopped partway through your reels" is the whole point of there being two. |
 | `moving-to` | `--alias` will rename the folder to `dir` on the download step. Say it before they say yes; nothing has moved yet. |
 | `root-changed` | The last run archived into `previous`. Say it — otherwise an `on_disk` of zero reads as an archive that lost its files. |
