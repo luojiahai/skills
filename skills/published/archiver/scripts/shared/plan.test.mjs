@@ -1,7 +1,15 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { DEFAULT_TTL_HOURS, approved, buildPlan, describeAge, validatePlan } from './plan.mjs';
+import {
+  DEFAULT_TTL_HOURS,
+  approved,
+  buildPlan,
+  describeAge,
+  planUnfinished,
+  validatePlan,
+} from './plan.mjs';
+import { buildPost } from './post.mjs';
 
 const HOUR = 3600 * 1000;
 const NOW = Date.parse('2026-08-14T10:00:00Z');
@@ -125,4 +133,43 @@ test('an age reads in the largest unit that is still honest', () => {
   assert.equal(describeAge(90 * 1000), '1 minute');
   assert.equal(describeAge(3 * HOUR), '3 hours');
   assert.equal(describeAge(72 * HOUR), '3 days');
+});
+
+// ---- the unfinished-plan guard ----------------------------------------------
+
+/** An archive as readArchive returns one: fully landed entries, by post id. */
+const onDisk = (...ids) => new Map(ids.map((id) => [id, { post: buildPost({ id }), names: ['post.json'] }]));
+
+const guard = (over = {}) => ({ accountId: 'MS4wSEC', root: '/data', archive: new Map(), postIdKey: 'id', ...over });
+
+test('a plan whose approved posts have not all landed is unfinished', () => {
+  // The evidence that the archive may not be an unbroken run of the newest
+  // posts: clearPlan retires a plan only once every post in it is on disk, so
+  // one still parked with a post missing is a download that never finished.
+  assert.equal(planUnfinished(plan(), guard()), true);
+});
+
+test('a plan whose posts have all landed since is finished', () => {
+  assert.equal(planUnfinished(plan(), guard({ archive: onDisk('7222') })), false);
+});
+
+test('no plan is not evidence of anything', () => {
+  assert.equal(planUnfinished(null, guard()), false);
+  assert.equal(planUnfinished({}, guard()), false);
+});
+
+test('an expired plan still counts as unfinished', () => {
+  // The whole trap: --go refuses a day-old plan and sends the user back to
+  // --plan, so the posts it never fetched are exactly the ones nothing else
+  // will ask for. A guard that expired with the plan would protect only the
+  // runs that never needed it.
+  assert.equal(planUnfinished(plan({ now: new Date(NOW - 30 * HOUR) }), guard()), true);
+});
+
+test('a plan made for another account says nothing about this one', () => {
+  assert.equal(planUnfinished(plan(), guard({ accountId: 'MS4wOTHER' })), false);
+});
+
+test('a plan made for another archives root says nothing about this one', () => {
+  assert.equal(planUnfinished(plan(), guard({ root: '/elsewhere' })), false);
 });

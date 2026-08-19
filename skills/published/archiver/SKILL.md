@@ -421,6 +421,11 @@ posts it already had, rather than reaching the end of the timeline — so
 `to_fetch: 0` there means "nothing new before the cut", not "nothing new at all".
 Say which.
 
+A re-run after a download that stopped partway sweeps the whole timeline instead,
+because the archive then has holes below its newest posts. It is slower and it
+arrives with the unfetched remainder beside it, so a `mode: "full"` on an account
+that already has posts on disk is that catching up rather than anything wrong.
+
 Its distinct hard stops, each its own code: `rate-limited` stops cleanly and
 carries a `result` with what landed — report that, tell the user to come back
 later, and **do not re-run**; `session-rejected` has already discarded the cached
@@ -469,7 +474,8 @@ cached session.
 
 **Posts and reels are collected separately**, because each has to be able to
 stop early without ending the other — so a run makes two passes and carries two
-`sweep` notes. A post that appears in both is archived once.
+`sweep` notes. A post that appears in both is archived once. Both passes go full
+after a download that stopped partway, for the reason given under X.
 
 Instagram's `counts.platform` is `found_files`, `fetch_files`, `images`,
 `videos` and `reels`. The first four count **files**; `reels` counts **posts**,

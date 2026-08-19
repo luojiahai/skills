@@ -213,6 +213,17 @@ with "gave up before reaching anything new". A bare `--go` collects nothing and
 repeats the note its plan recorded, which is up to a day old; a refusal carries
 none.
 
+The rule needs the archive to be an unbroken run of the newest posts, and one
+thing punches a hole in it: a `--go` that stopped partway leaves the posts below
+what it fetched missing, so the streak at the top proves nothing about them. A
+plan still parked with un-landed posts in it is that evidence — `clearPlan`
+retires a plan only once all of it has landed — so `--plan` puts the question to
+`sweepIsIncremental` in `shared/run.mjs` and sweeps the whole timeline when the
+answer is no. It ignores the plan's TTL on
+purpose: an expired plan is what makes the hole permanent, because `--go` refuses
+it and nothing asks for the remainder again. A plan nobody ever ran answers yes
+too and costs a slow sweep, which is the cheaper of the two mistakes.
+
 ## Zero posts is never "up to date"
 
 An account that is protected, or a session that has quietly expired, produces

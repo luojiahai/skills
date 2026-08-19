@@ -12,14 +12,19 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { realpathSync } from 'node:fs';
-import { mkdtemp, readFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
 import { main } from './run.mjs';
 import { postDir } from './fetch.mjs';
+import { recordIdentity } from '../../shared/account.mjs';
+import { descriptorFor } from '../../shared/platforms.mjs';
 import { EXIT } from '../../shared/exit.mjs';
 import { Refusal } from '../../shared/errors.mjs';
+import { buildPlan } from '../../shared/plan.mjs';
+import { savePlan } from '../../shared/sync.mjs';
+import { archiveCounts } from '../../shared/output.mjs';
 import { buildPost, writePost } from '../../shared/post.mjs';
 import { emitted } from '../../testing.mjs';
 
@@ -433,4 +438,66 @@ test('a new account given an alias is created under it, with nothing to move', a
 
   assert.equal(document.result.dir, path.join(dir, 'instagram', 'them'));
   assert.equal(noteWith(document, 'moving-to'), undefined, 'nothing is moving');
+});
+
+// ---- an interrupted download leaves an archive with holes in it -------------
+
+const post = (shortcode) => ({ shortcode, date: '2024-03-11 07:22:19', files: [] });
+
+/**
+ * An account with `landed` already on disk and a plan parked over `pending`.
+ *
+ * The A/B pair below differs in nothing but that `pending` list: everything the
+ * stopper looks at — the folders on disk, the rows each pass yields — is the
+ * same in both halves.
+ */
+async function parked(root, { landed, pending }) {
+  const accountDir = path.join(root, 'instagram', '55');
+  await mkdir(accountDir, { recursive: true });
+  await recordIdentity(descriptorFor('instagram'), root, accountDir, { account: ACCOUNT, url: PROFILE });
+
+  for (const one of landed) await writePost(postDir(accountDir, one), buildPost({ id: one.shortcode }));
+
+  await savePlan(
+    accountDir,
+    buildPlan({
+      account: ACCOUNT,
+      root,
+      collected: pending,
+      pending,
+      counts: archiveCounts({ found: pending.length, onDisk: 0, toFetch: pending.length }),
+      now: new Date(),
+    }),
+  );
+}
+
+test('a re-run over an unfinished plan sweeps both feeds whole', async () => {
+  // The parked plan still lists a post that is not on disk, so the download it
+  // describes never finished — and neither feed is the unbroken run of newest
+  // posts the stopper assumes it is.
+  const root = await archivesRoot();
+  await parked(root, { landed: [post('AAA')], pending: [post('AAA'), post('BBB')] });
+
+  const { document } = await run([PROFILE, '--archives', root, '--plan']);
+
+  assert.deepEqual(
+    notesWith(document, 'sweep').map((note) => note.mode),
+    ['full', 'full'],
+  );
+});
+
+test('a re-run over a finished plan still stops early', async () => {
+  // The other half of the pair, differing in nothing but whether the parked
+  // plan's posts have all landed. Asserting the `full` above on its own would
+  // pin a symptom several things produce — an archive that read as empty gives
+  // the same mode — so this is what pins the plan as the cause.
+  const root = await archivesRoot();
+  await parked(root, { landed: [post('AAA')], pending: [post('AAA')] });
+
+  const { document } = await run([PROFILE, '--archives', root, '--plan']);
+
+  assert.deepEqual(
+    notesWith(document, 'sweep').map((note) => note.mode),
+    ['incremental', 'incremental'],
+  );
 });

@@ -69,7 +69,7 @@ import {
   runCounts,
   sharedNotes,
 } from '../../shared/output.mjs';
-import { pickMode } from '../../shared/run.mjs';
+import { pickMode, sweepIsIncremental } from '../../shared/run.mjs';
 import { hatchToolMissing, onPath } from '../../shared/tools.mjs';
 import { ensureEnv } from '../../shared/env.mjs';
 
@@ -166,8 +166,14 @@ async function doPlan({
         (await resolveAccountDir(ACCOUNT, root, { id: account.id })) ??
         (alias ? aliasDirFor(ACCOUNT, root, alias) : accountDirFor(ACCOUNT, root, account.id));
       archive = await readArchive(accountDir);
-      // A first run has nothing to recognise, so there is nothing to stop at.
-      incremental = archive.size > 0 && !full;
+      incremental = await sweepIsIncremental({
+        accountDir,
+        accountId: account.id,
+        archive,
+        full,
+        postIdKey: POST_ID_KEY,
+        root,
+      });
       return makeStopper({ archive, threshold, enabled: incremental });
     },
   });
