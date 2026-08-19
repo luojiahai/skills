@@ -18,18 +18,13 @@
 import { mkdir } from 'node:fs/promises';
 
 import {
-  accountDirFor,
-  aliasDirFor,
-  aliasShapeRefusal,
-  aliasTarget,
   checkAlias,
-  findAccountDir,
-  isSafeAlias,
-  isSafeId,
-  moveToAlias,
-  readAccount,
+  checkAliasShape,
+  confirmAlias,
+  fileAccount,
+  findFolder,
   recordIdentity,
-  resolveAccountDir,
+  settleFolder,
 } from './account.mjs';
 import { checkRoot, stampRoot } from './archiver.mjs';
 import { missingValueRefusal, optString, parseCommandLine } from './cli.mjs';
@@ -251,11 +246,12 @@ export async function runAccount(base, argv, overrides = {}) {
     });
   }
 
-  // The shape of an alias needs no filesystem and no network, so a typo is
-  // refused here rather than after a full crawl. checkAlias reaches the same
-  // refusal later — they share it rather than keeping two copies that could
-  // come to disagree.
-  if (alias && !isSafeAlias(alias)) return refuseHere(refusalFields(aliasShapeRefusal(alias)));
+  // The first of the alias protocol's three moments: shape needs no filesystem
+  // and no network, so a typo is refused here rather than after a full crawl.
+  if (alias) {
+    const shape = checkAliasShape(alias);
+    if (!shape.ok) return refuseHere(refusalFields(shape.refusal));
+  }
 
   let root;
   try {
@@ -273,20 +269,22 @@ export async function runAccount(base, argv, overrides = {}) {
     return refuseHere(refusalFields(error));
   }
 
-  // Everything an alias can be refused for except "it is already yours" needs
-  // only the archives root, so it is decided before the session and the first
-  // request. The id is whatever can be worked out without a fetch, and null for
-  // an account never seen, which cannot collide with itself either way. makePlan
-  // asks again once the real id is in hand.
+  // The second moment. Everything an alias can be refused for except "it is
+  // already yours" needs only the archives root, so it is decided before the
+  // session and the first request. The id is whatever can be worked out without
+  // a fetch, and null for an account never seen, which cannot collide with
+  // itself either way — so the verdict is provisional, and makePlan has to
+  // present it again once the real id is in hand.
+  let aliasChecked = null;
   if (alias) {
-    const existing = await findAccountDir(descriptor, root, {
+    const existing = await findFolder(descriptor, root, {
       url: target.url, alias, handle: target.handle,
     });
-    const verdict = await checkAlias(descriptor, root, {
-      id: existing ? ((await readAccount(existing))?.account?.id ?? null) : (target.id ?? null),
+    aliasChecked = await checkAlias(descriptor, root, {
+      id: existing ? existing.id : (target.id ?? null),
       alias,
     });
-    if (!verdict.ok) return refuseHere(refusalFields(verdict.refusal));
+    if (!aliasChecked.ok) return refuseHere(refusalFields(aliasChecked.refusal));
   }
 
   let session;
@@ -297,7 +295,7 @@ export async function runAccount(base, argv, overrides = {}) {
   }
 
   const planCommand = commandFor(argv, 'plan');
-  const shared = { adapter, root, alias, unalias, session, planCommand, command, opts, target, url: target.url };
+  const shared = { adapter, root, alias, aliasChecked, unalias, session, planCommand, command, opts, target, url: target.url };
 
   // Guarded like the listing half below. A hook a platform brings can raise a
   // Refusal of its own — Douyin's cookie mint does — and an unguarded throw
@@ -327,7 +325,7 @@ export async function runAccount(base, argv, overrides = {}) {
   // already said yes.
   const notes = [
     ...sharedNotes({
-      dir: planned.accountDir,
+      dir: planned.folder.dir,
       movingTo: planned.movingTo,
       root,
       previousRoot: planned.previousRoot,
@@ -338,7 +336,7 @@ export async function runAccount(base, argv, overrides = {}) {
   const described = (extra) =>
     archiveResult({
       account: accountFields(descriptor, planned.plan.account, target.url),
-      dir: planned.accountDir,
+      dir: planned.folder.dir,
       root,
       counts: planned.plan.counts,
       notes,
@@ -354,22 +352,19 @@ export async function runAccount(base, argv, overrides = {}) {
     // Nothing to download, but this run was still approved — so the rename it
     // asked for happens, and anything the platform refreshes on every finished
     // run is refreshed.
-    let accountDir = planned.accountDir;
+    let filed;
     try {
-      accountDir = await moveToAlias(descriptor, root, accountDir, {
-        id: planned.plan.account?.id, alias, unalias,
-      });
-      // The other two of the rename's three writes. Moving the folder and
-      // stopping leaves account.json naming the folder this run just left and
-      // archiver.json caching it — the archive disagreeing with itself until
-      // something else happens to write it.
-      await recordIdentity(descriptor, root, accountDir, {
-        account: planned.plan.account, url: target.url,
+      filed = await fileAccount(descriptor, root, planned.folder, {
+        id: planned.plan.account?.id,
+        account: planned.plan.account,
+        url: target.url,
+        alias,
+        unalias,
       });
     } catch (error) {
       return refuseHere(refusalFields(error));
     }
-    await adapter.afterFetch?.(accountDir, planned.plan.account);
+    await adapter.afterFetch?.(filed.dir, planned.plan.account);
     return answer({
       command,
       platform,
@@ -378,7 +373,7 @@ export async function runAccount(base, argv, overrides = {}) {
   }
 
   try {
-    return await downloadAndReport({ ...shared, dir: planned.accountDir, notes, plan: planned.plan });
+    return await downloadAndReport({ ...shared, folder: planned.folder, notes, plan: planned.plan });
   } catch (error) {
     return refuseHere(refusalFields(error));
   }
@@ -400,14 +395,15 @@ async function downloadAndReport(args) {
  * Throws its refusals rather than composing documents. `runAccount` owns the
  * envelope, so a `--yes` emits exactly one.
  */
-async function makePlan({ adapter, root, alias, unalias, session, target, full }) {
+async function makePlan({ adapter, root, alias, aliasChecked, unalias, session, target, full }) {
   const descriptor = adapter.account;
   const postIdKey = adapter.postIdKey;
 
   // All settled the moment the first row names the account, because none of
   // them can be known before it: the id itself only arrives with the first row,
   // and the folder is looked up from it.
-  let accountDir = null;
+  let folder = null;
+  let movingTo = null;
   let archive = new Map();
   let incremental = false;
   let badId = null;
@@ -426,22 +422,19 @@ async function makePlan({ adapter, root, alias, unalias, session, target, full }
     stopper: ({ archive: seen, incremental: on }) =>
       makeStopper({ archive: seen, threshold: adapter.threshold, enabled: on }),
     onAccount: async (account) => {
+      const settled = await settleFolder(descriptor, root, { id: account.id, alias, unalias });
       // Recorded and stopped rather than thrown: collect() reads this inside
       // its row loop, where a throw would surface as an unexplained stream
-      // failure.
-      if (!isSafeId(account.id)) {
-        badId = String(account.id ?? '');
+      // failure. What the refusal says is the platform's to word.
+      if (!settled.ok) {
+        badId = settled.id;
         return { archive: new Map(), incremental: false, stopNow: true };
       }
-      // Resolved, never computed. The folder may be named for an alias, and
-      // going straight to the id would quietly start a second, empty archive
-      // beside the real one on every aliased account.
-      accountDir =
-        (await resolveAccountDir(descriptor, root, { id: account.id })) ??
-        (alias ? aliasDirFor(descriptor, root, alias) : accountDirFor(descriptor, root, account.id));
-      archive = await readArchive(accountDir);
+      folder = settled.folder;
+      movingTo = settled.movingTo;
+      archive = await readArchive(folder.dir);
       incremental = await sweepIsIncremental({
-        accountDir, accountId: account.id, archive, full, postIdKey, root,
+        accountDir: folder.dir, accountId: account.id, archive, full, postIdKey, root,
       });
       return { archive, incremental };
     },
@@ -466,12 +459,10 @@ async function makePlan({ adapter, root, alias, unalias, session, target, full }
   const account = result.account;
   if (!account?.id) throw adapter.refusals.unidentified();
 
-  // Checked again now the id is known. The pre-flight check ran before the
-  // fetch on whatever identity could be worked out without one, which is enough
-  // to catch a typo cheaply but not enough to be the answer — and promising a
-  // move that --go would then refuse is worse than stopping here.
+  // The third moment, now the id is known. The provisional verdict taken before
+  // the fetch is presented back, so this cannot be reached without it.
   if (alias) {
-    const verdict = await checkAlias(descriptor, root, { id: account.id, alias });
+    const verdict = await confirmAlias(descriptor, root, aliasChecked, { id: account.id, alias });
     // Nothing has moved: the alias is decided before the plan is written, so a
     // refusal here leaves the archive exactly as it was found.
     if (!verdict.ok) throw verdict.refusal;
@@ -500,33 +491,35 @@ async function makePlan({ adapter, root, alias, unalias, session, target, full }
       // whole job is to say what the archive holds before anything is committed
       // to. One id in two folders read only on --go is one a user who plans and
       // reads never hears about.
-      ...duplicateNote(await duplicateFolders(accountDir)),
+      ...duplicateNote(await duplicateFolders(folder.dir)),
     ],
     now: new Date(),
   });
 
-  await mkdir(accountDir, { recursive: true });
+  await mkdir(folder.dir, { recursive: true });
   await stampRoot(root);
 
   // Read before anything is written: the "last run used …" note compares this
   // run's root against the one the previous run recorded, and --go's recordRun
   // below will replace it.
-  const lastRoot = await previousRoot(accountDir);
+  const lastRoot = await previousRoot(folder.dir);
 
   // Written before the plan, and before anything is downloaded, so a folder
   // that exists always says whose it is — there is no moment where one holds a
   // list of posts and nothing naming the account they belong to. It is also
   // what --go finds the folder by when all it has is the URL, the alias or the
   // handle.
-  await recordIdentity(descriptor, root, accountDir, { account, url: target.url });
+  const recorded = await recordIdentity(descriptor, root, folder.dir, { account, url: target.url });
 
-  await savePlan(accountDir, plan);
+  await savePlan(folder.dir, plan);
 
   return {
     plan,
-    accountDir,
+    // The folder as the write above left it, so a --go handed this one needs no
+    // second read to learn whose it is.
+    folder: recorded,
     previousRoot: lastRoot,
-    movingTo: aliasTarget(descriptor, root, { id: account.id, alias, unalias }),
+    movingTo,
   };
 }
 
@@ -537,7 +530,7 @@ async function makePlan({ adapter, root, alias, unalias, session, target, full }
  * Returns `{ refusal }` for a plan it will not run, and otherwise everything
  * the finished run has to report. It composes no document itself.
  */
-async function download({ adapter, root, dir, alias, unalias, url, target, session, planCommand }) {
+async function download({ adapter, root, folder: fromPlan, alias, unalias, url, target, session, planCommand }) {
   const descriptor = adapter.account;
   const postIdKey = adapter.postIdKey;
 
@@ -545,33 +538,40 @@ async function download({ adapter, root, dir, alias, unalias, url, target, sessi
   // it passes it in. A bare --go enumerates nothing — so it goes on the id where
   // the platform reads one out of the URL, and otherwise on the alias the user
   // gave it, the URL the plan was written from, and the handle.
-  let accountDir =
-    dir ??
-    (await findAccountDir(descriptor, root, { id: target?.id, url, alias, handle: target?.handle }));
-  if (!accountDir) return { refusal: noArchiveRefusal(root, planCommand) };
+  const found =
+    fromPlan ??
+    (await findFolder(descriptor, root, { id: target?.id, url, alias, handle: target?.handle }));
+  if (!found) return { refusal: noArchiveRefusal(root, planCommand) };
 
   // The id validatePlan checks the plan against — an identity check that holds
-  // even when the plan's URL names something other than the account.
-  const identity = await readAccount(accountDir);
-  const account = identity?.account;
+  // even when the plan's URL names something other than the account. The folder
+  // read it on its way to answering, so nothing opens account.json again here.
+  const account = found.account;
 
   // Read and approved before the folder moves. A plan this run will not act on
   // downloads nothing, so there is no final home to prepare, and a refusal that
   // renamed the archive on its way out would leave the user hunting for a folder
   // this run moved while telling them it did nothing.
-  const plan = await loadPlan(accountDir);
+  const plan = await loadPlan(found.dir);
   const valid = validatePlan(plan, { root, accountId: account?.id ?? target?.id });
   if (!valid.ok) return { refusal: withPlanRemedy(planRefusal(valid), planCommand) };
 
-  // The rename lands here rather than on --plan, and before the download rather
-  // than after, so what is fetched goes straight into its final home.
+  // Filed here rather than on --plan, and before the download rather than after,
+  // so what is fetched goes straight into its final home and the folder says
+  // whose it is for the whole of a download that may not finish.
+  let filed;
   try {
-    accountDir = await moveToAlias(descriptor, root, accountDir, {
-      id: account?.id ?? target?.id, alias, unalias,
+    filed = await fileAccount(descriptor, root, found, {
+      id: account?.id ?? target?.id,
+      account: plan.account,
+      url,
+      alias,
+      unalias,
     });
   } catch (error) {
     return { refusal: error };
   }
+  const accountDir = filed.dir;
 
   const archive = await readArchive(accountDir);
   const todo = outstanding(approved(plan), archive, postIdKey);
@@ -613,8 +613,6 @@ async function download({ adapter, root, dir, alias, unalias, url, target, sessi
   // media counted by nothing.
   const duplicates = await duplicateFolders(accountDir);
 
-  // After the move, so the alias recorded is the folder this run finished in.
-  await recordIdentity(descriptor, root, accountDir, { account: plan.account, url });
   await recordRun(accountDir, {
     root,
     found: plan.counts?.found ?? null,

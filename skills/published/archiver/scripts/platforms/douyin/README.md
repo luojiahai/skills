@@ -124,8 +124,8 @@ and why `--yes` outranks a later mode flag are the same on every platform, and
 are specified in [`../../shared/README.md`](../../shared/README.md).
 
 What is particular here: `--go` runs no collection pass and needs none. The
-`sec_uid` is in the profile URL, and `resolveAccountDir` turns it into the folder
-— through the alias map, then the id, then a scan, because an aliased account's
+`sec_uid` is in the profile URL, and `findFolder` turns it into the folder —
+through the alias map, then the id, then a scan, because an aliased account's
 folder is not named after its `sec_uid`.
 
 The only browser `--go` opens is `session.mjs` minting cookies, and only when the

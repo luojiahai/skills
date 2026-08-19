@@ -29,7 +29,7 @@
  * The map is a cache, not an authority. Which accounts are here, and which
  * folder belongs to whom, are answerable by scanning the account.json files, and
  * that scan is what repairs this file after a folder is moved by hand — see
- * resolveAccountDir in account.mjs. So a stale entry costs a scan, never an
+ * settleFolder in account.mjs. So a stale entry costs a scan, never an
  * archive. What is *not* tolerated is a file this build cannot parse: that may
  * be a schema from the future, and rebuilding it would clobber it.
  *

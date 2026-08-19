@@ -6,22 +6,39 @@ import test from 'node:test';
 
 import {
   ACCOUNT_VERSION,
+  checkAlias,
+  checkAliasShape,
+  confirmAlias,
+  fileAccount,
+  findFolder,
+  folders,
+  internals,
+  recordIdentity,
+  settleFolder,
+} from './account.mjs';
+
+/**
+ * The seams inside the module, which most of this file drives directly.
+ *
+ * The entries above are what a run and a listing ask of an account folder; these
+ * are the rules underneath them — the resolution order, the merge, the alias
+ * protocol — each worth an assertion of its own rather than a longer setup
+ * through an entry that happens to reach it.
+ */
+const {
   accountDirFor,
   aliasDirFor,
   applyAlias,
-  checkAlias,
   clearAlias,
   existingIds,
-  findAccountDir,
   isSafeAlias,
   isSafeId,
   mergeAccount,
   platformDir,
   readAccount,
-  recordIdentity,
-  resolveAccountDir,
+  resolveFolder,
   writeAccount,
-} from './account.mjs';
+} = internals;
 import { readAliases, writeAlias } from './archiver.mjs';
 import { descriptorFor } from './platforms.mjs';
 
@@ -34,6 +51,9 @@ const ACCOUNT = descriptorFor('x');
 const PLATFORM = ACCOUNT.platform;
 
 const root = () => mkdtemp(path.join(os.tmpdir(), 'x-account-'));
+
+/** Where a lookup landed, for the cases that are about the folder and not its identity. */
+const dirOf = (folder) => folder?.dir ?? null;
 
 async function seed(dir, folderName, json) {
   const folder = path.join(dir, PLATFORM, folderName);
@@ -147,41 +167,41 @@ test('readAccount reads nothing as null rather than failing', async () => {
   assert.equal(await readAccount(path.join(await root(), 'x', 'nobody')), null);
 });
 
-test('findAccountDir finds the folder --go is looking for by the URL it was made from', async () => {
+test('finding a folder finds the folder --go is looking for by the URL it was made from', async () => {
   const dir = await root();
   const folder = await seed(dir, '55', { account: { id: '55', handle: 'oldhandle' }, url: 'https://x.com/newhandle' });
-  assert.equal(await findAccountDir(ACCOUNT, dir, { url: 'https://x.com/newhandle' }), folder);
+  assert.equal(dirOf(await findFolder(ACCOUNT, dir, { url: 'https://x.com/newhandle' })), folder);
 });
 
-test('findAccountDir takes the alias as a path before it scans anything', async () => {
+test('finding a folder takes the alias as a path before it scans anything', async () => {
   const dir = await root();
   const folder = await seed(dir, 'jia', { account: { id: '55', handle: 'someone', alias: 'jia' } });
-  assert.equal(await findAccountDir(ACCOUNT, dir, { alias: 'jia' }), folder);
+  assert.equal(dirOf(await findFolder(ACCOUNT, dir, { alias: 'jia' })), folder);
 });
 
-test('findAccountDir falls back through the mapping when the alias path is empty', async () => {
+test('finding a folder falls back through the mapping when the alias path is empty', async () => {
   // The mapping says the folder is aliased; the folder on disk is not. That is a
   // stale cache line, and a scan is what it costs.
   const dir = await root();
   const folder = await seed(dir, '55', { account: { id: '55', handle: 'someone' } });
   await writeAlias(dir, PLATFORM, '55', 'jia');
-  assert.equal(await findAccountDir(ACCOUNT, dir, { alias: 'jia' }), folder);
+  assert.equal(dirOf(await findFolder(ACCOUNT, dir, { alias: 'jia' })), folder);
 });
 
-test('findAccountDir falls back to the alias inside account.json, then to the handle', async () => {
+test('finding a folder falls back to the alias inside account.json, then to the handle', async () => {
   const dir = await root();
   const byAlias = await seed(dir, '55', { account: { id: '55', handle: 'someone', alias: 'work' } });
   const byHandle = await seed(dir, '66', { account: { id: '66', handle: 'other' } });
 
-  assert.equal(await findAccountDir(ACCOUNT, dir, { alias: 'work' }), byAlias);
-  assert.equal(await findAccountDir(ACCOUNT, dir, { handle: 'other' }), byHandle);
+  assert.equal(dirOf(await findFolder(ACCOUNT, dir, { alias: 'work' })), byAlias);
+  assert.equal(dirOf(await findFolder(ACCOUNT, dir, { handle: 'other' })), byHandle);
 });
 
 test('an alias outranks a handle that happens to match another account', async () => {
   const dir = await root();
   await seed(dir, '66', { account: { id: '66', handle: 'work' } });
   const aliased = await seed(dir, '55', { account: { id: '55', handle: 'someone', alias: 'work' } });
-  assert.equal(await findAccountDir(ACCOUNT, dir, { alias: 'work', handle: 'work' }), aliased);
+  assert.equal(dirOf(await findFolder(ACCOUNT, dir, { alias: 'work', handle: 'work' })), aliased);
 });
 
 test('a file from a version this build cannot read is not an archive', async () => {
@@ -192,31 +212,31 @@ test('a file from a version this build cannot read is not an archive', async () 
     path.join(folder, 'account.json'),
     JSON.stringify({ version: ACCOUNT_VERSION + 1, account: { id: '55', handle: 'someone' } }),
   );
-  assert.equal(await findAccountDir(ACCOUNT, dir, { handle: 'someone' }), null);
+  assert.equal(dirOf(await findFolder(ACCOUNT, dir, { handle: 'someone' })), null);
 });
 
-test('findAccountDir is null for a root nothing has been archived into', async () => {
-  assert.equal(await findAccountDir(ACCOUNT, await root(), { handle: 'someone' }), null);
-  assert.equal(await findAccountDir(ACCOUNT, '/no/such/root', { handle: 'someone' }), null);
+test('finding a folder is null for a root nothing has been archived into', async () => {
+  assert.equal(dirOf(await findFolder(ACCOUNT, await root(), { handle: 'someone' })), null);
+  assert.equal(dirOf(await findFolder(ACCOUNT, '/no/such/root', { handle: 'someone' })), null);
 });
 
-test('findAccountDir with nothing to go on matches nothing', async () => {
+test('finding a folder with nothing to go on matches nothing', async () => {
   const dir = await root();
   await seed(dir, '55', { account: { id: '55', handle: 'someone' } });
-  assert.equal(await findAccountDir(ACCOUNT, dir, {}), null);
+  assert.equal(dirOf(await findFolder(ACCOUNT, dir, {})), null);
 });
 
-test('resolveAccountDir goes straight to the mapped folder', async () => {
+test('resolving goes straight to the mapped folder', async () => {
   const dir = await root();
   const folder = await seed(dir, 'jia', { account: { id: '55', handle: 'someone', alias: 'jia' } });
   await writeAlias(dir, PLATFORM, '55', 'jia');
-  assert.equal(await resolveAccountDir(ACCOUNT, dir, { id: '55' }), folder);
+  assert.equal(dirOf(await resolveFolder(ACCOUNT, dir, { id: '55' })), folder);
 });
 
-test('resolveAccountDir finds an un-aliased account at its id', async () => {
+test('resolving finds an un-aliased account at its id', async () => {
   const dir = await root();
   const folder = await seed(dir, '55', { account: { id: '55', handle: 'someone' } });
-  assert.equal(await resolveAccountDir(ACCOUNT, dir, { id: '55' }), folder);
+  assert.equal(dirOf(await resolveFolder(ACCOUNT, dir, { id: '55' })), folder);
 });
 
 test('a mapping entry pointing at nothing is a stale cache line, not a lost archive', async () => {
@@ -225,17 +245,17 @@ test('a mapping entry pointing at nothing is a stale cache line, not a lost arch
   const dir = await root();
   const folder = await seed(dir, 'jiahai', { account: { id: '55', handle: 'someone', alias: 'jia' } });
   await writeAlias(dir, PLATFORM, '55', 'jia');
-  assert.equal(await resolveAccountDir(ACCOUNT, dir, { id: '55' }), folder);
+  assert.equal(dirOf(await resolveFolder(ACCOUNT, dir, { id: '55' })), folder);
 });
 
 test('a folder sitting at another accountid does not answer for that id', async () => {
   const dir = await root();
   await seed(dir, '55', { account: { id: '99', handle: 'someone' } });
-  assert.equal(await resolveAccountDir(ACCOUNT, dir, { id: '55' }), null);
+  assert.equal(dirOf(await resolveFolder(ACCOUNT, dir, { id: '55' })), null);
 });
 
-test('resolveAccountDir is null for an account nothing has archived', async () => {
-  assert.equal(await resolveAccountDir(ACCOUNT, await root(), { id: '55' }), null);
+test('resolving is null for an account nothing has archived', async () => {
+  assert.equal(dirOf(await resolveFolder(ACCOUNT, await root(), { id: '55' })), null);
 });
 
 test('the ids on a platform are the mapping keys plus the folders that are not aliases', async () => {
@@ -377,8 +397,6 @@ test('clearAlias puts the folder back under the id', async () => {
   const back = await clearAlias(ACCOUNT, dir, { id: '55' });
   assert.equal(back, accountDirFor(ACCOUNT, dir, '55'));
   assert.equal((await readAccount(back)).account.id, '55');
-  assert.equal('alias' in (await readAccount(back)).account, false);
-  assert.deepEqual(await readAliases(dir, PLATFORM), {});
 });
 
 test('clearAlias on an account that never had one is not an error', async () => {
@@ -428,9 +446,9 @@ test('a Douyin account is found by its 抖音号, an X account by its handle', a
     account: { id: 'MS4wSEC', douyin_id: 'abc123', nickname: '小明' },
   });
 
-  assert.equal(await findAccountDir(douyin, dir, { handle: 'abc123' }), folder);
+  assert.equal(dirOf(await findFolder(douyin, dir, { handle: 'abc123' })), folder);
   // The same lookup under X's descriptor reads a key that is not there.
-  assert.equal(await findAccountDir(ACCOUNT, dir, { handle: 'abc123' }), null);
+  assert.equal(dirOf(await findFolder(ACCOUNT, dir, { handle: 'abc123' })), null);
 });
 
 test('an account is never refused its own alias, whatever the map says', async () => {
@@ -478,4 +496,240 @@ test('a rename that fails refuses with a code rather than crashing the run', asy
   } finally {
     await chmod(platform, 0o700);
   }
+});
+
+// ---- the folder value ------------------------------------------------------
+
+test('settling resolves an aliased account rather than computing where it goes', async () => {
+  const dir = await root();
+  const folder = await seed(dir, 'jia', { account: { id: '55', handle: 'someone', alias: 'jia' } });
+  await writeAlias(dir, PLATFORM, '55', 'jia');
+
+  // Computing would name <root>/x/55 and quietly start a second, empty archive
+  // beside the real one on every aliased account.
+  const settled = await settleFolder(ACCOUNT, dir, { id: '55' });
+  assert.equal(settled.folder.dir, folder);
+  assert.equal(settled.folder.id, '55');
+});
+
+test('settling a folder nobody has archived names it for the alias asked for', async () => {
+  const dir = await root();
+  const settled = await settleFolder(ACCOUNT, dir, { id: '55', alias: 'jia' });
+  assert.equal(settled.folder.dir, aliasDirFor(ACCOUNT, dir, 'jia'));
+  assert.equal(settled.folder.id, '55');
+});
+
+test('settling with no alias asked for names the folder for the id', async () => {
+  const dir = await root();
+  assert.equal(
+    (await settleFolder(ACCOUNT, dir, { id: '55' })).folder.dir,
+    accountDirFor(ACCOUNT, dir, '55'),
+  );
+});
+
+test('finding a folder hands back the identity it was verified by', async () => {
+  const dir = await root();
+  const folder = await seed(dir, '55', {
+    account: { id: '55', handle: 'someone' },
+    url: 'https://x.com/someone',
+  });
+
+  const found = await findFolder(ACCOUNT, dir, { url: 'https://x.com/someone' });
+  assert.equal(found.dir, folder);
+  assert.equal(found.id, '55');
+  assert.equal(found.account.handle, 'someone');
+  assert.equal(found.url, 'https://x.com/someone');
+});
+
+test('finding a folder by its id hands back its identity too', async () => {
+  const dir = await root();
+  await seed(dir, 'jia', { account: { id: '55', handle: 'someone', alias: 'jia' } });
+  await writeAlias(dir, PLATFORM, '55', 'jia');
+
+  const found = await findFolder(ACCOUNT, dir, { id: '55' });
+  assert.equal(found.id, '55');
+  assert.equal(found.account.alias, 'jia');
+});
+
+test('finding nothing is null, never a folder standing for nothing', async () => {
+  const dir = await root();
+  assert.equal(await findFolder(ACCOUNT, dir, { url: 'https://x.com/nobody' }), null);
+});
+
+test('settling refuses an id that could not be a folder name, and does not throw', async () => {
+  // The run settles inside its listing's row loop, where a throw surfaces as an
+  // unexplained stream failure rather than as the refusal the user is owed.
+  const dir = await root();
+  for (const bad of ['..', '.', '', 'a/b', '../../etc', 'x'.repeat(129)]) {
+    const settled = await settleFolder(ACCOUNT, dir, { id: bad });
+    assert.equal(settled.ok, false, `expected ${JSON.stringify(bad)} to be refused`);
+    assert.equal(settled.id, bad);
+  }
+});
+
+test('settling an id it will use says so, and hands over the folder', async () => {
+  const dir = await root();
+  const settled = await settleFolder(ACCOUNT, dir, { id: '55' });
+  assert.equal(settled.ok, true);
+  assert.equal(settled.folder.id, '55');
+});
+
+test('settling says where a rename would put the folder', async () => {
+  // The announced move and the move itself are derived from one place, so a plan
+  // cannot promise a folder that filing would not produce.
+  const dir = await root();
+  await seed(dir, '55', { account: { id: '55' } });
+
+  const renamed = await settleFolder(ACCOUNT, dir, { id: '55', alias: 'jia' });
+  assert.equal(renamed.movingTo, aliasDirFor(ACCOUNT, dir, 'jia'));
+
+  const back = await settleFolder(ACCOUNT, dir, { id: '55', unalias: true });
+  assert.equal(back.movingTo, accountDirFor(ACCOUNT, dir, '55'));
+});
+
+test('settling announces no move when none was asked for', async () => {
+  const dir = await root();
+  assert.equal((await settleFolder(ACCOUNT, dir, { id: '55' })).movingTo, null);
+});
+
+// ---- filing ----------------------------------------------------------------
+
+test('filing an account with no rename asked for still records who it is', async () => {
+  const dir = await root();
+  const folder = await seed(dir, '55', { account: { id: '55' } });
+
+  const filed = await fileAccount(ACCOUNT, dir, { dir: folder, id: '55' }, {
+    id: '55',
+    account: { id: '55', handle: 'someone' },
+    url: 'https://x.com/someone',
+  });
+
+  assert.equal(filed.dir, folder);
+  assert.equal(filed.account.handle, 'someone');
+  assert.equal((await readAccount(folder)).url, 'https://x.com/someone');
+});
+
+test('filing an alias moves the folder and records it there, as one act', async () => {
+  const dir = await root();
+  const folder = await seed(dir, '55', { account: { id: '55', handle: 'someone' } });
+
+  const filed = await fileAccount(ACCOUNT, dir, { dir: folder, id: '55' }, {
+    id: '55',
+    account: { id: '55', handle: 'someone' },
+    url: 'https://x.com/someone',
+    alias: 'jia',
+  });
+
+  assert.equal(filed.dir, aliasDirFor(ACCOUNT, dir, 'jia'));
+  // The three writes the rename owes: the folder, the identity inside it, and
+  // the mapping that finds it again.
+  assert.equal(filed.account.alias, 'jia');
+  assert.equal((await readAccount(filed.dir)).account.alias, 'jia');
+  assert.deepEqual(await readAliases(dir, PLATFORM), { 55: 'jia' });
+});
+
+test('filing an unalias puts the folder back and clears the mapping, once', async () => {
+  const dir = await root();
+  const folder = await seed(dir, 'jia', { account: { id: '55', handle: 'someone', alias: 'jia' } });
+  await writeAlias(dir, PLATFORM, '55', 'jia');
+
+  const filed = await fileAccount(ACCOUNT, dir, { dir: folder, id: '55' }, {
+    id: '55',
+    account: { id: '55', handle: 'someone' },
+    url: 'https://x.com/someone',
+    unalias: true,
+  });
+
+  assert.equal(filed.dir, accountDirFor(ACCOUNT, dir, '55'));
+  assert.equal('alias' in filed.account, false);
+  assert.equal('alias' in (await readAccount(filed.dir)).account, false);
+  assert.deepEqual(await readAliases(dir, PLATFORM), {});
+});
+
+test('filing an account with no id to rename against leaves the folder alone', async () => {
+  const dir = await root();
+  const folder = await seed(dir, '55', { account: { id: '55' } });
+
+  const filed = await fileAccount(ACCOUNT, dir, { dir: folder, id: null }, {
+    id: null,
+    account: null,
+    alias: 'jia',
+  });
+
+  assert.equal(filed.dir, folder);
+});
+
+// ---- one alias protocol, two moments ---------------------------------------
+
+test('the shape of an alias is decided without an archives root', () => {
+  // Asked before the root is even resolved, so a typo costs nothing to refuse.
+  assert.equal(checkAliasShape('jia').ok, true);
+  assert.equal(checkAliasShape('a/b').ok, false);
+  assert.equal(checkAliasShape('a/b').refusal.code, 'alias-invalid');
+});
+
+test('the check before the fetch answers provisionally, and says so', async () => {
+  const dir = await root();
+  const provisional = await checkAlias(ACCOUNT, dir, { id: null, alias: 'jia' });
+  assert.equal(provisional.ok, true);
+  assert.equal(provisional.provisional, true);
+  assert.equal(provisional.alias, 'jia');
+});
+
+test('the real id is checked against the provisional verdict taken before it', async () => {
+  const dir = await root();
+  await seed(dir, 'jia', { account: { id: '99', handle: 'other', alias: 'jia' } });
+  await writeAlias(dir, PLATFORM, '99', 'jia');
+
+  // Nothing was known before the fetch, so the name looked free; the id that
+  // arrived with the listing is what settles it.
+  const provisional = await checkAlias(ACCOUNT, dir, { id: null, alias: 'jia' });
+  const verdict = await confirmAlias(ACCOUNT, dir, provisional, { id: '55', alias: 'jia' });
+  assert.equal(verdict.ok, false);
+  assert.equal(verdict.refusal.code, 'alias-taken');
+  assert.equal(verdict.provisional, undefined);
+});
+
+test('confirming without the verdict taken before the fetch is a mistake, not a refusal', async () => {
+  const dir = await root();
+  // A caller that skips the first moment is missing an argument rather than
+  // breaking a convention, and a Refusal here would report a bug as the user's.
+  await assert.rejects(
+    () => confirmAlias(ACCOUNT, dir, undefined, { id: '55', alias: 'jia' }),
+    (error) => error instanceof Error && !('code' in error),
+  );
+});
+
+test('confirming against a verdict for a different alias is a mistake too', async () => {
+  const dir = await root();
+  const provisional = await checkAlias(ACCOUNT, dir, { id: null, alias: 'jia' });
+  await assert.rejects(() => confirmAlias(ACCOUNT, dir, provisional, { id: '55', alias: 'other' }));
+});
+
+test('every folder under a root is read once, with its identity and its name', async () => {
+  const dir = await root();
+  await seed(dir, 'jia', { account: { id: '55', nickname: 'Some One', alias: 'jia' } });
+  await seed(dir, '99', { account: { id: '99' }, url: 'https://x.com/other' });
+
+  const read = [];
+  for await (const folder of folders(ACCOUNT, dir)) read.push(folder);
+  read.sort((a, b) => a.name.localeCompare(b.name));
+
+  assert.deepEqual(read.map((f) => f.name), ['99', 'jia']);
+  assert.deepEqual(read.map((f) => f.id), ['99', '55']);
+  assert.equal(read[1].account.nickname, 'Some One');
+  assert.equal(read[0].url, 'https://x.com/other');
+});
+
+test('a folder a build cannot read is no archive at all', async () => {
+  const dir = await root();
+  await seed(dir, '55', { account: { id: '55' } });
+  await writeFile(
+    path.join(dir, PLATFORM, '55', 'account.json'),
+    JSON.stringify({ version: ACCOUNT_VERSION + 1, account: { id: '55' } }),
+  );
+
+  const read = [];
+  for await (const folder of folders(ACCOUNT, dir)) read.push(folder);
+  assert.deepEqual(read, []);
 });

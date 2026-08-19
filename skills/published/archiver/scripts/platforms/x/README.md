@@ -120,10 +120,11 @@ resolved, before anything is downloaded, so a folder that exists always says
 whose it is.
 
 A `--go` is the other way round: it collects nothing, so the parked plan is the
-only thing that knows the account, and `account.json` is what `findAccountDir`
-and `validatePlan` read to find the folder and refuse a plan made for somebody
-else. It records identity again after the fetch, with the alias the run finished
-under. What the last run *did* is run history and lives in `sync.json`.
+only thing that knows the account, and `account.json` is what `findFolder` and
+`validatePlan` read to find the folder and refuse a plan made for somebody else.
+It files the account before it fetches — the rename and the identity write as one
+act — so the folder says whose it is for the whole of a download that may not
+finish. What the last run *did* is run history and lives in `sync.json`.
 
 **`sync.json`, `post.json`'s write order and the root's schema version are the
 shared archive's rules,** specified in

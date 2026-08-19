@@ -25,6 +25,20 @@
  * deriving the alias from `basename(dir)` every time it writes, so the two can
  * only ever disagree between one write and the next.
  *
+ * The interface is short: settle a folder, find one, file it, record who it is,
+ * read every folder under a root, and the three moments an alias is decided at.
+ * Everything else here is an internal seam, reachable through `internals` for
+ * this module's own tests and for nothing else.
+ *
+ * The resolution order, the merge rules and the alias protocol are each worth
+ * asserting on their own, and driving them through the entries above would make
+ * every one of them a longer setup for a weaker assertion. They stay here rather
+ * than becoming modules of their own because they interlock: resolution reads
+ * the mapping and the identity file, the alias check reaches into both, and
+ * recording an identity derives the alias from the folder's own name and then
+ * writes the mapping. A seam through the middle of that is one every caller
+ * would have to hold together.
+ *
  * `account.json` is authoritative for *identity* — which account is this folder
  * — and never for *progress*. What has been downloaded is answered by the post
  * folders (landed.mjs) and by nothing else: a stored count or newest-post id
@@ -39,7 +53,7 @@ import { readJson, writeJson } from './cli.mjs';
 import { readAliases, writeAlias } from './archiver.mjs';
 import { Refusal } from './errors.mjs';
 
-export const ACCOUNT_FILE = 'account.json';
+const ACCOUNT_FILE = 'account.json';
 export const ACCOUNT_VERSION = 1;
 
 /**
@@ -62,7 +76,7 @@ export const ACCOUNT_VERSION = 1;
  */
 
 /** Every account one platform has archived, whatever their ids. */
-export const platformDir = ({ platform }, root) => path.join(root, platform);
+const platformDir = ({ platform }, root) => path.join(root, platform);
 
 /**
  * An id that may be used as a directory name.
@@ -72,7 +86,7 @@ export const platformDir = ({ platform }, root) => path.join(root, platform);
  * anywhere it is joined. A separator or a `..` in this position does not produce
  * a badly named folder, it produces a tree somewhere else entirely.
  */
-export function isSafeId(accountId) {
+function isSafeId(accountId) {
   const id = String(accountId ?? '');
   return id.length > 0 && id.length <= 128 && /^[A-Za-z0-9._-]+$/.test(id) && id !== '.' && id !== '..';
 }
@@ -90,7 +104,7 @@ export function isSafeId(accountId) {
  * Refused rather than rewritten. An alias the user cannot predict is worse than
  * one they have to retype.
  */
-export function isSafeAlias(alias) {
+function isSafeAlias(alias) {
   const value = String(alias ?? '');
   return value.length > 0 && value.length <= 128 && /^[\p{L}\p{N}._-]+$/u.test(value) && !value.startsWith('.');
 }
@@ -102,7 +116,7 @@ export function isSafeAlias(alias) {
  * checkAlias reaches it again afterwards; two copies of a refusal like this is
  * how the two come to describe different rules.
  */
-export function aliasShapeRefusal(alias) {
+function aliasShapeRefusal(alias) {
   return new Refusal(
     'alias-invalid',
     `${JSON.stringify(String(alias ?? ''))} cannot be an alias — letters, digits, dots, dashes ` +
@@ -112,7 +126,7 @@ export function aliasShapeRefusal(alias) {
 }
 
 /** Where this account's folder is if it has no alias, whether or not it exists. */
-export function accountDirFor(descriptor, root, accountId) {
+function accountDirFor(descriptor, root, accountId) {
   if (!isSafeId(accountId)) {
     throw new Refusal(
       'unsafe-account-id',
@@ -124,7 +138,7 @@ export function accountDirFor(descriptor, root, accountId) {
 }
 
 /** Where an aliased folder is, whether or not it exists yet. */
-export function aliasDirFor(descriptor, root, alias) {
+function aliasDirFor(descriptor, root, alias) {
   if (!isSafeAlias(alias)) throw aliasShapeRefusal(alias);
   return path.join(platformDir(descriptor, root), String(alias));
 }
@@ -171,7 +185,7 @@ function identity(descriptor, existing, next, drop) {
  * what makes a lone account.json self-describing when it has been copied out of
  * the tree, since no spec ships beside the skill.
  */
-export function mergeAccount(descriptor, existing, next, { drop = [] } = {}) {
+function mergeAccount(descriptor, existing, next, { drop = [] } = {}) {
   return {
     version: ACCOUNT_VERSION,
     platform: descriptor.platform,
@@ -182,11 +196,11 @@ export function mergeAccount(descriptor, existing, next, { drop = [] } = {}) {
 }
 
 /** An account folder's identity, or null if it has none. */
-export async function readAccount(dir) {
+async function readAccount(dir) {
   return readJson(path.join(dir, ACCOUNT_FILE));
 }
 
-export async function writeAccount(descriptor, dir, next, options) {
+async function writeAccount(descriptor, dir, next, options) {
   const merged = mergeAccount(descriptor, await readAccount(dir), next, options);
   await writeJson(path.join(dir, ACCOUNT_FILE), merged);
   return merged;
@@ -204,6 +218,9 @@ export async function writeAccount(descriptor, dir, next, options) {
  *
  * The mapping is written last and only when it is wrong, so an ordinary run
  * against an un-aliased account does not rewrite the root file at all.
+ *
+ * Answers with the folder as it now stands, so a caller carrying one does not
+ * have to assemble a second from the parts.
  */
 export async function recordIdentity(descriptor, root, dir, { account, url = null } = {}) {
   // The folder's own account.json is consulted for the id when the caller has
@@ -228,7 +245,7 @@ export async function recordIdentity(descriptor, root, dir, { account, url = nul
     if (recorded !== alias) await writeAlias(root, descriptor.platform, id, alias);
   }
 
-  return merged;
+  return folderOf(dir, merged);
 }
 
 /** An account folder's identity, if this build can read the file it holds. */
@@ -254,7 +271,7 @@ async function exists(dir) {
  * no archive at all, which is the same answer as a folder nobody has archived
  * into.
  */
-export async function* accounts(descriptor, root) {
+async function* accounts(descriptor, root) {
   let entries;
   try {
     entries = await readdir(platformDir(descriptor, root), { withFileTypes: true });
@@ -268,6 +285,77 @@ export async function* accounts(descriptor, root) {
     const json = await identityAt(dir);
     if (json) yield [dir, json];
   }
+}
+
+/**
+ * Every account archived under this root, as folders.
+ *
+ * The one question here that is asked of the whole archive rather than of one
+ * account. A listing is how somebody decides what to do next, so the one thing
+ * it must not do is change what it is describing.
+ */
+export async function* folders(descriptor, root) {
+  for await (const [dir, json] of accounts(descriptor, root)) yield folderOf(dir, json);
+}
+
+/**
+ * An account folder, as everything a caller needs in order to act on it.
+ *
+ * The path is what the rest of the skill wants — the archive, the plan, the post
+ * folders and the document all take it — so this is a plain object rather than
+ * anything a caller has to unwrap. What it adds is the identity the lookup
+ * already read on its way to the folder, so nobody has to open account.json a
+ * second time to learn whose folder they were just handed.
+ *
+ * `account` and `url` are null where there was no file to read them from — a
+ * folder for an account nothing has archived yet. A caller that needs the
+ * identity as of *now* rather than as of the lookup reads it itself; what is
+ * here is what the folder said when it answered to being this account's.
+ */
+function folderOf(dir, json) {
+  return {
+    dir,
+    // What the folder is called, which is what the alias is derived from every
+    // time anything writes to it — so nobody has to take a basename apart again.
+    name: path.basename(dir),
+    id: String(json?.account?.id ?? '') || null,
+    account: json?.account ?? null,
+    url: json?.url ?? null,
+  };
+}
+
+/**
+ * Where this account's folder is, now that its id is known.
+ *
+ * Resolved, never computed. The folder may be named for an alias, and going
+ * straight to the id would quietly start a second, empty archive beside the real
+ * one on every aliased account. Only an account nothing has archived yet gets a
+ * computed path — under the alias asked for if there is one, and under its id if
+ * not.
+ *
+ * The folder need not exist. This says where it goes, which is what a caller has
+ * to know before it can read the archive there or create it.
+ *
+ * An id this build will not put in a path is answered as `{ ok: false }` rather
+ * than thrown. A run settles the folder inside its listing's row loop, where a
+ * throw surfaces as an unexplained stream failure instead of the refusal the
+ * user is owed — and the wording of that refusal is the platform's, since only
+ * it can say what it reported an id for.
+ *
+ * `movingTo` is where filing would put this folder, or null when no rename was
+ * asked for. It is answered here, from the same id and the same flags the move
+ * itself will use, so a plan cannot announce a destination that filing would not
+ * produce.
+ */
+export async function settleFolder(descriptor, root, { id, alias, unalias } = {}) {
+  if (!isSafeId(id)) return { ok: false, id: String(id ?? '') };
+
+  const movingTo = aliasTarget(descriptor, root, { id, alias, unalias });
+  const found = await resolveFolder(descriptor, root, { id });
+  if (found) return { ok: true, folder: found, movingTo };
+
+  const dir = alias ? aliasDirFor(descriptor, root, alias) : accountDirFor(descriptor, root, id);
+  return { ok: true, folder: { ...folderOf(dir, null), id: String(id) }, movingTo };
 }
 
 /**
@@ -286,27 +374,30 @@ export async function* accounts(descriptor, root) {
  * of the next write rather than a side effect of the lookup — see
  * recordIdentity.
  */
-export async function resolveAccountDir(descriptor, root, { id } = {}) {
+async function resolveFolder(descriptor, root, { id } = {}) {
   const wanted = String(id ?? '');
   if (!wanted) return null;
 
   const mapped = (await readAliases(root, descriptor.platform))[wanted];
   if (mapped && isSafeAlias(mapped)) {
     const dir = aliasDirFor(descriptor, root, mapped);
-    if (String((await identityAt(dir))?.account?.id ?? '') === wanted) return dir;
+    const json = await identityAt(dir);
+    if (String(json?.account?.id ?? '') === wanted) return folderOf(dir, json);
   }
 
   if (isSafeId(wanted)) {
     const dir = accountDirFor(descriptor, root, wanted);
-    if (String((await identityAt(dir))?.account?.id ?? '') === wanted) return dir;
+    const json = await identityAt(dir);
+    if (String(json?.account?.id ?? '') === wanted) return folderOf(dir, json);
   }
 
   for await (const [dir, json] of accounts(descriptor, root)) {
-    if (String(json.account?.id ?? '') === wanted) return dir;
+    if (String(json.account?.id ?? '') === wanted) return folderOf(dir, json);
   }
 
   return null;
 }
+
 
 /**
  * The folder for an account whose id we do not know, or null.
@@ -326,20 +417,20 @@ export async function resolveAccountDir(descriptor, root, { id } = {}) {
  * One pass rather than three, because the answer is wanted once and three passes
  * would each stop at a different folder.
  */
-export async function findAccountDir(descriptor, root, { id, url, alias, handle } = {}) {
-  // An id, where the caller has one, settles it outright: resolveAccountDir
-  // answers only once account.json there names this account, so a non-null
-  // answer is the identity check as well as the lookup. The keys below match on
-  // what a folder says about itself, which a folder belonging to somebody else
-  // can also say.
+export async function findFolder(descriptor, root, { id, url, alias, handle } = {}) {
+  // An id, where the caller has one, settles it outright: resolveFolder answers
+  // only once account.json there names this account, so a non-null answer is the
+  // identity check as well as the lookup. The keys below match on what a folder
+  // says about itself, which a folder belonging to somebody else can also say.
   if (id) {
-    const dir = await resolveAccountDir(descriptor, root, { id });
-    if (dir) return dir;
+    const folder = await resolveFolder(descriptor, root, { id });
+    if (folder) return folder;
   }
 
   if (alias && isSafeAlias(alias)) {
     const dir = aliasDirFor(descriptor, root, alias);
-    if (await identityAt(dir)) return dir;
+    const json = await identityAt(dir);
+    if (json) return folderOf(dir, json);
 
     for (const [id, name] of Object.entries(await readAliases(root, descriptor.platform))) {
       if (name !== alias || !isSafeId(id)) continue;
@@ -348,16 +439,17 @@ export async function findAccountDir(descriptor, root, { id, url, alias, handle 
       // is reached because the map turned out to be stale, and a map that is
       // wrong about where an account is can be wrong about whose folder it is
       // pointing at.
-      if (String((await identityAt(byId))?.account?.id ?? '') === id) return byId;
+      const mine = await identityAt(byId);
+      if (String(mine?.account?.id ?? '') === id) return folderOf(byId, mine);
     }
   }
 
   const found = { alias: null, handle: null };
 
   for await (const [dir, json] of accounts(descriptor, root)) {
-    if (url && json.url === url) return dir;
-    if (alias && json.account?.alias === alias) found.alias ??= dir;
-    if (handle && json.account?.[descriptor.handleKey] === handle) found.handle ??= dir;
+    if (url && json.url === url) return folderOf(dir, json);
+    if (alias && json.account?.alias === alias) found.alias ??= folderOf(dir, json);
+    if (handle && json.account?.[descriptor.handleKey] === handle) found.handle ??= folderOf(dir, json);
   }
 
   return found.alias ?? found.handle ?? null;
@@ -375,7 +467,7 @@ export async function findAccountDir(descriptor, root, { id, url, alias, handle 
  * account 12345 is un-aliased and wants its own folder back — which is precisely
  * why it has to be refused at the point it is typed.
  */
-export async function existingIds(descriptor, root) {
+async function existingIds(descriptor, root) {
   const aliases = await readAliases(root, descriptor.platform);
   const names = new Set(Object.values(aliases));
   const ids = new Set(Object.keys(aliases));
@@ -392,18 +484,46 @@ export async function existingIds(descriptor, root) {
 }
 
 /**
+ * An alias is decided in three moments, and they are one protocol.
+ *
+ * `checkAliasShape` needs neither the filesystem nor the archives root, so a
+ * typo is refused by argument parsing rather than after a full timeline crawl.
+ * `checkAlias` answers everything the archives root alone can settle, which is
+ * why a run may ask it before it fetches anything — but it is answered against
+ * whatever id is knowable without a fetch, so it is marked provisional.
+ * `confirmAlias` asks again with the id the listing brought back, and takes the
+ * provisional verdict as an argument: a caller that reaches the second moment
+ * without having passed the first is missing an argument rather than breaking a
+ * convention, and promising a move that `--go` would then refuse is worse than
+ * stopping.
+ */
+export function checkAliasShape(alias) {
+  return isSafeAlias(alias) ? { ok: true, alias } : { ok: false, refusal: aliasShapeRefusal(alias) };
+}
+
+export async function checkAlias(descriptor, root, { id = null, alias } = {}) {
+  return { ...(await decideAlias(descriptor, root, { id, alias })), alias, provisional: true };
+}
+
+export async function confirmAlias(descriptor, root, provisional, { id, alias } = {}) {
+  // A plain Error rather than a Refusal: this is a caller that skipped the first
+  // moment, and reporting a bug in the skill as the user's mistake would send
+  // them off to fix an alias that is fine.
+  if (provisional?.provisional !== true || provisional.alias !== alias) {
+    throw new Error(`an alias is confirmed against the provisional verdict taken for it, not ${JSON.stringify(alias)} alone`);
+  }
+  if (!provisional.ok) return { ok: false, refusal: provisional.refusal, alias };
+  return { ...(await decideAlias(descriptor, root, { id, alias })), alias };
+}
+
+/**
  * Whether `alias` may be given to `id`, as `{ ok: true }` or
  * `{ ok: false, refusal }`.
- *
- * Shape is decided first and without touching the filesystem, so a typo is
- * refused by argument parsing rather than after a full timeline crawl. The rest
- * needs only the archives root — never the network — which is why the caller can
- * ask before it fetches anything.
  *
  * `id` may be null when the account has never been archived: a name already
  * taken is then taken by definition, because it cannot be taken by us.
  */
-export async function checkAlias(descriptor, root, { id = null, alias } = {}) {
+async function decideAlias(descriptor, root, { id = null, alias } = {}) {
   if (!isSafeAlias(alias)) return { ok: false, refusal: aliasShapeRefusal(alias) };
 
   const mine = id === null ? null : String(id);
@@ -466,10 +586,10 @@ function aliasTaken(alias, holderId) {
  * identity — is refused. Nothing is ever merged: two accounts' posts in one
  * folder is the one mistake here that cannot be undone.
  */
-export async function applyAlias(descriptor, root, { id, alias }) {
+async function applyAlias(descriptor, root, { id, alias }) {
   const wanted = String(id);
   const target = aliasDirFor(descriptor, root, alias);
-  const current = await resolveAccountDir(descriptor, root, { id: wanted });
+  const current = (await resolveFolder(descriptor, root, { id: wanted }))?.dir ?? null;
 
   if (current === target) return target;
 
@@ -543,16 +663,12 @@ async function move(from, to) {
  * blank `--alias` cannot mean it — every run passes flags it has no value for,
  * so an empty one has to read as silence.
  *
- * Unlike applyAlias this writes the records itself rather than leaving them to
- * the next write. `--unalias` is a whole instruction on its own: there is no
- * fetch behind it whose recordIdentity would tidy up afterwards, and a folder
- * that had moved while account.json still claimed the old alias would be exactly
- * the disagreement this layout is built to avoid.
+ * Moves and no more, as applyAlias does. Filing is what records.
  */
-export async function clearAlias(descriptor, root, { id }) {
+async function clearAlias(descriptor, root, { id }) {
   const wanted = String(id);
   const target = accountDirFor(descriptor, root, wanted);
-  const current = await resolveAccountDir(descriptor, root, { id: wanted });
+  const current = (await resolveFolder(descriptor, root, { id: wanted }))?.dir ?? null;
 
   if (current && current !== target) {
     if (await exists(target)) {
@@ -568,10 +684,6 @@ export async function clearAlias(descriptor, root, { id }) {
     }
     await move(current, target);
   }
-
-  const json = await identityAt(target);
-  if (json) await recordIdentity(descriptor, root, target, { account: json.account, url: json.url });
-  else await writeAlias(root, descriptor.platform, wanted, null);
 
   return target;
 }
@@ -589,7 +701,7 @@ export async function clearAlias(descriptor, root, { id }) {
  * than throwing. The refusal itself belongs to the run, which says so properly
  * long before a block is rendered; a preview is not the place to raise it.
  */
-export function aliasTarget(descriptor, root, { id, alias, unalias }) {
+function aliasTarget(descriptor, root, { id, alias, unalias }) {
   try {
     if (unalias) return id ? accountDirFor(descriptor, root, id) : null;
     return alias ? aliasDirFor(descriptor, root, alias) : null;
@@ -599,21 +711,65 @@ export function aliasTarget(descriptor, root, { id, alias, unalias }) {
 }
 
 /**
- * The rename a run was asked for, performed.
- *
- * Returns where the account folder is afterwards — the folder it was already in
- * when nothing was asked for, and when the account has no id to rename against.
- *
- * Every run that was approved goes through here, including one that found
- * nothing new to fetch. An alias is a thing the user asked of the archive, not
- * a reward for having downloaded something: announcing the move and skipping it
- * leaves the folder under its id and the next run announcing the same move
- * again.
+ * The rename a run was asked for, performed — the folder it was already in when
+ * nothing was asked for, or when there is no id to rename against.
  */
-export async function moveToAlias(descriptor, root, accountDir, { id, alias, unalias }) {
+async function moveFolder(descriptor, root, accountDir, { id, alias, unalias }) {
   if (!id || !(alias || unalias)) return accountDir;
   const moved = unalias
     ? await clearAlias(descriptor, root, { id })
     : await applyAlias(descriptor, root, { id, alias });
   return moved ?? accountDir;
 }
+
+/**
+ * Filing: putting this account's folder where its name says it goes, and
+ * recording that it is there.
+ *
+ * One act, because the two must agree. A folder that has moved while
+ * account.json still names the old place — and archiver.json still maps the id
+ * to it — is the disagreement this layout exists to prevent. Keep them
+ * together: anything put between them can fail, and the folder will have moved
+ * anyway.
+ *
+ * The move goes first and the record follows, because the tree is the truth and
+ * the map is the cache: a crash between them leaves a folder whose next write
+ * adopts it, while the other order would leave the index ahead of reality.
+ *
+ * Every approved run files, including one that found nothing new to fetch. An
+ * alias is a thing the user asked of the archive, not a reward for having
+ * downloaded something: announcing the move and skipping it leaves the folder
+ * under its id and the next run announcing the same move again.
+ *
+ * The account moved is the one the folder answers for, which is the id settling
+ * announced the move against — so what a plan promised and what this does cannot
+ * be worked out from two different accounts. `id` is the fallback for a folder
+ * with no readable identity, which is what a bare `--go` has when the platform
+ * reads the account out of the URL.
+ */
+export async function fileAccount(descriptor, root, folder, { id, account, url = null, alias, unalias } = {}) {
+  const dir = await moveFolder(descriptor, root, folder.dir, { id: folder.id ?? id, alias, unalias });
+  return await recordIdentity(descriptor, root, dir, { account, url });
+}
+
+/**
+ * The seams inside this module, for its own tests.
+ *
+ * Not an escape hatch. Anything reached through here is free to change shape
+ * whenever the implementation does, and a caller outside this file that needs
+ * one of them is a caller asking for an entry that does not exist yet.
+ */
+export const internals = {
+  accountDirFor,
+  aliasDirFor,
+  applyAlias,
+  clearAlias,
+  existingIds,
+  isSafeAlias,
+  isSafeId,
+  mergeAccount,
+  platformDir,
+  readAccount,
+  resolveFolder,
+  writeAccount,
+};
