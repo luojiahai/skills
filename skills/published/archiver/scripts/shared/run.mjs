@@ -6,11 +6,11 @@
  * answers with. A platform brings an adapter and nothing here branches on
  * which one supplied it.
  *
- * Listing a Douyin profile and listing an X timeline have almost nothing in
- * common, and that is why the listing and download halves are adapter members
- * rather than fixed: `defaultPlan` and `defaultGo` below are what the two
- * gallery-dl platforms share, and Douyin brings its own. Everything either side
- * of them is the same run for all three.
+ * There is one listing half and one download half, and every platform goes
+ * through both. What differs between them — when the account's id is known, what
+ * a listing pass yields, which failures end a run — arrives as hooks the adapter
+ * brings. A platform never replaces a stage: a stage replaced is a stage whose
+ * order, writes and refusals are that platform's to get right again.
  *
  * A refusal's envelope is not here: it goes through `output.mjs`, which owns
  * the document every command answers in.
@@ -35,7 +35,7 @@ import { checkRoot, stampRoot } from './archiver.mjs';
 import { missingValueRefusal, optString, parseCommandLine } from './cli.mjs';
 import { Refusal, refusalFields } from './errors.mjs';
 import { EXIT } from './exit.mjs';
-import { duplicateFolders, isLanded, outstanding, readArchive } from './landed.mjs';
+import { duplicateFolders, isLanded, landedCount, outstanding, readArchive } from './landed.mjs';
 import {
   accountFields,
   answer,
@@ -276,7 +276,7 @@ export async function runAccount(base, argv, overrides = {}) {
   // Everything an alias can be refused for except "it is already yours" needs
   // only the archives root, so it is decided before the session and the first
   // request. The id is whatever can be worked out without a fetch, and null for
-  // an account never seen, which cannot collide with itself either way. doPlan
+  // an account never seen, which cannot collide with itself either way. makePlan
   // asks again once the real id is in hand.
   if (alias) {
     const existing = await findAccountDir(descriptor, root, {
@@ -299,21 +299,13 @@ export async function runAccount(base, argv, overrides = {}) {
   const planCommand = commandFor(argv, 'plan');
   const shared = { adapter, root, alias, unalias, session, planCommand, command, opts, target, url: target.url };
 
-  // The listing and the download are the platform's where it needs them to be.
-  // Douyin resolves its folder before the browser opens, counts against the
-  // profile header and drives yt-dlp; the two gallery-dl platforms share the
-  // implementations below, which is what makes them the default rather than the
-  // only shape.
-  const plan = adapter.plan ?? defaultPlan;
-  const go = adapter.go ?? defaultGo;
-
-  // Guarded like the listing half below. A platform's download half can raise
-  // a Refusal of its own — Douyin's cookie mint does — and an unguarded throw
+  // Guarded like the listing half below. A hook a platform brings can raise a
+  // Refusal of its own — Douyin's cookie mint does — and an unguarded throw
   // reaches the dispatcher as `internal-error` with a stack, where the user
   // should have been handed the code and its remedy.
   if (command === 'go') {
     try {
-      return await go({ ...shared });
+      return await downloadAndReport({ ...shared });
     } catch (error) {
       return refuseHere(refusalFields(error));
     }
@@ -321,7 +313,7 @@ export async function runAccount(base, argv, overrides = {}) {
 
   let planned;
   try {
-    planned = await plan({ ...shared, full: opts.full === true });
+    planned = await makePlan({ ...shared, full: opts.full === true });
   } catch (error) {
     const fields = refusalFields(error);
     // The remedy text says the cached session has been thrown away, and leaving
@@ -386,15 +378,15 @@ export async function runAccount(base, argv, overrides = {}) {
   }
 
   try {
-    return await go({ ...shared, dir: planned.accountDir, notes, plan: planned.plan });
+    return await downloadAndReport({ ...shared, dir: planned.accountDir, notes, plan: planned.plan });
   } catch (error) {
     return refuseHere(refusalFields(error));
   }
 }
 
-/** The default download half, and the document it answers with. */
-async function defaultGo(args) {
-  return await reportRun(args, args.command, await doGo(args), {
+/** The download half, and the document it answers with. */
+async function downloadAndReport(args) {
+  return await reportRun(args, args.command, await download(args), {
     url: args.url,
     notes: args.notes ?? null,
     plan: args.plan ?? null,
@@ -408,7 +400,7 @@ async function defaultGo(args) {
  * Throws its refusals rather than composing documents. `runAccount` owns the
  * envelope, so a `--yes` emits exactly one.
  */
-async function defaultPlan({ adapter, root, alias, unalias, session, target, full }) {
+async function makePlan({ adapter, root, alias, unalias, session, target, full }) {
   const descriptor = adapter.account;
   const postIdKey = adapter.postIdKey;
 
@@ -422,7 +414,11 @@ async function defaultPlan({ adapter, root, alias, unalias, session, target, ful
 
   const result = await adapter.collect({
     url: target.url,
+    // The whole target as well as its URL, for a platform whose listing needs
+    // what the URL was parsed into — Douyin reads the account's id out of it.
+    target,
     session,
+    adapter,
     threshold: adapter.threshold,
     // The stopping rule as a factory, called once per listing pass. A platform
     // sweeping one feed calls it once; Instagram calls it per feed, because the
@@ -452,12 +448,17 @@ async function defaultPlan({ adapter, root, alias, unalias, session, target, ful
   });
 
   if (badId !== null) throw adapter.refusals.badId(badId);
-  if (result.failure) throw adapter.collectRefusal(result.failure, result.stderr);
+  if (result.failure) throw adapter.collectRefusal(result.failure, result);
 
   // Zero posts and no error is a real answer for an account that has posted
   // nothing. It is never reported as "up to date", because an account you are
-  // not allowed to read produces exactly the same silence.
-  if (!result.rows.length) throw adapter.refusals.empty();
+  // not allowed to read produces exactly the same silence — unless the platform
+  // recognises the silence as something it can describe, in which case it
+  // declines to refuse and the plan carries the explanation instead.
+  if (!result.rows.length) {
+    const empty = adapter.refusals.empty(result);
+    if (empty) throw empty;
+  }
 
   // Without an id there is no folder to write into. Naming it after the handle
   // instead is not an option: the handle changes, so that folder is one the
@@ -493,7 +494,14 @@ async function defaultPlan({ adapter, root, alias, unalias, session, target, ful
       toFetch: counts.fetchPosts,
       platform: adapter.platformCounts(counts, result),
     }),
-    notes: adapter.planNotes({ incremental, result, threshold: adapter.threshold }),
+    notes: [
+      ...(await adapter.planNotes({ incremental, result, threshold: adapter.threshold, counts })),
+      // Counted here as well as on the download, because --plan is the run whose
+      // whole job is to say what the archive holds before anything is committed
+      // to. One id in two folders read only on --go is one a user who plans and
+      // reads never hears about.
+      ...duplicateNote(await duplicateFolders(accountDir)),
+    ],
     now: new Date(),
   });
 
@@ -505,12 +513,14 @@ async function defaultPlan({ adapter, root, alias, unalias, session, target, ful
   // below will replace it.
   const lastRoot = await previousRoot(accountDir);
 
-  await savePlan(accountDir, plan);
-
-  // Written now rather than after the download, so a folder that exists always
-  // says whose it is. It is also what --go finds the folder by when all it has
-  // is the URL, the alias or the handle.
+  // Written before the plan, and before anything is downloaded, so a folder
+  // that exists always says whose it is — there is no moment where one holds a
+  // list of posts and nothing naming the account they belong to. It is also
+  // what --go finds the folder by when all it has is the URL, the alias or the
+  // handle.
   await recordIdentity(descriptor, root, accountDir, { account, url: target.url });
+
+  await savePlan(accountDir, plan);
 
   return {
     plan,
@@ -527,23 +537,31 @@ async function defaultPlan({ adapter, root, alias, unalias, session, target, ful
  * Returns `{ refusal }` for a plan it will not run, and otherwise everything
  * the finished run has to report. It composes no document itself.
  */
-async function doGo({ adapter, root, dir, alias, unalias, url, target, session, planCommand }) {
+async function download({ adapter, root, dir, alias, unalias, url, target, session, planCommand }) {
   const descriptor = adapter.account;
   const postIdKey = adapter.postIdKey;
 
   // --yes has just enumerated and knows exactly which folder it wrote into, so
-  // it passes it in. A bare --go enumerates nothing, never learns the id, and
-  // cannot go straight to the folder — the alias the user gave it, the URL the
-  // plan was written from, and the handle are the keys that still work.
+  // it passes it in. A bare --go enumerates nothing — so it goes on the id where
+  // the platform reads one out of the URL, and otherwise on the alias the user
+  // gave it, the URL the plan was written from, and the handle.
   let accountDir =
-    dir ?? (await findAccountDir(descriptor, root, { url, alias, handle: target?.handle }));
+    dir ??
+    (await findAccountDir(descriptor, root, { id: target?.id, url, alias, handle: target?.handle }));
   if (!accountDir) return { refusal: noArchiveRefusal(root, planCommand) };
 
-  // Read before the move, because the move is what makes the path stale. This
-  // is also the id validatePlan checks the plan against — an identity check
-  // that holds even when the plan's URL names something other than the account.
+  // The id validatePlan checks the plan against — an identity check that holds
+  // even when the plan's URL names something other than the account.
   const identity = await readAccount(accountDir);
   const account = identity?.account;
+
+  // Read and approved before the folder moves. A plan this run will not act on
+  // downloads nothing, so there is no final home to prepare, and a refusal that
+  // renamed the archive on its way out would leave the user hunting for a folder
+  // this run moved while telling them it did nothing.
+  const plan = await loadPlan(accountDir);
+  const valid = validatePlan(plan, { root, accountId: account?.id ?? target?.id });
+  if (!valid.ok) return { refusal: withPlanRemedy(planRefusal(valid), planCommand) };
 
   // The rename lands here rather than on --plan, and before the download rather
   // than after, so what is fetched goes straight into its final home.
@@ -555,18 +573,19 @@ async function doGo({ adapter, root, dir, alias, unalias, url, target, session, 
     return { refusal: error };
   }
 
-  const plan = await loadPlan(accountDir);
-  const valid = validatePlan(plan, { root, accountId: account?.id ?? target?.id });
-  if (!valid.ok) return { refusal: withPlanRemedy(planRefusal(valid), planCommand) };
-
   const archive = await readArchive(accountDir);
   const todo = outstanding(approved(plan), archive, postIdKey);
 
-  const { fetched, failed, stopped } = await adapter.fetch({
+  // What the folder held before the download, so what it holds afterwards can be
+  // reported as a difference rather than as whatever the downloader said it did.
+  const before = landedCount(archive);
+
+  const { failed, stopped, platform } = await adapter.fetch({
     accountDir,
     posts: todo,
     plan,
     session,
+    adapter,
     // A long run takes hours. Without a line per post it is silent on stderr
     // for all of them, which is indistinguishable from a hang.
     onPost: ({ post, ok }, done) =>
@@ -579,9 +598,16 @@ async function doGo({ adapter, root, dir, alias, unalias, url, target, session, 
   const remaining = outstanding(approved(plan), landed, postIdKey).length;
 
   // Asked of the folder, so a resumed run reports the archive rather than its
-  // own increment.
-  let total = 0;
-  for (const [, entry] of landed) if (isLanded(entry)) total += 1;
+  // own increment — and so does what this run added to it. A downloader that
+  // exits clean without writing the files has archived nothing, and its own
+  // count of what it fetched would have this document report posts landing in a
+  // folder that never received them.
+  const total = landedCount(landed);
+  // Never below zero. The archive only grows during a run — nothing here fetches
+  // a post it already holds — but this is the number the document promises as a
+  // count, and a count that went negative would be refused by the schema rather
+  // than reported.
+  const downloaded = Math.max(0, total - before);
 
   // One id in two folders leaves one of them answering for nothing, and its
   // media counted by nothing.
@@ -592,7 +618,7 @@ async function doGo({ adapter, root, dir, alias, unalias, url, target, session, 
   await recordRun(accountDir, {
     root,
     found: plan.counts?.found ?? null,
-    landed: fetched.posts,
+    landed: downloaded,
     failed,
   });
 
@@ -600,7 +626,12 @@ async function doGo({ adapter, root, dir, alias, unalias, url, target, session, 
   // partway, which is what makes the retry fetch only what is missing.
   if (remaining === 0) await clearPlan(accountDir);
 
-  return { plan, accountDir, fetched, failed, stopped, remaining, total, duplicates };
+  return {
+    plan, accountDir, downloaded, failed, stopped, remaining, total, duplicates,
+    // What the archive holds now, and whatever only this platform's
+    // downloader knew. Both are read by `runNotes` and by nothing here.
+    landed, platform,
+  };
 }
 
 /**
@@ -617,20 +648,34 @@ async function reportRun({ adapter }, command, outcome, { url = null, notes = nu
     return refuse({ command, platform, ...refusalFields(outcome.refusal) });
   }
 
+  // A --yes has just made this plan and knows what it announced; a bare --go
+  // has only what the plan recorded.
+  const carried = notes ?? outcome.plan.notes ?? [];
+
+  // Some of what a listing recorded describes the folder rather than the pass,
+  // and is worth less the moment the download changes the folder. A platform
+  // that has such a note hands back the whole list rewritten — dropping the
+  // stale one as well as adding the fresh one, because a document carrying both
+  // would carry two notes of the same code disagreeing with each other.
+  const reported = (await adapter.runNotes?.({ notes: carried, outcome })) ?? carried;
+
+  // The plan counted these when it was made, and the download has since changed
+  // the folder. Its count is dropped rather than kept beside the fresh one below.
+  const withoutStaleDuplicates = reported.filter((note) => note.code !== 'duplicate-posts');
+
   const payload = archiveResult({
     account: accountFields(adapter.account, outcome.plan.account, url),
     dir: outcome.accountDir,
     root: outcome.plan.root,
     counts: outcome.plan.counts,
-    // A --yes has just made this plan and knows what it announced; a bare --go
-    // has only what the plan recorded. The duplicate count is about the folder
-    // as it is now, so it is added by the run rather than read back.
-    notes: [...(notes ?? outcome.plan.notes ?? []), ...duplicateNote(outcome.duplicates)],
+    // The duplicate count is about the folder as it is now, so it is added by
+    // the run rather than read back.
+    notes: [...withoutStaleDuplicates, ...duplicateNote(outcome.duplicates)],
     // Carried by the run that made the plan, and by that run only. A --go is
     // acting on a list already approved, and its window has done its work.
     plan: plan ? planWindow({ createdAt: plan.created_at, ttlHours: DEFAULT_TTL_HOURS }) : null,
     run: runCounts({
-      downloaded: outcome.fetched.posts,
+      downloaded: outcome.downloaded,
       // Asked of the folder rather than added to the plan's `on_disk`, which
       // was frozen when the plan was made. A --go that fetched 40 of 100 and
       // was rate-limited leaves the next one reporting 60 for an archive

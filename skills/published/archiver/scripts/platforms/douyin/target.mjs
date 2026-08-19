@@ -20,7 +20,7 @@ const SINGLE_POST = /^(?:https?:\/\/)?(?:[a-z0-9-]+\.)*douyin\.com\/(?:video|not
 const EXPECTED = 'Expected https://www.douyin.com/user/MS4wLjABAAAA...';
 
 /**
- * `{ secUid, url }`, or a throw naming what is wrong with the URL.
+ * `{ id, url }`, or a throw naming what is wrong with the URL.
  *
  * Refusal is a throw rather than a returned verdict because there is one kind of
  * answer: a caller that reads past this has an account, and nothing to branch
@@ -69,8 +69,11 @@ export function parseTarget(input) {
     });
   }
 
-  const secUid = match[1];
-  return { secUid, url: `https://www.douyin.com/user/${secUid}` };
+  const id = match[1];
+  // `id`, which is the run's word for it: a target names the account where the
+  // URL carries it, and the run goes straight to that folder rather than
+  // searching for it. Douyin's own modules call the same string the sec_uid.
+  return { id, url: `https://www.douyin.com/user/${id}` };
 }
 
 /** The canonical permalink for a post, which is also how `--go` re-fetches it. */

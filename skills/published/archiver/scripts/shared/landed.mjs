@@ -172,13 +172,17 @@ export async function duplicateFolders(accountDir) {
  * holding only its post.json, and that has to read as still-missing or a run cut
  * short would report itself complete.
  */
-export async function onDiskIds(accountDir) {
+export function landedIds(archive) {
   const ids = new Set();
-  for (const [id, entry] of await readArchive(accountDir)) {
-    if (isLanded(entry)) ids.add(id);
-  }
+  for (const [id, entry] of archive) if (isLanded(entry)) ids.add(id);
   return ids;
 }
+
+/** How many there are, which is the archive's own size honestly counted. */
+export function landedCount(archive) {
+  return landedIds(archive).size;
+}
+
 
 /**
  * On disk but no longer listed by the account. Only what was observed is

@@ -1,5 +1,5 @@
 /**
- * The run behaviours every gallery-dl platform owes, asserted of each of them.
+ * The run behaviours every platform owes, asserted of each of them.
  *
  * These are decisions the run makes the same way whoever is being archived —
  * what `--go` may act on, when the account folder is settled, what an alias
@@ -26,6 +26,7 @@ import { fetchPosts as xFetch, postDir as xPostDir } from './x/fetch.mjs';
 import { main as igMain } from './instagram/run.mjs';
 import { fetchPosts as igFetch, postDir as igPostDir } from './instagram/fetch.mjs';
 import { main as douyinMain } from './douyin/run.mjs';
+import { postDir as douyinPostDir } from './douyin/fetch.mjs';
 
 import { recordIdentity } from '../shared/account.mjs';
 import { descriptorFor, labelFor } from '../shared/platforms.mjs';
@@ -66,6 +67,7 @@ const X = {
   }),
   listed: (rows) => ({ rows, stoppedEarly: false }),
   post: (tweetId) => ({ tweetId, date: '2024-03-11T09:22:19Z', content: '', files: [] }),
+  downloader: () => ({ fetch: (args) => xFetch({ ...args, bin: '/usr/bin/true', intervalMs: 0 }) }),
 };
 
 const INSTAGRAM = {
@@ -102,14 +104,14 @@ const INSTAGRAM = {
     ],
   }),
   post: (shortcode) => ({ shortcode, date: '2024-03-11 07:22:19', content: '', files: [] }),
+  downloader: () => ({ fetch: (args) => igFetch({ ...args, bin: '/usr/bin/true', intervalMs: 0 }) }),
 };
 
 /**
- * Douyin shares the run around the listing rather than the listing itself: it
- * resolves its folder before the browser opens, counts against the profile
- * header and drives yt-dlp, so it brings its own plan and go. What it does
- * share is everything outside them, which is what the outer cases below assert
- * of all three.
+ * Douyin's listing pass and downloader are substituted underneath the adapter
+ * members that wrap them, because the wrapping is this platform's own half of
+ * the run — where the account callback fires before the browser opens, and where
+ * the cookies are minted.
  */
 const DOUYIN = {
   name: 'douyin',
@@ -117,18 +119,36 @@ const DOUYIN = {
   url: 'https://www.douyin.com/user/MS4wSEC',
   handle: undefined,
   id: 'MS4wSEC',
+  idKey: 'id',
   boxes: ['runtime', 'tools', 'browser'],
+  postDir: douyinPostDir,
+  account: { id: 'MS4wSEC', douyin_id: 'abc123', nickname: '小明' },
+  identity: { id: 'MS4wSEC', douyin_id: 'abc123' },
+  ids: ['7111', '7222', '7333'],
+  // The grid yields posts rather than one row per file, so a row and a post are
+  // the same thing here.
+  row: (id) => ({ id, text: '', createTime: 1710144139 }),
+  listed: (posts) => ({
+    posts,
+    reported: 284,
+    skippedImagePosts: 0,
+    hitRoundLimit: false,
+    stoppedEarly: false,
+  }),
+  post: (id) => ({ id, text: '', createTime: 1710144139 }),
+  // Nothing more real to fall back to: yt-dlp writing nothing is a failed post
+  // by design here, so a downloader that exits clean cannot land one.
+  downloader: () => ({}),
   extra: () => ({
-    collect: async () => ({
-      posts: [{ id: '7111', text: '', createTime: 1710144139 }],
-      account: { id: 'MS4wSEC', douyin_id: 'abc123', nickname: '小明' },
-      reported: 284,
-      skippedImagePosts: 0,
-      hitRoundLimit: false,
-      stoppedEarly: false,
-      described: 1,
-    }),
-    fetch: async ({ posts }) => ({ fetched: posts.length, failed: 0, undated: 0 }),
+    list: async () => collected(DOUYIN),
+    // Faked one module lower than the other two, so the fetch member wrapping it
+    // — where the cookies are minted and the progress is written — still runs.
+    download: async ({ accountDir, posts }) => {
+      for (const post of posts) {
+        await writePost(douyinPostDir(accountDir, post), buildPost({ id: post.id }));
+      }
+      return { fetched: posts.length, failed: 0 };
+    },
     playwright: async () => ({ chromium: {} }),
     login: async () => ({ ok: true }),
     hasSession: async () => true,
@@ -139,10 +159,10 @@ const DOUYIN = {
   }),
 };
 
-/** Every platform, for the run they all share. */
+/** Every platform. There is one run, and all of them go through the whole of it. */
 const BENCHES = [X, INSTAGRAM, DOUYIN];
 
-/** The two whose listing and download halves are the shared ones. */
+/** The two that drive gallery-dl, for the few things that is true of. */
 const GALLERYDL = [X, INSTAGRAM];
 
 // ---- the harness ------------------------------------------------------------
@@ -162,30 +182,44 @@ const collected = (bench, over = {}) => ({
 
 function overrides(bench, over = {}) {
   const extra = bench.extra?.() ?? {};
+
+  // A platform whose halves wrap something of its own has that something
+  // substituted instead, so the wrapping still runs — the account callback fires
+  // from inside it, and so does the cookie mint.
+  const wraps = Boolean(extra.list);
   const listing = over.collect ?? extra.collect ?? (async () => collected(bench));
-  return {
-    // Lands each post the way the real fetcher does — post.json written, media
-    // listed and present — because the run reports its total by asking the
-    // folder, and a fetcher that wrote nothing would be reporting on nothing.
+
+  // Lands each post the way the real fetcher does — post.json written, media
+  // listed and present — because the run reports its total by asking the folder,
+  // and a fetcher that wrote nothing would be reporting on nothing.
+  const landing = {
     fetch: async ({ accountDir, posts }) => {
       for (const post of posts) {
         await writePost(bench.postDir(accountDir, post), buildPost({ id: post[bench.idKey] }));
       }
       return { fetched: { posts: posts.length, files: posts.length }, failed: 0, stopped: null };
     },
-    onPath: async () => true,
-    session: async () => '/tmp/cookies.txt',
-    ensureEnv: async () => {},
-    ...extra,
-    ...over,
-    // Wrapped last, so a test's own listing still goes through the account
-    // callback. That callback is what settles the folder and reads the archive,
-    // so a listing that never fired it would exercise none of doPlan's real work.
+  };
+
+  // Wrapped last, so a test's own listing still goes through the account
+  // callback. That callback is what settles the folder and reads the archive, so
+  // a listing that never fired it would exercise none of the run's real work.
+  const firing = {
     collect: async (args) => {
       const result = await listing(args);
       if (result.account && args.onAccount) await args.onAccount(result.account);
       return result;
     },
+  };
+
+  return {
+    ...(wraps ? {} : landing),
+    onPath: async () => true,
+    session: async () => '/tmp/cookies.txt',
+    ensureEnv: async () => {},
+    ...extra,
+    ...over,
+    ...(wraps ? {} : firing),
   };
 }
 
@@ -228,10 +262,11 @@ async function parked(bench, root, { collected: seen, pending, counts } = {}) {
 async function go(bench, root, plan = {}, over = {}) {
   const accountDir = await parked(bench, root, plan);
   const { document } = await run(bench, [bench.url, '--archives', root, '--go'], {
-    // The real fetcher against a downloader that succeeds and writes nothing,
-    // because what is being asserted is which folders it makes. The pacing
-    // between posts is real and is asserted in each platform's fetch tests.
-    fetch: (args) => bench.fetchPosts({ ...args, bin: '/usr/bin/true', intervalMs: 0 }),
+    // Where there is one, the platform's real fetcher against a downloader that
+    // succeeds and writes nothing, because what is being asserted is which
+    // folders it makes. The pacing between posts is real and is asserted in each
+    // platform's own fetch tests.
+    ...bench.downloader(),
     ...over,
   });
   return { accountDir, document };
@@ -239,9 +274,7 @@ async function go(bench, root, plan = {}, over = {}) {
 
 // ---- the cases --------------------------------------------------------------
 
-// ---- the listing and download halves the gallery-dl platforms share ---------
-
-for (const bench of GALLERYDL) {
+for (const bench of BENCHES) {
   const at = (title) => `[${bench.name}] ${title}`;
 
   // ---- what --go may act on -------------------------------------------------
@@ -329,12 +362,18 @@ for (const bench of GALLERYDL) {
 
   // ---- the account folder ---------------------------------------------------
 
-  test(at('the account folder is the immutable id, not the handle that can change'), async () => {
+  test(at('the account folder is the immutable id, not a name that can change'), async () => {
     const root = await archivesRoot();
     await run(bench, [bench.url, '--archives', root, '--yes']);
 
     assert.equal(existsSync(accountDirIn(root, bench)), true);
-    assert.equal(existsSync(accountDirIn(root, bench, bench.handle)), false);
+
+    // Where the platform gives an account a readable name of its own, the folder
+    // is not under it: that name changes, and a folder named for one is a folder
+    // the next run would not find.
+    if (bench.handle) {
+      assert.equal(existsSync(accountDirIn(root, bench, bench.handle)), false);
+    }
   });
 
   test(at('account.json records the identity before anything is downloaded'), async () => {
@@ -396,6 +435,66 @@ for (const bench of GALLERYDL) {
     assert.equal(cache.accounts[bench.name][bench.id], 'mine', 'archiver.json followed');
   });
 
+  test(at('a run reports what reached the folder, not what the downloader claimed'), async () => {
+    // A downloader that exits clean without writing the files has archived
+    // nothing. The total and what is left over are both asked of the folder, and
+    // a downloaded count taking the fetcher's word instead is how one document
+    // comes to say two posts landed in an archive holding none.
+    const root = await archivesRoot();
+    const posts = bench.ids.slice(0, 2).map(bench.post);
+    const accountDir = await parked(bench, root, { collected: posts, pending: posts });
+
+    const { document } = await run(bench, [bench.url, '--archives', root, '--go'], {
+      fetch: async ({ posts: todo }) => ({
+        fetched: { posts: todo.length, files: todo.length },
+        failed: 0,
+        stopped: null,
+      }),
+    });
+
+    assert.equal(document.result.run.downloaded, 0, 'nothing reached the folder');
+    assert.equal(document.result.run.total, 0);
+    assert.equal(document.result.run.remaining, 2, 'and all of it is still to do');
+
+    const sync = await syncJson(accountDir);
+    assert.equal(sync.last_run.landed, 0, 'the record agrees with the folder');
+  });
+
+  test(at('a --go that refuses the plan renames nothing'), async () => {
+    // The rename happens before the download so what is fetched lands in its
+    // final home. A plan that will not run downloads nothing, so there is no
+    // home to prepare — and a refusal that renamed the folder anyway leaves the
+    // user looking for an archive this run moved while telling them it did not
+    // act.
+    const root = await archivesRoot();
+    const accountDir = accountDirIn(root, bench);
+    await mkdir(accountDir, { recursive: true });
+    await recordIdentity(descriptorFor(bench.name), root, accountDir, {
+      account: bench.identity,
+      url: bench.url,
+    });
+
+    const stale = new Date(Date.now() - 48 * 60 * 60 * 1000);
+    const posts = bench.ids.slice(0, 2).map(bench.post);
+    await savePlan(
+      accountDir,
+      buildPlan({
+        account: bench.identity,
+        root,
+        collected: posts,
+        pending: posts,
+        counts: archiveCounts({ found: 2, onDisk: 0, toFetch: 2 }),
+        now: stale,
+      }),
+    );
+
+    const { document } = await run(bench, [bench.url, '--archives', root, '--alias', 'mine', '--go']);
+
+    assert.equal(document.error.code, 'plan-stale');
+    assert.equal(existsSync(accountDirIn(root, bench, 'mine')), false, 'nothing was renamed');
+    assert.equal(existsSync(accountDir), true, 'the folder is where it was found');
+  });
+
   test(at('one post id in two folders is reported'), async () => {
     const root = await archivesRoot();
     const id = bench.ids[0];
@@ -412,6 +511,28 @@ for (const bench of GALLERYDL) {
 
     const fresh = bench.post(bench.ids[2]);
     const { document } = await go(bench, root, { collected: [fresh], pending: [fresh] });
+
+    const notes = document.result.notes.filter((one) => one.code === 'duplicate-posts');
+    assert.equal(notes.length, 1, 'said once — the plan carried one and the run counted afresh');
+    assert.equal(notes[0].count, 1);
+  });
+
+  test(at('one post id in two folders is reported by a plan, which downloads nothing'), async () => {
+    // --plan is the run whose whole job is to say what is in the archive before
+    // anything is committed to. A duplicate surfacing only on --go is one a user
+    // who plans and reads never hears about.
+    const root = await archivesRoot();
+    const id = bench.ids[0];
+    const accountDir = accountDirIn(root, bench);
+
+    await writePost(path.join(accountDir, 'posts', `undated_${id}`), buildPost({ id }));
+    await writePost(path.join(accountDir, 'posts', `2024-03-11_${id}`), buildPost({ id }));
+    await recordIdentity(descriptorFor(bench.name), root, accountDir, {
+      account: bench.identity,
+      url: bench.url,
+    });
+
+    const { document } = await run(bench, [bench.url, '--archives', root, '--plan']);
 
     const note = document.result.notes.find((one) => one.code === 'duplicate-posts');
     assert.equal(note?.count, 1);
@@ -460,19 +581,7 @@ for (const bench of GALLERYDL) {
     assert.equal(document.result.counts.to_fetch, 2, 'the unfetched posts are still outstanding');
   });
 
-}
-
-// ---- what every platform's run does the same, listing halves aside ----------
-
-for (const bench of BENCHES) {
-  const at = (title) => `[${bench.name}] ${title}`;
-
-  test(at('the account folder is the immutable id, not a name that can change'), async () => {
-    const root = await archivesRoot();
-    await run(bench, [bench.url, '--archives', root, '--plan']);
-
-    assert.equal(existsSync(accountDirIn(root, bench)), true);
-  });
+  // ---- the run around them --------------------------------------------------
 
 
   test(at('the environment is built before the session is read out of a browser'), async () => {

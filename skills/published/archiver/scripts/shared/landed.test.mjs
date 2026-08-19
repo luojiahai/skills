@@ -8,7 +8,6 @@ import {
   POSTS_DIR,
   isLanded,
   isMissing,
-  onDiskIds,
   readArchive,
   duplicateFolders,
   unlistedIds,
@@ -199,14 +198,6 @@ test('readArchive ignores files and non-post directories under posts/', async ()
   await post(dir, '2024-03-11_111', ['1.mp4']);
 
   assert.deepEqual([...(await readArchive(dir)).keys()], ['111']);
-});
-
-test('onDiskIds counts only posts that actually hold their media', async () => {
-  const dir = await root();
-  await post(dir, '2024-03-11_111', ['1.mp4']);
-  await post(dir, '2024-03-12_222', [], { listed: ['1.mp4'] });
-
-  assert.deepEqual([...(await onDiskIds(dir))], ['111']);
 });
 
 test('unlistedIds finds what is on disk but no longer on the profile', () => {

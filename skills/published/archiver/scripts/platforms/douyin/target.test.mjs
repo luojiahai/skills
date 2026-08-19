@@ -5,7 +5,7 @@ import { parseTarget, permalink } from './target.mjs';
 
 test('a profile URL is an account', () => {
   const target = parseTarget('https://www.douyin.com/user/MS4wLjABAAAAEKnfa654');
-  assert.equal(target.secUid, 'MS4wLjABAAAAEKnfa654');
+  assert.equal(target.id, 'MS4wLjABAAAAEKnfa654');
   assert.equal(target.url, 'https://www.douyin.com/user/MS4wLjABAAAAEKnfa654');
 });
 

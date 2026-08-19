@@ -10,10 +10,12 @@
  * folder, the envelope. `--login` is declared here as a command of this
  * platform's own, and the run dispatches it by name without knowing what it is.
  *
- * The listing and download halves are also here rather than shared: the sec_uid
- * is in the URL, so the folder is settled before the browser opens; the counts
- * are against the profile header; and the downloader is yt-dlp. None of that is
- * the shape the two gallery-dl platforms have in common.
+ * The run's listing and download halves are the same ones every platform goes
+ * through. What is here is where this one differs: the account is known before
+ * anything opens, because the sec_uid is in the URL; the counts are against the
+ * profile header, and two of them are withheld from a sweep that stopped early;
+ * and the downloader is yt-dlp, signed in from cookies minted when the fetch
+ * reaches for them.
  *
  * Every command answers with a single JSON document on stdout, composed by
  * `shared/output.mjs`. The scrolling chatter of a long collection goes to
@@ -21,54 +23,22 @@
  */
 import path from 'node:path';
 
-import { EXIT } from '../../shared/exit.mjs';
-import { Refusal, refusalFields } from '../../shared/errors.mjs';
-import {
-  accountFields,
-  answer,
-  archiveCounts,
-  archiveResult,
-  planWindow,
-  progress,
-  quote,
-  refuse,
-  runCounts,
-  self,
-} from '../../shared/output.mjs';
-import { makeStopper, runAccount, sweepIsIncremental, sweepNote, sweepStoppedEarly } from '../../shared/run.mjs';
+import { Refusal } from '../../shared/errors.mjs';
+import { answer, progress, quote, self } from '../../shared/output.mjs';
+import { runAccount, sweepNote, sweepStoppedEarly } from '../../shared/run.mjs';
 import { hatchToolMissing, onPath } from '../../shared/tools.mjs';
 import { COMMON_BOOLEAN_FLAGS, COMMON_FLAGS, isMainModule, optString } from '../../shared/cli.mjs';
-import {
-  accountDirFor,
-  aliasDirFor,
-  aliasTarget,
-  applyAlias,
-  checkAlias,
-  moveToAlias,
-  recordIdentity,
-  resolveAccountDir,
-} from '../../shared/account.mjs';
-import { stampRoot } from '../../shared/archiver.mjs';
 import { ensureEnv } from '../../shared/env.mjs';
 import { DEFAULT_ABORT, collect } from './collect.mjs';
 import { fetchPosts, outstanding } from './fetch.mjs';
-import { duplicateFolders, onDiskIds, readArchive, unlistedIds } from '../../shared/landed.mjs';
+import { landedIds, unlistedIds } from '../../shared/landed.mjs';
 import { login } from './login.mjs';
 import { cookieFile, toolPath } from '../../shared/paths.mjs';
 import { PLATFORM, PROFILE_DIR, discardDerivedState, loadPlaywright } from './playwright.mjs';
 import { descriptorFor, postIdKeyFor } from '../../shared/platforms.mjs';
-import {
-  DEFAULT_TTL_HOURS,
-  approved,
-  buildPlan,
-  listedIds,
-  planRefusal,
-  unlistedCountFromPlan,
-  validatePlan,
-} from '../../shared/plan.mjs';
+import { listedIds, unlistedCountFromPlan } from '../../shared/plan.mjs';
 import { notes } from './notes.mjs';
 import { discardCookies, hasFreshCookies, mintCookies, profileHasSession } from './session.mjs';
-import { clearPlan, loadPlan, previousRoot, recordRun, savePlan } from '../../shared/sync.mjs';
 import { parseTarget } from './target.mjs';
 
 const ACCOUNT = descriptorFor(PLATFORM);
@@ -105,345 +75,6 @@ progress goes to stderr.
 
 Image posts (图文) are counted and reported, but not yet downloaded:
 https://github.com/luojiahai/skills/issues/48`;
-
-/** Collect the account, diff it against disk, park the plan. */
-async function doPlan({ adapter, root, target, alias, unalias, session, full }) {
-  const { collect } = adapter;
-  const { chromium, profileDir } = session;
-  // Settled before the browser opens, which it can be here and cannot on the
-  // other platforms: the sec_uid is in the URL, so whose account this is does
-  // not have to wait for the listing to name it.
-  //
-  // Resolved through the alias map first: an account already archived under an
-  // alias has a folder that is not named after its sec_uid, and going straight
-  // to the id would quietly start a second, empty archive beside the real one
-  // on every aliased account. Nothing resolves for an account never archived,
-  // and that is where the folder gets invented.
-  const accountDir =
-    (await resolveAccountDir(ACCOUNT, root, { id: target.secUid })) ??
-    (alias ? aliasDirFor(ACCOUNT, root, alias) : accountDirFor(ACCOUNT, root, target.secUid));
-
-  const archive = await readArchive(accountDir);
-  const incremental = await sweepIsIncremental({
-    accountDir,
-    accountId: target.secUid,
-    archive,
-    full,
-    postIdKey: POST_ID_KEY,
-    root,
-  });
-
-  progress('[douyin] collecting post IDs…');
-  const listing = await collect({
-    url: target.url,
-    secUid: target.secUid,
-    profileDir,
-    headless: true,
-    launch: chromium,
-    log: progress,
-    shouldStop: makeStopper({ archive, threshold: DEFAULT_ABORT, enabled: incremental }),
-  });
-
-  if (listing.failure === 'empty-grid') {
-    // A grid that renders nothing while the header still counts posts is not an
-    // empty account: it is a session Douyin has stopped accepting. The two are
-    // separate codes because only one of them is a handoff to the user.
-    if (listing.reported) {
-      throw new Refusal(
-        'session-expired-grid',
-        `the profile reports ${listing.reported} post(s), so the grid exists but did not render — ` +
-          'almost certainly an expired session',
-        { details: { reported: listing.reported }, remedy: loginRemedy(target.url) },
-      );
-    }
-    throw new Refusal(
-      'empty-grid',
-      'found 0 posts in the profile grid — an account can genuinely have none, and it also ' +
-        'looks like this when the saved session has expired without saying so',
-    );
-  }
-
-  if (!listing.account?.douyin_id) {
-    throw new Refusal(
-      'no-douyin-id',
-      'the profile was readable but never showed its 抖音号, so there is no identity to file this archive under',
-    );
-  }
-
-  // Asked again now the 抖音号 is known: the first check could not tell an
-  // account's own alias apart from a collision with someone else's.
-  if (alias) {
-    const verdict = await checkAlias(ACCOUNT, root, { id: target.secUid, alias });
-    if (!verdict.ok) throw verdict.refusal;
-  }
-
-  // Read before anything is written: the "last run used …" note compares the
-  // root this run was given against the one the previous run recorded.
-  const lastRoot = await previousRoot(accountDir);
-
-  await stampRoot(root);
-
-  const account = {
-    id: target.secUid,
-    douyin_id: listing.account.douyin_id,
-    nickname: listing.account.nickname,
-  };
-
-  // Written at the one point every run passes through once its folder is known,
-  // so a folder that exists always says whose it is — before anything has been
-  // downloaded into it. The alias is not passed: recordIdentity reads it off the
-  // folder's own name, which is what keeps account.json and the directory from
-  // disagreeing.
-  await recordIdentity(ACCOUNT, root, accountDir, { account, url: target.url });
-
-  const onDisk = await onDiskIds(accountDir);
-  const pending = outstanding(listing.posts, archive);
-
-  // A listing that stopped early read the newest posts and no further, so both
-  // of these describe a profile it never finished looking at: `reported` would
-  // render a deliberately short collection as a catastrophically failed one,
-  // and every archived post below the cut would be counted as one the profile
-  // no longer lists. Withheld rather than computed against the collected prefix
-  // — where the profile's real tail is, is exactly what was skipped.
-  const stoppedEarly = Boolean(incremental && listing.stoppedEarly);
-  const listed = listedIds(listing.posts, POST_ID_KEY);
-  const unlisted = stoppedEarly ? null : unlistedIds(listed, onDisk).length;
-
-  const plan = buildPlan({
-    account,
-    root,
-    collected: listing.posts,
-    pending,
-    counts: archiveCounts({
-      found: listing.posts.length,
-      onDisk: onDisk.size,
-      toFetch: pending.length,
-      // Carried into the plan because the finished run reports them too, and
-      // recomputing them there would mean a --go describing an account it never
-      // listed.
-      platform: {
-        reported: stoppedEarly ? null : (listing.reported ?? null),
-        skipped_image_posts: listing.skippedImagePosts ?? 0,
-        unlisted,
-      },
-    }),
-    notes: [
-      // First, because it is what says why the counts beside it are absent —
-      // and a --go reads it back out of the plan to withhold them again.
-      sweepNote({ incremental, stoppedEarly, threshold: DEFAULT_ABORT }),
-      ...notes({
-        collected: listing.posts.length,
-        reported: listing.reported,
-        reportedRounded: listing.reportedRounded,
-        skipped: listing.skippedImagePosts,
-        unlisted,
-        truncated: listing.hitRoundLimit,
-        stoppedEarly,
-        unattributed: listing.unattributed,
-        duplicates: await duplicateFolders(accountDir),
-      }),
-    ],
-    now: new Date(),
-  });
-
-  // Parked whether or not anything is pending, which is also what X does. An
-  // empty plan is refused as `plan-empty` rather than as `plan-missing`, so
-  // "nothing to download" is one code across both platforms instead of two for
-  // one situation. It also replaces any plan an earlier run left behind, which
-  // would otherwise outlive the work it described.
-  await savePlan(accountDir, plan);
-
-  // Facts about this run rather than about the profile, so they are worked out
-  // the same way on both platforms and kept apart from the plan's own notes —
-  // which a --go recomposes from the numbers, and these cannot be.
-  const movingTo = aliasTarget(ACCOUNT, root, { id: target.secUid, alias, unalias });
-
-  return { plan, accountDir, previousRoot: lastRoot, movingTo };
-}
-
-/** Download the plan that was approved. No collection, no browser. */
-async function doGo({
-  adapter, command, root, target, alias, unalias, session, planCommand,
-  notes: announced = [], plan: made = null,
-}) {
-  const { fetch, mint, freshCookies, discardCookies } = adapter;
-  const { chromium, profileDir } = session;
-  const refuseHere = (fields) => refuse({ command, platform: PLATFORM, ...fields });
-
-  // resolveAccountDir returns a folder only once account.json there names this
-  // sec_uid, so a non-null answer *is* the identity check. Falling back to the
-  // bare sec_uid path would be the one case that matters: a folder of that name
-  // belonging to somebody else, handed to --go to run a plan against.
-  let accountDir = await resolveAccountDir(ACCOUNT, root, { id: target.secUid });
-
-  if (!accountDir) {
-    return refuseHere({
-      code: 'no-archive',
-      message: `no folder for this account under ${root}, so there is no plan to run`,
-      details: { root },
-      remedy: { message: 'collect the account first', command: planCommand, run_by: 'agent' },
-    });
-  }
-
-  const plan = await loadPlan(accountDir);
-  const verdict = validatePlan(plan, { accountId: target.secUid, root });
-
-  if (!verdict.ok) {
-    const refusal = planRefusal(verdict);
-    return refuseHere({
-      ...refusalFields(refusal),
-      remedy: { message: 'collect the account again', command: planCommand, run_by: 'agent' },
-    });
-  }
-
-  // The move happens before the download, so what is fetched goes straight into
-  // its final home. A rename between --plan and --go invalidates nothing,
-  // because a plan records the archives root and the account, never the folder.
-  try {
-    accountDir = await moveToAlias(ACCOUNT, root, accountDir, { id: target.secUid, alias, unalias });
-  } catch (error) {
-    return refuseHere(refusalFields(error));
-  }
-
-  // Written immediately after the move, because the move is what makes the
-  // records wrong: applyAlias renames and leaves the bookkeeping to the next
-  // write, and without one here archiver.json never learns the alias. The folder
-  // is then a directory the map does not name — which is how an account's own
-  // alias comes to read as another account's id, refusing it forever.
-  await recordIdentity(ACCOUNT, root, accountDir, { account: plan.account, url: target.url });
-
-  const archive = await readArchive(accountDir);
-  const before = (await onDiskIds(accountDir)).size;
-
-  // Re-checked against disk rather than taken as written. A --go that died
-  // partway leaves a plan still listing what it managed to fetch, and every one
-  // of those would otherwise cost a request to discover it was already there.
-  const pending = outstanding(approved(plan), archive);
-
-  let fetched = 0;
-  let failed = 0;
-  let undated = 0;
-  let stopped = null;
-  let sessionStale = false;
-  if (!pending.length) {
-    progress('[douyin] every post in the plan is already downloaded');
-  } else {
-    progress(`[douyin] downloading ${pending.length} post(s) to ${path.join(accountDir, 'posts')}…`);
-    // The cached file where it is still live, and a browser only where it is
-    // not. Minting reads the Playwright profile, which means launching
-    // Chromium — the slowest thing in the skill — so minting on every --go is
-    // paying the whole cost of having no cache at all.
-    const cookies = (await freshCookies(COOKIE_FILE))
-      ? COOKIE_FILE
-      : await mint(profileDir, COOKIE_FILE, { launch: chromium });
-    ({ fetched, failed, undated, stopped, sessionStale } = await fetch({
-      accountDir,
-      posts: pending,
-      cookies,
-      refreshCookies: () => mint(profileDir, COOKIE_FILE, { launch: chromium }),
-      log: progress,
-    }));
-  }
-
-  // A session even the re-mint could not rescue is thrown away rather than read
-  // back next run, which would fail in exactly the same way forever.
-  if (sessionStale || stopped === 'session-rejected') await discardCookies(COOKIE_FILE);
-
-  const landed = await onDiskIds(accountDir);
-  const total = landed.size;
-
-  // Asked of the folder rather than of the fetcher. A downloader that exits
-  // clean without writing the files has archived nothing, and a plan retired on
-  // its word would cost a second listing to find that out.
-  const currentArchive = await readArchive(accountDir);
-  const remaining = outstanding(approved(plan), currentArchive).length;
-
-  await recordRun(accountDir, {
-    root,
-    found: plan.counts?.found ?? null,
-    landed: total - before,
-    failed,
-  });
-
-  // Kept after a partial run, so a retry re-fetches only what is missing without
-  // paying for another collection; retired once it has all landed.
-  if (remaining === 0) await clearPlan(accountDir);
-
-  // The plan's own sweep note is what says the listing behind it stopped early,
-  // and so is short by design. Recomputing the unlisted count against it here
-  // would report most of the archive as no longer on the profile — the same
-  // false number the plan withheld, made fresh by the run that acts on it.
-  const stoppedEarly = sweepStoppedEarly(plan.notes);
-  const unlisted = stoppedEarly ? null : unlistedCountFromPlan(plan, landed, POST_ID_KEY);
-
-  const payload = archiveResult({
-    command,
-    platform: PLATFORM,
-    account: accountFields(ACCOUNT, plan.account, target.url),
-    dir: accountDir,
-    root,
-    counts: {
-      ...plan.counts,
-      // The unlisted count is recomputed against what is on disk now; the rest
-      // describe the listing pass and are as true as when it ran.
-      platform: { ...plan.counts?.platform, unlisted },
-    },
-    notes: [
-      // A --yes announced a rename or a moved root before it started, and must
-      // still say so now the user is past being asked. A bare --go announced
-      // nothing, because it is acting on a list that already did.
-      ...announced,
-      // The listing's own notes as the plan recorded them, because a --go lists
-      // nothing and cannot recompute them: whether the header was abbreviated,
-      // whether the scroll was cut short and how many cards went unattributed
-      // are all facts about the pass that made this plan. The one exception is
-      // the unlisted count, which is about the folder as it is now.
-      ...(plan.notes ?? []).filter((note) => note.code !== 'unlisted-posts'),
-      ...notes({
-        collected: 0,
-        reported: null,
-        skipped: 0,
-        unlisted,
-        stoppedEarly,
-        // Reported here rather than only on stderr. A run that filed forty posts
-        // under `undated_<id>` has said something about the archive, and the
-        // agent reading stdout is the one who tells the user.
-        undated,
-        duplicates: await duplicateFolders(accountDir),
-      }),
-    ],
-    // Carried by the run that made this plan, and by that run only. A --go is
-    // acting on a list already approved, and its window has done its work.
-    plan: made ? planWindow({ createdAt: made.created_at, ttlHours: DEFAULT_TTL_HOURS }) : null,
-    run: runCounts({ downloaded: total - before, total, failed, remaining }),
-  });
-
-  // A run that stopped because the next post would have failed the same way
-  // carries both halves: what landed, and why it stopped. Collapsing it either
-  // way loses something — a rate-limited run that fetched two hundred posts is
-  // neither a success nor a nothing.
-  if (stopped) {
-    const known = FAILURES[stopped];
-    return refuse({
-      command,
-      platform: PLATFORM,
-      code: stopped,
-      message: known?.message ?? `the run stopped: ${stopped}`,
-      remedy: known?.remedy ?? null,
-      result: payload,
-    });
-  }
-
-  return answer({
-    command,
-    platform: PLATFORM,
-    result: payload,
-    // A run that lost posts to the downloader still finished as asked. Shell
-    // callers read a lost post as a non-zero exit; the posts it lost are in
-    // run.failed, and the plan it kept is what makes the retry cheap.
-    exit: failed ? EXIT.FAILED : EXIT.OK,
-  });
-}
 
 /**
  * The fallback sentence for each stop, and how it is put right.
@@ -486,11 +117,253 @@ const ADAPTER = {
   booleans: BOOLEAN_FLAGS,
   flags: KNOWN_FLAGS,
   threshold: DEFAULT_ABORT,
+  failures: FAILURES,
 
   parseTarget,
-  collect,
-  fetch: fetchPosts,
+
+  /**
+   * The listing pass, in the run's own terms.
+   *
+   * The account is known before anything opens — the sec_uid is in the URL — so
+   * the run's account callback fires here, first, and the folder is settled and
+   * the archive read before Chromium starts. That is the whole of what makes
+   * this platform's listing half different, and the callback already expresses
+   * it: the folder is settled the moment the account is known, which for Douyin
+   * is straight away.
+   *
+   * Everything the profile grid reported beyond the posts rides back on the
+   * result, where the counts and the notes read it.
+   */
+  collect: async ({ target, session, onAccount, stopper, adapter }) => {
+    const { chromium, profileDir } = session;
+    const rule = await onAccount({ id: target.id });
+    const stop = rule.stopNow ? () => true : stopper(rule);
+
+    progress('[douyin] collecting post IDs…');
+    const listing = await adapter.list({
+      url: target.url,
+      secUid: target.id,
+      profileDir,
+      headless: true,
+      launch: chromium,
+      log: progress,
+      shouldStop: stop,
+    });
+
+    // The 抖音号 is what this archive is filed under, and the profile can render
+    // without ever showing it. Reported as a failed listing rather than thrown,
+    // so it reaches the user through the same door as an empty grid.
+    const failure =
+      listing.failure ?? (listing.account?.douyin_id ? null : 'no-douyin-id');
+
+    // The URL rides along because the refusals below hand the user a --login
+    // command, and a classifier is given the result and nothing else.
+    return { ...listing, failure, url: target.url, rows: failure ? [] : (listing.posts ?? []) };
+  },
+
+  /**
+   * The download half, in the run's own terms.
+   *
+   * The cookies are minted here rather than with the session, and only where the
+   * cached file has gone stale: minting reads the Playwright profile, which
+   * means launching Chromium — the slowest thing in the skill — so a --go that
+   * minted eagerly would pay the whole cost of having no cache at all.
+   *
+   * A session even the re-mint could not rescue is thrown away on the way out,
+   * rather than read back next run to fail in exactly the same way forever.
+   */
+  fetch: async ({ accountDir, posts, session, adapter }) => {
+    // Nothing to fetch means nothing to sign in for. Minting launches Chromium,
+    // and doing it to download an empty list is the whole cost of the session
+    // paid for no reason.
+    if (!posts.length) {
+      progress('[douyin] every post in the plan is already downloaded');
+      return { fetched: { posts: 0, files: 0 }, failed: 0, stopped: null, platform: { undated: 0 } };
+    }
+
+    const { chromium, profileDir } = session;
+    const cookies = (await adapter.freshCookies(COOKIE_FILE))
+      ? COOKIE_FILE
+      : await adapter.mint(profileDir, COOKIE_FILE, { launch: chromium });
+
+    progress(`[douyin] downloading ${posts.length} post(s) to ${path.join(accountDir, 'posts')}…`);
+    const result = await adapter.download({
+      accountDir,
+      posts,
+      cookies,
+      refreshCookies: () => adapter.mint(profileDir, COOKIE_FILE, { launch: chromium }),
+      log: progress,
+    });
+
+    if (result.sessionStale) await adapter.discardCookies(COOKIE_FILE);
+
+    return {
+      fetched: { posts: result.fetched, files: result.fetched },
+      failed: result.failed,
+      stopped: result.stopped,
+      // What only this downloader knows. The run carries it to `runNotes`
+      // without reading it.
+      platform: { undated: result.undated },
+    };
+  },
+
+  /** The listing pass yields posts already, so there is nothing to group. */
+  groupFiles: (rows) => rows,
+
+  /**
+   * What is here, what is missing, and what the profile no longer lists.
+   *
+   * The last of those is Douyin's own: the grid is the account's whole history,
+   * so a post on disk that the listing never named has been taken down or hidden
+   * since. It is counted here, where the archive is already in hand, and read by
+   * `platformCounts` — which decides whether the number is fit to report at all.
+   */
+  diff: (posts, archive, postIdKey) => {
+    const toFetch = outstanding(posts, archive);
+    const onDisk = landedIds(archive);
+    return {
+      counts: {
+        foundPosts: posts.length,
+        onDiskPosts: onDisk.size,
+        fetchPosts: toFetch.length,
+        unlisted: unlistedIds(listedIds(posts, postIdKey), onDisk).length,
+      },
+      toFetch,
+    };
+  },
+
+  /**
+   * Douyin's own numbers, and the two it withholds.
+   *
+   * A listing that stopped early read the newest posts and no further, so both
+   * of these describe a profile it never finished looking at: the profile's
+   * reported total would render a deliberately short collection as a
+   * catastrophically failed one, and every archived post below the cut would be
+   * counted as one the profile no longer lists. Withheld rather than computed
+   * against the collected prefix — where the profile's real tail is, is exactly
+   * what was skipped.
+   */
+  platformCounts: (counts, result) => ({
+    reported: result.stoppedEarly ? null : (result.reported ?? null),
+    skipped_image_posts: result.skippedImagePosts ?? 0,
+    unlisted: result.stoppedEarly ? null : counts.unlisted,
+  }),
+
+  planNotes: ({ incremental, result, threshold, counts }) => [
+    // First, because it is what says why the counts beside it are absent — and a
+    // --go reads it back out of the plan to withhold them again.
+    sweepNote({ incremental, stoppedEarly: result.stoppedEarly, threshold }),
+    ...notes({
+      collected: result.rows.length,
+      reported: result.reported,
+      reportedRounded: result.reportedRounded,
+      skipped: result.skippedImagePosts,
+      unlisted: result.stoppedEarly ? null : counts.unlisted,
+      truncated: result.hitRoundLimit,
+      stoppedEarly: result.stoppedEarly,
+      unattributed: result.unattributed,
+      // Counted by the run itself, for every platform, and added after these.
+      duplicates: 0,
+    }),
+  ],
+
+  /**
+   * The one note a finished run cannot carry over from the plan that made it.
+   *
+   * Which posts the profile no longer lists is a fact about the folder, and the
+   * download has just changed the folder. The plan's own count is dropped rather
+   * than kept beside the fresh one, because two notes of the same code
+   * disagreeing is worse than either of them alone.
+   *
+   * Unless the listing behind the plan stopped early — then the count was
+   * withheld for a reason that has not gone away, and recomputing it here would
+   * make the same false number fresh.
+   */
+  runNotes: ({ notes: carried, outcome }) => {
+    const stoppedEarly = sweepStoppedEarly(outcome.plan.notes);
+    const unlisted = stoppedEarly
+      ? null
+      : unlistedCountFromPlan(outcome.plan, landedIds(outcome.landed), POST_ID_KEY);
+
+    return [
+      ...carried.filter((note) => note.code !== 'unlisted-posts'),
+      ...notes({
+        collected: 0,
+        reported: null,
+        skipped: 0,
+        unlisted,
+        stoppedEarly,
+        // Reported here rather than only on stderr. A run that filed forty posts
+        // under `undated_<id>` has said something about the archive, and the
+        // agent reading stdout is the one who tells the user.
+        undated: outcome.platform?.undated ?? 0,
+        // Counted by the run itself, for every platform, and added after this.
+        duplicates: 0,
+      }),
+    ];
+  },
+
+  refusals: {
+    badId: (id) =>
+      new Refusal(
+        'bad-account-id',
+        `the URL carried a sec_uid this skill will not use as a folder name: ${JSON.stringify(id)}`,
+        { details: { id } },
+      ),
+    // Never a refusal here. Whether a profile is empty is settled by the listing
+    // pass, which can tell an account with no posts apart from a grid that did
+    // not render — and an account whose posts are all 图文 has posts this skill
+    // cannot download yet rather than none at all, which the plan says in a note.
+    empty: () => null,
+    unidentified: () =>
+      new Refusal(
+        'no-douyin-id',
+        'the profile was readable but never showed its 抖音号, so there is no identity to file this archive under',
+      ),
+  },
+
+  /**
+   * A listing pass that did not answer, as the refusal the run gives back.
+   *
+   * A grid that renders nothing while the header still counts posts is not an
+   * empty account: it is a session Douyin has stopped accepting. The two are
+   * separate codes because only one of them is a handoff to the user.
+   */
+  collectRefusal: (failure, result) => {
+    if (failure === 'no-douyin-id') return ADAPTER.refusals.unidentified();
+
+    if (failure === 'empty-grid' && result?.reported) {
+      return new Refusal(
+        'session-expired-grid',
+        `the profile reports ${result.reported} post(s), so the grid exists but did not render — ` +
+          'almost certainly an expired session',
+        { details: { reported: result.reported }, remedy: loginRemedy(result.url) },
+      );
+    }
+
+    if (failure === 'empty-grid') {
+      return new Refusal(
+        'empty-grid',
+        'found 0 posts in the profile grid — an account can genuinely have none, and it also ' +
+          'looks like this when the saved session has expired without saying so',
+      );
+    }
+
+    const known = FAILURES[failure];
+    return new Refusal(failure, known?.message ?? `the listing pass failed: ${failure}`, {
+      remedy: known?.remedy ?? null,
+    });
+  },
+
+  /** A session the run itself gave up on, thrown away so the next one mints. */
+  discardSession: () => discardCookies(COOKIE_FILE),
+
+  progressLabel: ({ post, done, total, ok }) =>
+    ok ? `[douyin] ${done}/${total} — ${post.id}` : `[douyin] failed: ${post.id}`,
+
   login,
+  list: collect,
+  download: fetchPosts,
   playwright: loadPlaywright,
   hasSession: profileHasSession,
   mint: mintCookies,
@@ -573,12 +446,6 @@ const ADAPTER = {
     },
   },
 
-  // Douyin resolves its folder before the browser opens — the sec_uid is in the
-  // URL — counts against the profile header, and drives yt-dlp rather than
-  // gallery-dl. None of that is the shape the two gallery-dl platforms share,
-  // so it brings its own halves.
-  plan: doPlan,
-  go: doGo,
 };
 
 export const main = (argv, overrides = {}) => runAccount(ADAPTER, argv, overrides);

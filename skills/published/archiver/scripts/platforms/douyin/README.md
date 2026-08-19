@@ -71,7 +71,7 @@ account, which is the whole reason this layer sits above it.
 
 | File | Role |
 | --- | --- |
-| `run.mjs` | Douyin's adapter to the run in `shared/run.mjs`, and — because its listing is a shape the gallery-dl platforms do not share — its own plan and go. |
+| `run.mjs` | Douyin's adapter to the run in `shared/run.mjs`: what this platform is, and the handful of things it does its own way. Its listing pass fires the run's account callback before opening a browser, because the sec_uid in the URL already names the account; its download mints cookies when it reaches for them. |
 | `target.mjs` | What the user pointed at, and a post's permalink. A profile URL, or a refusal by name — a `/video/` or `/note/` URL is refused as one post, and a `v.douyin.com` share link with the one instruction that works. |
 | `collect.mjs` | Drives Playwright, scrolls the profile, and returns the account's posts. The DOM finds them; the profile-feed responses passing underneath say which are this account's and what each one is. |
 | `fetch.mjs` | Everything said to yt-dlp, and the download loop. One invocation per post, into a folder this side chose. |

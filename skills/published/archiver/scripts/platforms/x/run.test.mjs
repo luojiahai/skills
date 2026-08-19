@@ -89,7 +89,7 @@ function overrides(over = {}) {
     ...over,
     // Wrapped last, so a test's own listing still goes through the account
     // callback. That callback is what settles the folder and reads the archive,
-    // so a listing that never fired it would exercise none of doPlan's real work.
+    // so a listing that never fired it would exercise none of the listing half's real work.
     collect: async (args) => {
       const result = await listing(args);
       if (result.account && args.onAccount) await args.onAccount(result.account);
@@ -294,14 +294,20 @@ test('a run that stopped partway carries both what landed and why it stopped', a
   // Neither reported as finished, nor thrown away.
   const dir = await archivesRoot();
   const { document } = await run(['https://x.com/jack', '--archives', dir, '--yes'], {
-    fetch: async () => ({ fetched: { posts: 1, files: 1 }, failed: 0, stopped: 'rate-limited' }),
+    // One post lands and the limiter ends the rest. It is written rather than
+    // only counted, because what the run reports as downloaded is what reached
+    // the folder.
+    fetch: async ({ accountDir, posts }) => {
+      await writePost(postDir(accountDir, posts[0]), buildPost({ id: posts[0].tweetId }));
+      return { fetched: { posts: 1, files: 1 }, failed: 0, stopped: 'rate-limited' };
+    },
   });
 
   assert.equal(document.ok, false);
   assert.equal(document.error.code, 'rate-limited');
   assert.equal(document.error.remedy.run_by, 'agent');
-  assert.equal(document.result.run.downloaded, 1, 'the posts it fetched are still reported');
-  assert.equal(document.result.run.remaining, 2);
+  assert.equal(document.result.run.downloaded, 1, 'the post it landed is still reported');
+  assert.equal(document.result.run.remaining, 1, 'and the one the limiter cost it is still to do');
 });
 
 // ---- the session ------------------------------------------------------------
@@ -470,7 +476,7 @@ const tweet = (tweetId) => ({ tweetId, date: '2024-03-11T09:22:19Z', content: ''
  * so the folders that appear are the posts it was handed.
  *
  * Driven through `main` like every other test here, so the answer is the
- * validated document rather than an intermediate `doGo` returns on its way to
+ * validated document rather than an intermediate the download half returns on its way to
  * composing one.
  */
 async function go(root, { collected: seen, pending, counts } = {}) {

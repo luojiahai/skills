@@ -86,7 +86,7 @@ function overrides(over = {}) {
     ...over,
     // Wrapped last, so a test's own listing still goes through the account
     // callback. That callback is what settles the folder and reads the archive,
-    // so a listing that never fired it would exercise none of doPlan's real work.
+    // so a listing that never fired it would exercise none of the listing half's real work.
     collect: async (args) => {
       const result = await listing(args);
       if (result.account && args.onAccount) await args.onAccount(result.account);
