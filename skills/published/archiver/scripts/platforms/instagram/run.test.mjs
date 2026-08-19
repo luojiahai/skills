@@ -16,7 +16,7 @@ import { mkdir, mkdtemp, readFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
-import { main } from './run.mjs';
+import { SESSION, main } from './run.mjs';
 import { postDir } from './fetch.mjs';
 import { recordIdentity } from '../../shared/account.mjs';
 import { descriptorFor } from '../../shared/platforms.mjs';
@@ -361,18 +361,22 @@ test('a flag given no value is refused rather than dropped', async () => {
 });
 
 test('the session is resolved through the shared cookie cache, named for this platform', async () => {
+  // The cache is keyed by the descriptor, so a platform respelling its own name
+  // here would read and write somebody else's cookies.
+  assert.equal(SESSION.platform, 'instagram');
+  assert.equal(SESSION.label, 'Instagram');
+
   const dir = await archivesRoot();
   const asked = [];
   await run([PROFILE, '--archives', dir, '--browser', 'chrome', '--plan'], {
-    session: async (descriptor, options) => {
-      asked.push({ descriptor, options });
+    session: async (args) => {
+      asked.push(args);
       return '/tmp/cookies.txt';
     },
   });
 
-  assert.equal(asked[0].descriptor.platform, 'instagram');
-  assert.equal(asked[0].descriptor.label, 'Instagram');
-  assert.equal(asked[0].options.browser, 'chrome');
+  assert.equal(asked[0].opts.browser, 'chrome');
+  assert.equal(asked[0].target.url, PROFILE);
 });
 
 test('a session refusal stops the run before anything is collected', async () => {

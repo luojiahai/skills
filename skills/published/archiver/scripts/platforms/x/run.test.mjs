@@ -667,7 +667,21 @@ function streaming(ids) {
     child.stdout.on('end', () => setImmediate(() => child.emit('exit', 0)));
     return child;
   };
-  return (args) => collect({ ...args, spawnImpl });
+  // Substituted for the adapter's own `collect`, so it owes what the adapter
+  // owes: turn the run's stopping rule into the row predicate this platform's
+  // listing pass takes.
+  return ({ url, session, onAccount, stopper }) =>
+    collect({
+      url,
+      cookies: session,
+      spawnImpl,
+      onAccount: async (account) => {
+        const rule = await onAccount(account);
+        if (rule.stopNow) return () => true;
+        const stop = stopper(rule);
+        return (row) => stop(row.tweetId);
+      },
+    });
 }
 
 test('an interrupted download plus an expired plan is not reported as up to date forever', async () => {
