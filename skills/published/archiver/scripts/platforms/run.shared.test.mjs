@@ -105,11 +105,10 @@ const INSTAGRAM = {
 };
 
 /**
- * Douyin shares the run around the listing rather than the listing itself: it
- * resolves its folder before the browser opens, counts against the profile
- * header and drives yt-dlp, so it brings its own plan and go. What it does
- * share is everything outside them, which is what the outer cases below assert
- * of all three.
+ * Douyin's listing pass and downloader are substituted underneath the adapter
+ * members that wrap them, because the wrapping is this platform's own half of
+ * the run — where the account callback fires before the browser opens, and where
+ * the cookies are minted.
  */
 const DOUYIN = {
   name: 'douyin',
@@ -119,7 +118,7 @@ const DOUYIN = {
   id: 'MS4wSEC',
   boxes: ['runtime', 'tools', 'browser'],
   extra: () => ({
-    collect: async () => ({
+    list: async () => ({
       posts: [{ id: '7111', text: '', createTime: 1710144139 }],
       account: { id: 'MS4wSEC', douyin_id: 'abc123', nickname: '小明' },
       reported: 284,
@@ -128,7 +127,7 @@ const DOUYIN = {
       stoppedEarly: false,
       described: 1,
     }),
-    fetch: async ({ posts }) => ({ fetched: posts.length, failed: 0, undated: 0 }),
+    download: async ({ posts }) => ({ fetched: posts.length, failed: 0, undated: 0 }),
     playwright: async () => ({ chromium: {} }),
     login: async () => ({ ok: true }),
     hasSession: async () => true,
@@ -162,30 +161,44 @@ const collected = (bench, over = {}) => ({
 
 function overrides(bench, over = {}) {
   const extra = bench.extra?.() ?? {};
+
+  // A platform whose halves wrap something of its own has that something
+  // substituted instead, so the wrapping still runs — the account callback fires
+  // from inside it, and so does the cookie mint.
+  const wraps = Boolean(extra.list);
   const listing = over.collect ?? extra.collect ?? (async () => collected(bench));
-  return {
-    // Lands each post the way the real fetcher does — post.json written, media
-    // listed and present — because the run reports its total by asking the
-    // folder, and a fetcher that wrote nothing would be reporting on nothing.
+
+  // Lands each post the way the real fetcher does — post.json written, media
+  // listed and present — because the run reports its total by asking the folder,
+  // and a fetcher that wrote nothing would be reporting on nothing.
+  const landing = {
     fetch: async ({ accountDir, posts }) => {
       for (const post of posts) {
         await writePost(bench.postDir(accountDir, post), buildPost({ id: post[bench.idKey] }));
       }
       return { fetched: { posts: posts.length, files: posts.length }, failed: 0, stopped: null };
     },
-    onPath: async () => true,
-    session: async () => '/tmp/cookies.txt',
-    ensureEnv: async () => {},
-    ...extra,
-    ...over,
-    // Wrapped last, so a test's own listing still goes through the account
-    // callback. That callback is what settles the folder and reads the archive,
-    // so a listing that never fired it would exercise none of doPlan's real work.
+  };
+
+  // Wrapped last, so a test's own listing still goes through the account
+  // callback. That callback is what settles the folder and reads the archive, so
+  // a listing that never fired it would exercise none of the run's real work.
+  const firing = {
     collect: async (args) => {
       const result = await listing(args);
       if (result.account && args.onAccount) await args.onAccount(result.account);
       return result;
     },
+  };
+
+  return {
+    ...(wraps ? {} : landing),
+    onPath: async () => true,
+    session: async () => '/tmp/cookies.txt',
+    ensureEnv: async () => {},
+    ...extra,
+    ...over,
+    ...(wraps ? {} : firing),
   };
 }
 

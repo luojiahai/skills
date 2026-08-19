@@ -6,11 +6,12 @@
  * answers with. A platform brings an adapter and nothing here branches on
  * which one supplied it.
  *
- * Listing a Douyin profile and listing an X timeline have almost nothing in
- * common, and that is why the listing and download halves are adapter members
- * rather than fixed: `defaultPlan` and `defaultGo` below are what the two
- * gallery-dl platforms share, and Douyin brings its own. Everything either side
- * of them is the same run for all three.
+ * There is one listing half and one download half, and every platform goes
+ * through both. What differs between them — when the account's id is known, what
+ * a listing pass yields, which failures end a run — arrives as hooks the adapter
+ * brings. A platform never replaces a stage: a stage replaced is a stage whose
+ * order, writes and refusals are that platform's to get right again, and the
+ * three of them got it right differently.
  *
  * A refusal's envelope is not here: it goes through `output.mjs`, which owns
  * the document every command answers in.
@@ -299,21 +300,13 @@ export async function runAccount(base, argv, overrides = {}) {
   const planCommand = commandFor(argv, 'plan');
   const shared = { adapter, root, alias, unalias, session, planCommand, command, opts, target, url: target.url };
 
-  // The listing and the download are the platform's where it needs them to be.
-  // Douyin resolves its folder before the browser opens, counts against the
-  // profile header and drives yt-dlp; the two gallery-dl platforms share the
-  // implementations below, which is what makes them the default rather than the
-  // only shape.
-  const plan = adapter.plan ?? defaultPlan;
-  const go = adapter.go ?? defaultGo;
-
-  // Guarded like the listing half below. A platform's download half can raise
-  // a Refusal of its own — Douyin's cookie mint does — and an unguarded throw
+  // Guarded like the listing half below. A hook a platform brings can raise a
+  // Refusal of its own — Douyin's cookie mint does — and an unguarded throw
   // reaches the dispatcher as `internal-error` with a stack, where the user
   // should have been handed the code and its remedy.
   if (command === 'go') {
     try {
-      return await go({ ...shared });
+      return await runGo({ ...shared });
     } catch (error) {
       return refuseHere(refusalFields(error));
     }
@@ -321,7 +314,7 @@ export async function runAccount(base, argv, overrides = {}) {
 
   let planned;
   try {
-    planned = await plan({ ...shared, full: opts.full === true });
+    planned = await doPlan({ ...shared, full: opts.full === true });
   } catch (error) {
     const fields = refusalFields(error);
     // The remedy text says the cached session has been thrown away, and leaving
@@ -386,14 +379,14 @@ export async function runAccount(base, argv, overrides = {}) {
   }
 
   try {
-    return await go({ ...shared, dir: planned.accountDir, notes, plan: planned.plan });
+    return await runGo({ ...shared, dir: planned.accountDir, notes, plan: planned.plan });
   } catch (error) {
     return refuseHere(refusalFields(error));
   }
 }
 
-/** The default download half, and the document it answers with. */
-async function defaultGo(args) {
+/** The download half, and the document it answers with. */
+async function runGo(args) {
   return await reportRun(args, args.command, await doGo(args), {
     url: args.url,
     notes: args.notes ?? null,
@@ -408,7 +401,7 @@ async function defaultGo(args) {
  * Throws its refusals rather than composing documents. `runAccount` owns the
  * envelope, so a `--yes` emits exactly one.
  */
-async function defaultPlan({ adapter, root, alias, unalias, session, target, full }) {
+async function doPlan({ adapter, root, alias, unalias, session, target, full }) {
   const descriptor = adapter.account;
   const postIdKey = adapter.postIdKey;
 
@@ -504,7 +497,13 @@ async function defaultPlan({ adapter, root, alias, unalias, session, target, ful
       toFetch: counts.fetchPosts,
       platform: adapter.platformCounts(counts, result),
     }),
-    notes: adapter.planNotes({ incremental, result, threshold: adapter.threshold }),
+    notes: await adapter.planNotes({
+      incremental,
+      result,
+      threshold: adapter.threshold,
+      counts,
+      accountDir,
+    }),
     now: new Date(),
   });
 
@@ -583,7 +582,7 @@ async function doGo({ adapter, root, dir, alias, unalias, url, target, session, 
   // reported as a difference rather than as whatever the downloader said it did.
   const before = landedCount(archive);
 
-  const { fetched, failed, stopped } = await adapter.fetch({
+  const { fetched, failed, stopped, platform } = await adapter.fetch({
     accountDir,
     posts: todo,
     plan,
@@ -627,7 +626,12 @@ async function doGo({ adapter, root, dir, alias, unalias, url, target, session, 
   // partway, which is what makes the retry fetch only what is missing.
   if (remaining === 0) await clearPlan(accountDir);
 
-  return { plan, accountDir, fetched, downloaded, failed, stopped, remaining, total, duplicates };
+  return {
+    plan, accountDir, fetched, downloaded, failed, stopped, remaining, total, duplicates,
+    // What the archive holds now, and whatever only this platform's
+    // downloader knew. Both are read by `runNotes` and by nothing here.
+    landed, platform,
+  };
 }
 
 /**

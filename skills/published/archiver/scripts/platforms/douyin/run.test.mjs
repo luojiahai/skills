@@ -464,7 +464,13 @@ test('a run that lost posts says how many, and still says what landed', async ()
   assert.equal(document.result.run.failed, 1);
   assert.equal(document.result.run.downloaded, 1);
   assert.equal(document.result.run.remaining, 1);
-  assert.equal(document.exit, EXIT.FAILED, 'the exit shell callers have always seen');
+
+  // The run finished as asked, so it exits as one that finished. A post the
+  // downloader cannot have is counted and stepped over rather than treated as a
+  // stop, and an exit that went non-zero for one would go non-zero on every run
+  // of that account from then on, with nothing the user could do about it. What
+  // was lost is in the counts above, which is what the plan it kept is for.
+  assert.equal(document.exit, EXIT.OK);
 });
 
 test('a plan is retired by what is on disk, not by the fetcher’s own report', async () => {

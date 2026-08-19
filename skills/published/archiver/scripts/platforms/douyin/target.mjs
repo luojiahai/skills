@@ -70,7 +70,10 @@ export function parseTarget(input) {
   }
 
   const secUid = match[1];
-  return { secUid, url: `https://www.douyin.com/user/${secUid}` };
+  // `id` as well as `secUid`: the run asks a target for the account's id where
+  // the URL carries one, and goes straight to that folder rather than searching
+  // for it. `secUid` is what Douyin's own code calls the same string.
+  return { id: secUid, secUid, url: `https://www.douyin.com/user/${secUid}` };
 }
 
 /** The canonical permalink for a post, which is also how `--go` re-fetches it. */
