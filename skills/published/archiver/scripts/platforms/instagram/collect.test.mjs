@@ -231,6 +231,10 @@ function feeds(byUrl) {
   return { impl, calls, stoppers };
 }
 
+/** The run's own stopping rule, which a test standing in for the run supplies. */
+const STOPPER = ({ archive, incremental }, threshold = 2) =>
+  makeStopper({ archive, threshold, enabled: incremental });
+
 const ACCOUNT = { id: '55', username: 'someone', nickname: 'Some One' };
 const PROFILE = 'https://www.instagram.com/someone';
 
@@ -273,6 +277,7 @@ test('the account is resolved once, however many passes run', async () => {
   await collectFeeds({
     url: PROFILE,
     collectImpl: impl,
+    stopper: STOPPER,
     onAccount: () => {
       resolved += 1;
       return { archive: new Map(), incremental: true };
@@ -296,6 +301,7 @@ test('each pass gets a fresh stopper, so one feed cannot end the next', async ()
   await collectFeeds({
     url: PROFILE,
     collectImpl: impl,
+    stopper: STOPPER,
     threshold: 2,
     onAccount: () => ({ archive: archiveOf(['A', 'B']), incremental: true }),
   });

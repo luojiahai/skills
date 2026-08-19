@@ -21,7 +21,6 @@ import { spawn } from 'node:child_process';
 import readline from 'node:readline';
 
 import { outstanding } from '../../shared/landed.mjs';
-import { makeStopper } from '../../shared/run.mjs';
 import { toolPath } from '../../shared/paths.mjs';
 import { TOOL, classifyFailure, parseRow } from './gallerydl.mjs';
 import { listArgs } from '../../shared/gallerydl.mjs';
@@ -204,10 +203,10 @@ export async function collect({
  * `onAccount` fires on the first row of whichever pass names the account first —
  * which is not always the posts pass, because an account can have reels and no
  * feed posts. It answers with `{ archive, incremental }` rather than with a
- * stopper, and the stopper is built here, once per pass: the consecutive counter
- * is per feed, and one shared between them would carry a streak off the end of
- * the posts feed into the first row of the reels feed and stop it before it had
- * begun.
+ * stopper. The run hands the stopping rule over as `stopper`, a factory called
+ * once per pass: the consecutive counter is per feed, and one shared between
+ * them would carry a streak off the end of the posts feed into the first row of
+ * the reels feed and stop it before it had begun.
  *
  * A pass that fails ends the collection. The alternative is a plan whose counts
  * compare the archive against half a listing, which reads as an account being
@@ -217,6 +216,7 @@ export async function collectFeeds({
   url,
   cookies,
   onAccount,
+  stopper,
   threshold = DEFAULT_ABORT,
   bin = toolPath('gallery-dl'),
   spawnImpl = spawn,
@@ -241,7 +241,11 @@ export async function collectFeeds({
     // throwing, because a throw inside the row loop surfaces as an unexplained
     // stream failure rather than as the refusal it is.
     if (stopRule.stopNow) return () => true;
-    const stop = makeStopper({ archive: stopRule.archive, threshold, enabled: stopRule.incremental });
+    // Built per pass rather than once, because posts and reels stop
+    // independently: a streak of familiar posts proves nothing about the reels
+    // below them. The rule itself belongs to the run, which hands it over as a
+    // factory rather than as a stopper already counting.
+    const stop = stopper({ archive: stopRule.archive, incremental: stopRule.incremental });
     return (row) => stop(row.shortcode);
   };
 

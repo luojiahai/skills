@@ -1,15 +1,19 @@
 /**
- * run.mjs — the whole Douyin run: what the user asked for, in, and one document out.
+ * run.mjs — what Douyin brings to a run.
  *
  *   --login  sign in once, in a browser, and stop.
  *   --plan   collect, diff, report. Downloads nothing.
  *   --go     download exactly what the last plan listed.
  *   --yes    both, without stopping to confirm.
  *
- * All of the orchestration is here rather than in shell, and belongs here. A
- * shell function called under `||` runs with errexit off for its whole body, so
- * a refused plan prints its refusal and then keeps going — through the state
- * write and a summary telling the user to re-run the command that just failed.
+ * The run is `shared/run.mjs` — the command line, the refusal order, the
+ * folder, the envelope. `--login` is declared here as a command of this
+ * platform's own, and the run dispatches it by name without knowing what it is.
+ *
+ * The listing and download halves are also here rather than shared: the sec_uid
+ * is in the URL, so the folder is settled before the browser opens; the counts
+ * are against the profile header; and the downloader is yt-dlp. None of that is
+ * the shape the two gallery-dl platforms have in common.
  *
  * Every command answers with a single JSON document on stdout, composed by
  * `shared/output.mjs`. The scrolling chatter of a long collection goes to
@@ -24,47 +28,33 @@ import {
   answer,
   archiveCounts,
   archiveResult,
-  commandFor,
-  nothingFetched,
   planWindow,
   progress,
   quote,
   refuse,
   runCounts,
   self,
-  sharedNotes,
 } from '../../shared/output.mjs';
-import { makeStopper, pickMode, sweepIsIncremental, sweepNote, sweepStoppedEarly } from '../../shared/run.mjs';
+import { makeStopper, runAccount, sweepIsIncremental, sweepNote, sweepStoppedEarly } from '../../shared/run.mjs';
 import { hatchToolMissing, onPath } from '../../shared/tools.mjs';
-import {
-  COMMON_BOOLEAN_FLAGS,
-  COMMON_FLAGS,
-  isMainModule,
-  missingValueRefusal,
-  optString,
-  parseCommandLine,
-} from '../../shared/cli.mjs';
+import { COMMON_BOOLEAN_FLAGS, COMMON_FLAGS, isMainModule, optString } from '../../shared/cli.mjs';
 import {
   accountDirFor,
   aliasDirFor,
-  aliasShapeRefusal,
   aliasTarget,
   applyAlias,
   checkAlias,
-  clearAlias,
-  findAccountDir,
-  isSafeAlias,
-  readAccount,
+  moveToAlias,
   recordIdentity,
   resolveAccountDir,
 } from '../../shared/account.mjs';
-import { checkRoot, stampRoot } from '../../shared/archiver.mjs';
+import { stampRoot } from '../../shared/archiver.mjs';
 import { ensureEnv } from '../../shared/env.mjs';
 import { DEFAULT_ABORT, collect } from './collect.mjs';
 import { fetchPosts, outstanding } from './fetch.mjs';
 import { duplicateFolders, onDiskIds, readArchive, unlistedIds } from '../../shared/landed.mjs';
 import { login } from './login.mjs';
-import { archivesRoot, cookieFile, normalizeRoot, toolPath } from '../../shared/paths.mjs';
+import { cookieFile, toolPath } from '../../shared/paths.mjs';
 import { PLATFORM, PROFILE_DIR, discardDerivedState, loadPlaywright } from './playwright.mjs';
 import { descriptorFor, postIdKeyFor } from '../../shared/platforms.mjs';
 import {
@@ -116,262 +106,10 @@ progress goes to stderr.
 Image posts (图文) are counted and reported, but not yet downloaded:
 https://github.com/luojiahai/skills/issues/48`;
 
-/**
- * `deps` names everything this run reaches outside itself. Injected so the
- * orchestration — what is written, in what order, and what is refused before
- * anything is written at all — is testable without a browser, a network or
- * yt-dlp on the machine running the tests.
- */
-export async function main(argv, deps = {}) {
-  const {
-    collectImpl = collect,
-    fetchImpl = fetchPosts,
-    loginImpl = login,
-    playwrightImpl = loadPlaywright,
-    hasSessionImpl = profileHasSession,
-    mintImpl = mintCookies,
-    onPathImpl = onPath,
-    ensureEnvImpl = ensureEnv,
-    discardImpl = discardDerivedState,
-    freshCookiesImpl = hasFreshCookies,
-    discardCookiesImpl = discardCookies,
-  } = deps;
-
-  const { opts, positional, unknown, missing } = parseCommandLine(argv, {
-    booleans: BOOLEAN_FLAGS,
-    known: KNOWN_FLAGS,
-  });
-
-  if (opts.help || opts.h) {
-    console.log(USAGE);
-    return EXIT.OK;
-  }
-
-  // What the command line asked for, settled before the first refusal so every
-  // document says which command was being run when it stopped.
-  const command = opts.login === true ? 'login' : pickMode(opts);
-  const refuseHere = (fields) => refuse({ command, platform: PLATFORM, ...fields });
-
-  // Before the unknown-flag check, so `--alias -foo` names the flag the user
-  // mistyped rather than the value it swallowed. Refused rather than run as if it
-  // had not been typed, which would archive the account under its id and report
-  // that as a success.
-  if (missing.length) return refuseHere(refusalFields(missingValueRefusal(missing[0])));
-
-  // Whatever the user typed is passed through as given, so an unknown flag is
-  // their typo to see rather than something for the agent to guess at.
-  if (unknown.length) {
-    return refuseHere({
-      code: 'unknown-flag',
-      message: `unknown option '${unknown[0]}'`,
-      details: { flag: unknown[0] },
-    });
-  }
-
-  const url = positional[0];
-  if (!url) {
-    console.error(USAGE);
-    return refuseHere({ code: 'no-url', message: 'no URL given' });
-  }
-
-  // Settled before the archives root, before the preflight, before anything is
-  // read or written, because refusing a URL needs nothing installed.
-  let target;
-  try {
-    target = parseTarget(url);
-  } catch (error) {
-    return refuseHere(refusalFields(error));
-  }
-
-  const profileDir = optString(opts, 'profile') || PROFILE_DIR;
-
-  // The state directory holds what must survive the skill being replaced, and a
-  // dependency tree is not that. Cleared before the build rather than after, so
-  // a machine that declines the download or has no network is not left carrying
-  // a hundred megabytes it will never read again.
-  await discardImpl();
-
-  // The tools this platform runs on, built before the first one is reached and
-  // never at dispatch — a mistyped flag and a refusable URL have both already
-  // been answered above, without a byte being downloaded. Signing in needs the
-  // browser and nothing else; everything else needs yt-dlp too.
-  try {
-    await ensureEnvImpl(
-      command === 'login' ? ['runtime', 'browser'] : ['runtime', 'tools', 'browser'],
-      { platform: PLATFORM },
-    );
-  } catch (error) {
-    return refuseHere(refusalFields(error));
-  }
-
-  // Playwright drives the browser for both signing in and collecting, so it is
-  // needed on every path past here.
-  let chromium;
-  try {
-    ({ chromium } = await playwrightImpl());
-  } catch (error) {
-    return refuseHere(refusalFields(error));
-  }
-
-  if (command === 'login') {
-    const outcome = await loginImpl({ url: target.url, profileDir, launch: chromium });
-    if (outcome.ok) return answer({ command, platform: PLATFORM, result: { profile_dir: profileDir } });
-    return refuseHere({
-      code: outcome.code,
-      message: `${outcome.reason} — nothing was archived`,
-      details: outcome.details ?? null,
-      remedy: { message: 'sign in to Douyin in the browser this opens, and say when it is done', run_by: 'user' },
-    });
-  }
-
-  // Answers only under the escape hatch, where the machine's own yt-dlp is being
-  // used and can simply not be there. Off it the box holds yt-dlp, and a box
-  // that could not be built has already refused above.
-  const noYtDlp = await hatchToolMissing(
-    toolPath('yt-dlp'),
-    { install: 'uv tool install yt-dlp', docs: 'https://github.com/yt-dlp/yt-dlp#installation' },
-    onPathImpl,
-  );
-  if (noYtDlp) return refuseHere(refusalFields(noYtDlp));
-
-  const alias = optString(opts, 'alias');
-  const unalias = opts.unalias === true;
-
-  if (alias && unalias) {
-    return refuseHere({
-      code: 'alias-and-unalias',
-      message: '--alias and --unalias ask for opposite things',
-    });
-  }
-
-  // The shape of an alias needs no filesystem and no browser, so a typo is
-  // refused here rather than after a full profile scroll.
-  if (alias && !isSafeAlias(alias)) return refuseHere(refusalFields(aliasShapeRefusal(alias)));
-
-  let root;
-  try {
-    const given = optString(opts, 'archives');
-    root = given ? normalizeRoot(given) : archivesRoot();
-  } catch (error) {
-    return refuseHere(refusalFields(error));
-  }
-
-  // Before the session, before the first request, before anything is written:
-  // an archive this build cannot read must cost nothing to discover. With no
-  // old-layout detection behind it, this refusal is the only thing standing
-  // between a version mismatch and a silent full re-download.
-  try {
-    await checkRoot(root);
-  } catch (error) {
-    return refuseHere(refusalFields(error));
-  }
-
-  // Everything an alias can be refused for except "it is already yours" needs
-  // only the archives root, so it is decided before the browser opens. The
-  // sec_uid is in the URL, so this run always knows whose account it is.
-  if (alias) {
-    // No handle: the URL carries a sec_uid, and the 抖音号 only arrives with the
-    // listing. The alias and the URL are what can be matched before then.
-    const existing = await findAccountDir(ACCOUNT, root, { url: target.url, alias });
-    const verdict = await checkAlias(ACCOUNT, root, {
-      id: existing ? ((await readAccount(existing))?.account?.id ?? null) : target.secUid,
-      alias,
-    });
-    if (!verdict.ok) return refuseHere(refusalFields(verdict.refusal));
-  }
-
-  // A cookie in the profile proves a sign-in happened. It does not prove Douyin
-  // still accepts it — an expired-but-present session is caught later, by a grid
-  // that renders nothing — but its absence is knowable now, and turns a
-  // confusing half-minute into an instant, correct answer.
-  //
-  // A live cookies.txt answers it without opening anything, which is the whole
-  // point of caching the file: reading the profile means launching Chromium, and
-  // a --go that did that would be paying the cost of having no cache at all.
-  const cached = await freshCookiesImpl(COOKIE_FILE);
-  if (!cached && !(await hasSessionImpl(profileDir, { launch: chromium }))) {
-    return refuseHere({
-      code: 'session-missing',
-      message: `no Douyin session in ${profileDir}`,
-      details: { profile_dir: profileDir },
-      remedy: loginRemedy(url),
-    });
-  }
-
-  const planCommand = commandFor(argv, 'plan');
-
-  // Guarded like doPlan below it. Inside, mintCookies raises `session-empty` and
-  // launchPersistentContext throws on a locked or corrupt profile — and an
-  // unguarded throw reaches the dispatcher as `internal-error` with a stack,
-  // where the user should have been handed the code and its remedy.
-  if (command === 'go') {
-    try {
-      return await doGo({
-        command, root, target, alias, unalias, profileDir, chromium, planCommand, fetchImpl, mintImpl,
-        freshImpl: freshCookiesImpl, discardImpl: discardCookiesImpl,
-      });
-    } catch (error) {
-      return refuseHere(refusalFields(error));
-    }
-  }
-
-  let planned;
-  try {
-    planned = await doPlan({
-      root, target, alias, unalias, profileDir, chromium, collectImpl, full: opts.full === true,
-    });
-  } catch (error) {
-    return refuseHere(refusalFields(error));
-  }
-
-  const described = (extra) =>
-    archiveResult({
-      account: accountFields(ACCOUNT, planned.plan.account, target.url),
-      dir: planned.accountDir,
-      root,
-      counts: planned.plan.counts,
-      notes: planned.notes,
-      plan: planWindow({ createdAt: planned.plan.created_at, ttlHours: DEFAULT_TTL_HOURS }),
-      ...extra,
-    });
-
-  if (command === 'plan') {
-    return answer({ command, platform: PLATFORM, result: described({ nextFor: argv }) });
-  }
-
-  if (planned.plan.counts.to_fetch === 0) {
-    return answer({
-      command,
-      platform: PLATFORM,
-      result: described({ run: nothingFetched(planned.plan.counts) }),
-    });
-  }
-
-  try {
-    return await doGo({
-      command, root, target, alias, unalias, profileDir, chromium, planCommand, fetchImpl, mintImpl,
-      freshImpl: freshCookiesImpl, discardImpl: discardCookiesImpl,
-      // A --yes has just announced a rename or a moved root; it must still say so
-      // now the user is past being asked.
-      announced: planned.announced,
-      plan: planned.plan,
-    });
-  } catch (error) {
-    return refuseHere(refusalFields(error));
-  }
-}
-
-/** The one handoff in this skill only a person can complete. */
-function loginRemedy(url) {
-  return {
-    message: "only a human can pass Douyin's login — sign in once in the browser this opens",
-    command: `${self()} ${quote(url)} --login`,
-    run_by: 'user',
-  };
-}
-
 /** Collect the account, diff it against disk, park the plan. */
-async function doPlan({ root, target, alias, unalias, profileDir, chromium, collectImpl, full }) {
+async function doPlan({ adapter, root, target, alias, unalias, session, full }) {
+  const { collect } = adapter;
+  const { chromium, profileDir } = session;
   // Settled before the browser opens, which it can be here and cannot on the
   // other platforms: the sec_uid is in the URL, so whose account this is does
   // not have to wait for the listing to name it.
@@ -396,7 +134,7 @@ async function doPlan({ root, target, alias, unalias, profileDir, chromium, coll
   });
 
   progress('[douyin] collecting post IDs…');
-  const listing = await collectImpl({
+  const listing = await collect({
     url: target.url,
     secUid: target.secUid,
     profileDir,
@@ -518,21 +256,18 @@ async function doPlan({ root, target, alias, unalias, profileDir, chromium, coll
   // Facts about this run rather than about the profile, so they are worked out
   // the same way on both platforms and kept apart from the plan's own notes —
   // which a --go recomposes from the numbers, and these cannot be.
-  const announced = sharedNotes({
-    dir: accountDir,
-    movingTo: aliasTarget(ACCOUNT, root, { id: target.secUid, alias, unalias }),
-    root,
-    previousRoot: lastRoot,
-  });
+  const movingTo = aliasTarget(ACCOUNT, root, { id: target.secUid, alias, unalias });
 
-  return { plan, accountDir, announced, notes: [...announced, ...plan.notes] };
+  return { plan, accountDir, previousRoot: lastRoot, movingTo };
 }
 
 /** Download the plan that was approved. No collection, no browser. */
 async function doGo({
-  command, root, target, alias, unalias, profileDir, chromium, planCommand, fetchImpl, mintImpl,
-  freshImpl, discardImpl, announced = [], plan: made = null,
+  adapter, command, root, target, alias, unalias, session, planCommand,
+  notes: announced = [], plan: made = null,
 }) {
+  const { fetch, mint, freshCookies, discardCookies } = adapter;
+  const { chromium, profileDir } = session;
   const refuseHere = (fields) => refuse({ command, platform: PLATFORM, ...fields });
 
   // resolveAccountDir returns a folder only once account.json there names this
@@ -565,7 +300,7 @@ async function doGo({
   // its final home. A rename between --plan and --go invalidates nothing,
   // because a plan records the archives root and the account, never the folder.
   try {
-    accountDir = await moveIfAsked({ root, alias, unalias, secUid: target.secUid, accountDir });
+    accountDir = await moveToAlias(ACCOUNT, root, accountDir, { id: target.secUid, alias, unalias });
   } catch (error) {
     return refuseHere(refusalFields(error));
   }
@@ -598,21 +333,21 @@ async function doGo({
     // not. Minting reads the Playwright profile, which means launching
     // Chromium — the slowest thing in the skill — so minting on every --go is
     // paying the whole cost of having no cache at all.
-    const cookies = (await freshImpl(COOKIE_FILE))
+    const cookies = (await freshCookies(COOKIE_FILE))
       ? COOKIE_FILE
-      : await mintImpl(profileDir, COOKIE_FILE, { launch: chromium });
-    ({ fetched, failed, undated, stopped, sessionStale } = await fetchImpl({
+      : await mint(profileDir, COOKIE_FILE, { launch: chromium });
+    ({ fetched, failed, undated, stopped, sessionStale } = await fetch({
       accountDir,
       posts: pending,
       cookies,
-      refreshCookies: () => mintImpl(profileDir, COOKIE_FILE, { launch: chromium }),
+      refreshCookies: () => mint(profileDir, COOKIE_FILE, { launch: chromium }),
       log: progress,
     }));
   }
 
   // A session even the re-mint could not rescue is thrown away rather than read
   // back next run, which would fail in exactly the same way forever.
-  if (sessionStale || stopped === 'session-rejected') await discardImpl(COOKIE_FILE);
+  if (sessionStale || stopped === 'session-rejected') await discardCookies(COOKIE_FILE);
 
   const landed = await onDiskIds(accountDir);
   const total = landed.size;
@@ -733,11 +468,120 @@ const FAILURES = {
   },
 };
 
-async function moveIfAsked({ root, alias, unalias, secUid, accountDir }) {
-  if (unalias) return (await clearAlias(ACCOUNT, root, { id: secUid })) ?? accountDir;
-  if (alias) return (await applyAlias(ACCOUNT, root, { id: secUid, alias })) ?? accountDir;
-  return accountDir;
+
+/** The one handoff in this skill only a person can complete. */
+function loginRemedy(url) {
+  return {
+    message: "only a human can pass Douyin's login — sign in once in the browser this opens",
+    command: `${self()} ${quote(url)} --login`,
+    run_by: 'user',
+  };
 }
+
+const ADAPTER = {
+  platform: PLATFORM,
+  account: ACCOUNT,
+  postIdKey: POST_ID_KEY,
+  usage: USAGE,
+  booleans: BOOLEAN_FLAGS,
+  flags: KNOWN_FLAGS,
+  threshold: DEFAULT_ABORT,
+
+  parseTarget,
+  collect,
+  fetch: fetchPosts,
+  login,
+  playwright: loadPlaywright,
+  hasSession: profileHasSession,
+  mint: mintCookies,
+  freshCookies: hasFreshCookies,
+  discardCookies,
+  discardDerivedState,
+  onPath,
+
+  // Signing in needs the browser and nothing else; everything else needs yt-dlp
+  // too. Nobody who only archives X ever downloads Chromium, and nobody signing
+  // in to Douyin downloads a downloader they will not reach.
+  boxes: (command) => (command === 'login' ? ['runtime', 'browser'] : ['runtime', 'tools', 'browser']),
+
+  /**
+   * The tool boxes this run needs.
+   *
+   * The state directory holds what must survive the skill being replaced, and a
+   * dependency tree is not that. Cleared before the build rather than after, so
+   * a machine that declines the download or has no network is not left carrying
+   * a hundred megabytes it will never read again.
+   */
+  ensureEnv: async (boxes, { platform, adapter }) => {
+    await adapter.discardDerivedState();
+    await ensureEnv(boxes, { platform });
+  },
+
+  // Answers only under the escape hatch, where the machine's own yt-dlp is
+  // being used and can simply not be there.
+  preflight: (adapter) =>
+    hatchToolMissing(
+      toolPath('yt-dlp'),
+      { install: 'uv tool install yt-dlp', docs: 'https://github.com/yt-dlp/yt-dlp#installation' },
+      adapter.onPath,
+    ),
+
+  /**
+   * Whether there is a session to archive on, and the browser to use it with.
+   *
+   * A cookie in the profile proves a sign-in happened. It does not prove Douyin
+   * still accepts it — an expired-but-present session is caught later, by a grid
+   * that renders nothing — but its absence is knowable now, and turns a
+   * confusing half-minute into an instant, correct answer.
+   *
+   * A live cookies.txt answers it without opening anything, which is the whole
+   * point of caching the file: reading the profile means launching Chromium,
+   * and a --go that did that would be paying the cost of having no cache at all.
+   */
+  session: async ({ opts, target, adapter }) => {
+    const profileDir = optString(opts, 'profile') || PROFILE_DIR;
+    // Loaded here rather than with the boxes, so substituting the environment
+    // in a test does not silently substitute the browser driver with it.
+    const { chromium } = await adapter.playwright();
+    const cached = await adapter.freshCookies(COOKIE_FILE);
+    if (!cached && !(await adapter.hasSession(profileDir, { launch: chromium }))) {
+      throw new Refusal('session-missing', `no Douyin session in ${profileDir}`, {
+        details: { profile_dir: profileDir },
+        remedy: loginRemedy(target.url),
+      });
+    }
+    return { chromium, profileDir };
+  },
+
+  commands: {
+    login: async ({ target, opts, refuseHere, adapter }) => {
+      const profileDir = optString(opts, 'profile') || PROFILE_DIR;
+      const { chromium } = await adapter.playwright();
+      const outcome = await adapter.login({ url: target.url, profileDir, launch: chromium });
+      if (outcome.ok) {
+        return answer({ command: 'login', platform: PLATFORM, result: { profile_dir: profileDir } });
+      }
+      return refuseHere({
+        code: outcome.code,
+        message: `${outcome.reason} — nothing was archived`,
+        details: outcome.details ?? null,
+        remedy: {
+          message: 'sign in to Douyin in the browser this opens, and say when it is done',
+          run_by: 'user',
+        },
+      });
+    },
+  },
+
+  // Douyin resolves its folder before the browser opens — the sec_uid is in the
+  // URL — counts against the profile header, and drives yt-dlp rather than
+  // gallery-dl. None of that is the shape the two gallery-dl platforms share,
+  // so it brings its own halves.
+  plan: doPlan,
+  go: doGo,
+};
+
+export const main = (argv, overrides = {}) => runAccount(ADAPTER, argv, overrides);
 
 if (isMainModule(import.meta.url)) {
   process.exitCode = await main(process.argv.slice(2));

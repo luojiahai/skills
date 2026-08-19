@@ -156,13 +156,13 @@ filename format.
 
 ## Files
 
-**This skill archives; gallery-dl downloads.** `archive.sh` and `run.mjs` own the
+**This skill archives; gallery-dl downloads.** `archive.sh` and the run own the
 account — folder, plan, what is already on disk — and `gallerydl.mjs` owns what
 is said to the tool and how its output is read back.
 
 | File | Role |
 | --- | --- |
-| `run.mjs` | The whole run: flags, target, session, root, folder, plan, go, and the one document it answers with. |
+| `run.mjs` | X's adapter to the run in `shared/run.mjs`: the usage prose, the flags, the boxes, the preflight, the session, the listing pass and the fetch. |
 | `target.mjs` | The account a URL names, and a post's permalink. Everything else on x.com — a single post included — is refused rather than read as an account. |
 | `collect.mjs` | The collection pass: drives gallery-dl, reads rows as they arrive, decides when enough of the timeline has been seen, and folds per-file rows into posts. |
 | `fetch.mjs` | Downloads a list of posts, one gallery-dl invocation each, writing each post's `post.json` before its media. |

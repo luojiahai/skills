@@ -26,7 +26,7 @@ platforms are threaded with a descriptor where they differ.
 | `session.mjs` | The browser session a gallery-dl platform runs on, as a cookies.txt: where it is cached, how it is minted, and when it is thrown away. Takes a descriptor, because the platform's name and its label in a refusal are the only things that vary. |
 | `tools.mjs` | Whether a downloader is on PATH, and the refusal when it is not. Reachable only through the `ARCHIVER_SYSTEM_TOOLS` escape hatch. |
 | `subprocess.mjs` | Running a downloader and reading what it said, so every platform answers "what did it exit with" the same way — including for a process that never started. |
-| `run.mjs` | The decisions every platform's run makes identically: which mode a command line asked for, so `--yes` outranks a `--plan` appended after it, whether a re-run may stop once it recognises enough posts and the streak rule it stops on, and the `sweep` note saying which of the two it did. Each platform's threshold stays with the platform, because it is a claim about that platform's reordering. |
+| `run.mjs` | **The run itself**, for whichever platform asked: what the command line meant, the order refusals are reached in, where the account folder is, what `--go` may act on, and the one document it all answers with. What differs arrives as the platform's adapter, and nothing here branches on which one supplied it. The listing and download halves are adapter members with the implementations here as their default. |
 
 ## The archive every platform writes
 
@@ -133,8 +133,8 @@ partway, so a retry re-fetches only what is missing.
 never reaches for it — an agent asks — but it outranks a `--plan` or `--go` that
 comes after it on the command line, so a user who typed it keeps their
 pre-authorisation when the skill appends its own mode flag. Last-one-wins would
-take that back. `pickMode` here in `shared/run.mjs` is the one implementation,
-and every platform imports it.
+take that back. `pickMode` is settled inside `shared/run.mjs`, once, for every
+platform's run.
 
 ## One envelope
 

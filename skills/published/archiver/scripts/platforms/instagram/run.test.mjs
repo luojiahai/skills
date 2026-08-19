@@ -1,10 +1,14 @@
 /**
- * Tests for run.mjs — the orchestration.
+ * Tests for Instagram's adapter, through the run it plugs into.
+ *
+ * What every platform's run does the same is asserted of all of them in
+ * `../run.shared.test.mjs`. What is here is Instagram's own: its counts, its
+ * refusal codes, the shape of its listing.
  *
  * `main()` is exercised in-process rather than through archive.sh, which is how
- * the dispatcher reaches it, with the collector, the fetcher, the tool preflight
- * and the session all injected — so these assert on the run's decisions rather
- * than on what happens to be installed.
+ * the dispatcher reaches it, with the listing pass, the fetch, the tool
+ * preflight and the session all substituted by name — so these assert on the
+ * run's decisions rather than on what happens to be installed.
  *
  * Every run goes through `emitted`, which takes the one document off stdout and
  * validates it against the output schema.
@@ -64,26 +68,26 @@ const collected = (over = {}) => ({
   ...over,
 });
 
-function deps(over = {}) {
-  const listing = over.collectImpl ?? (async () => collected());
+function overrides(over = {}) {
+  const listing = over.collect ?? (async () => collected());
   return {
     // Lands each post the way the real fetcher does — post.json written, media
     // listed and present — because the run reports its total by asking the
     // folder, and a fetcher that wrote nothing would be reporting on nothing.
-    fetchImpl: async ({ accountDir, posts }) => {
+    fetch: async ({ accountDir, posts }) => {
       for (const post of posts) {
         await writePost(postDir(accountDir, post), buildPost({ id: post.shortcode }));
       }
       return { fetched: { posts: posts.length, files: posts.length }, failed: 0, stopped: null };
     },
-    onPathImpl: async () => true,
-    cookiesImpl: async () => '/tmp/cookies.txt',
-    ensureEnvImpl: async () => {},
+    onPath: async () => true,
+    session: async () => '/tmp/cookies.txt',
+    ensureEnv: async () => {},
     ...over,
     // Wrapped last, so a test's own listing still goes through the account
     // callback. That callback is what settles the folder and reads the archive,
     // so a listing that never fired it would exercise none of doPlan's real work.
-    collectImpl: async (args) => {
+    collect: async (args) => {
       const result = await listing(args);
       if (result.account && args.onAccount) await args.onAccount(result.account);
       return result;
@@ -91,7 +95,7 @@ function deps(over = {}) {
   };
 }
 
-const run = (argv, over = {}) => emitted(main, argv, deps(over));
+const run = (argv, over = {}) => emitted(main, argv, overrides(over));
 
 const noteWith = (document, code) => document.result.notes.find((note) => note.code === code);
 const notesWith = (document, code) => document.result.notes.filter((note) => note.code === code);
@@ -124,7 +128,7 @@ test("the account arrives as fields, with Instagram's own readable handle", asyn
 test("Instagram's own numbers nest inside the counts", async () => {
   const dir = await archivesRoot();
   const { document } = await run([PROFILE, '--archives', dir, '--plan'], {
-    collectImpl: async () => collected({ rows: [row('AAA'), row('BBB', { category: 'reels', ext: 'mp4' })] }),
+    collect: async () => collected({ rows: [row('AAA'), row('BBB', { category: 'reels', ext: 'mp4' })] }),
   });
 
   assert.equal(document.result.counts.found, 2);
@@ -156,7 +160,7 @@ test('a re-run that stopped partway through one feed says which feed', async () 
   await run([PROFILE, '--archives', dir, '--yes']);
 
   const { document } = await run([PROFILE, '--archives', dir, '--plan'], {
-    collectImpl: async () =>
+    collect: async () =>
       collected({
         sweeps: [
           { category: 'posts', stoppedEarly: false },
@@ -202,12 +206,12 @@ test('a run never approves a post it will not then fetch', async () => {
 
   // One post fully landed by a first run, one that has never been seen.
   await run([PROFILE, '--archives', dir, '--yes'], {
-    collectImpl: async () => collected({ rows: [row('AAA')] }),
+    collect: async () => collected({ rows: [row('AAA')] }),
   });
 
   const { document } = await run([PROFILE, '--archives', dir, '--yes'], {
-    collectImpl: async () => collected({ rows: [row('AAA'), row('BBB')] }),
-    fetchImpl: async ({ accountDir, posts }) => {
+    collect: async () => collected({ rows: [row('AAA'), row('BBB')] }),
+    fetch: async ({ accountDir, posts }) => {
       handed = posts.map((post) => post.shortcode);
       for (const post of posts) {
         await writePost(postDir(accountDir, post), buildPost({ id: post.shortcode }));
@@ -245,11 +249,11 @@ test('a post folder carries the shortcode, and is read back as one', async () =>
   // read back is a post re-downloaded on every run forever.
   const dir = await archivesRoot();
   await run([PROFILE, '--archives', dir, '--yes'], {
-    collectImpl: async () => collected({ rows: [row('C3xY-_9Ab')] }),
+    collect: async () => collected({ rows: [row('C3xY-_9Ab')] }),
   });
 
   const { document } = await run([PROFILE, '--archives', dir, '--plan'], {
-    collectImpl: async () => collected({ rows: [row('C3xY-_9Ab')] }),
+    collect: async () => collected({ rows: [row('C3xY-_9Ab')] }),
   });
   assert.equal(document.result.counts.on_disk, 1);
   assert.equal(document.result.counts.to_fetch, 0);
@@ -283,7 +287,7 @@ test('a rate limit, a rejected session and a checkpoint are three codes', async 
     ['checkpoint-required', EXIT.UNAUTHORIZED],
   ]) {
     const { document } = await run([PROFILE, '--archives', dir, '--plan'], {
-      collectImpl: async () => collected({ failure, rows: [], account: null }),
+      collect: async () => collected({ failure, rows: [], account: null }),
     });
     assert.equal(document.error.code, failure, failure);
     assert.equal(document.exit, exit, failure);
@@ -298,8 +302,8 @@ test('a checkpoint keeps the cached session, and a rejection throws it away', as
 
   for (const failure of ['checkpoint-required', 'session-rejected']) {
     await run([PROFILE, '--archives', dir, '--plan'], {
-      collectImpl: async () => collected({ failure, rows: [], account: null }),
-      cookiesImpl: async () => {
+      collect: async () => collected({ failure, rows: [], account: null }),
+      session: async () => {
         discarded.push('read');
         return '/tmp/cookies.txt';
       },
@@ -307,7 +311,7 @@ test('a checkpoint keeps the cached session, and a rejection throws it away', as
   }
 
   const { document } = await run([PROFILE, '--archives', dir, '--plan'], {
-    collectImpl: async () => collected({ failure: 'checkpoint-required', rows: [], account: null }),
+    collect: async () => collected({ failure: 'checkpoint-required', rows: [], account: null }),
   });
   assert.match(document.error.remedy.message, /clear the prompt/i);
   assert.equal(document.error.remedy.run_by, 'user');
@@ -318,7 +322,7 @@ test('zero posts is its own refusal, never "up to date"', async () => {
   // A private account and one that has posted nothing are the same silence.
   const dir = await archivesRoot();
   const { document } = await run([PROFILE, '--archives', dir, '--plan'], {
-    collectImpl: async () => collected({ rows: [], account: null }),
+    collect: async () => collected({ rows: [], account: null }),
   });
 
   assert.equal(document.error.code, 'empty');
@@ -328,7 +332,7 @@ test('zero posts is its own refusal, never "up to date"', async () => {
 test('an account id that could not be a folder name stops the run', async () => {
   const dir = await archivesRoot();
   const { document } = await run([PROFILE, '--archives', dir, '--plan'], {
-    collectImpl: async ({ onAccount }) => {
+    collect: async ({ onAccount }) => {
       // What the collector is told is "stop now", which it turns into a stopper
       // that fires on the first row — a throw inside the row loop would surface
       // as an unexplained stream failure rather than as the refusal it is.
@@ -361,29 +365,32 @@ test('a flag given no value is refused rather than dropped', async () => {
 });
 
 test('the session is resolved through the shared cookie cache, named for this platform', async () => {
+  // The descriptor the cache is keyed by comes from the registry, through the
+  // gallery-dl defaults — there is nowhere here to respell it and read somebody
+  // else's cookies. What is asserted here is that the flags reach the step that
+  // uses it.
   const dir = await archivesRoot();
   const asked = [];
   await run([PROFILE, '--archives', dir, '--browser', 'chrome', '--plan'], {
-    cookiesImpl: async (descriptor, options) => {
-      asked.push({ descriptor, options });
+    session: async (args) => {
+      asked.push(args);
       return '/tmp/cookies.txt';
     },
   });
 
-  assert.equal(asked[0].descriptor.platform, 'instagram');
-  assert.equal(asked[0].descriptor.label, 'Instagram');
-  assert.equal(asked[0].options.browser, 'chrome');
+  assert.equal(asked[0].opts.browser, 'chrome');
+  assert.equal(asked[0].target.url, PROFILE);
 });
 
 test('a session refusal stops the run before anything is collected', async () => {
   const dir = await archivesRoot();
   const { document } = await run([PROFILE, '--archives', dir, '--plan'], {
-    cookiesImpl: async () => {
+    session: async () => {
       throw new Refusal('no-session-source', 'no saved Instagram session yet', {
         details: { browsers: ['chrome'] },
       });
     },
-    collectImpl: async () => assert.fail('nothing may be collected without a session'),
+    collect: async () => assert.fail('nothing may be collected without a session'),
   });
 
   assert.equal(document.error.code, 'no-session-source');
@@ -393,7 +400,7 @@ test('Instagram asks for no browser box, so nobody downloads Chromium for it', a
   const dir = await archivesRoot();
   let asked = null;
   await run([PROFILE, '--archives', dir, '--plan'], {
-    ensureEnvImpl: async (boxes, { platform }) => {
+    ensureEnv: async (boxes, { platform }) => {
       asked = { boxes, platform };
     },
   });
@@ -420,7 +427,7 @@ test('an alias renames on the download step, and is announced before it happens'
   // Archived first under its id, so the alias is a move rather than a name
   // chosen at creation. The second run finds one more post, so there is
   // something for the --go to act on.
-  const first = { collectImpl: async () => collected({ rows: [row('AAA')] }) };
+  const first = { collect: async () => collected({ rows: [row('AAA')] }) };
   await run([PROFILE, '--archives', dir, '--yes'], first);
 
   const { document: planned } = await run([PROFILE, '--archives', dir, '--alias', 'them', '--plan']);
