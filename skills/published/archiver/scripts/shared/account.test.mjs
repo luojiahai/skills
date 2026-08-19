@@ -6,28 +6,39 @@ import test from 'node:test';
 
 import {
   ACCOUNT_VERSION,
+  checkAlias,
+  checkAliasShape,
+  confirmAlias,
+  fileAccount,
+  findFolder,
+  folders,
+  internals,
+  recordIdentity,
+  settleFolder,
+} from './account.mjs';
+
+/**
+ * The seams inside the module, which most of this file drives directly.
+ *
+ * The entries above are what a run and a listing ask of an account folder; these
+ * are the rules underneath them — the resolution order, the merge, the alias
+ * protocol — each worth an assertion of its own rather than a longer setup
+ * through an entry that happens to reach it.
+ */
+const {
   accountDirFor,
   aliasDirFor,
   applyAlias,
-  checkAlias,
-  checkAliasShape,
   clearAlias,
-  confirmAlias,
   existingIds,
-  fileAccount,
-  findAccountDir,
-  folders,
-  findFolder,
   isSafeAlias,
   isSafeId,
   mergeAccount,
   platformDir,
   readAccount,
-  recordIdentity,
   resolveAccountDir,
-  settleFolder,
   writeAccount,
-} from './account.mjs';
+} = internals;
 import { readAliases, writeAlias } from './archiver.mjs';
 import { descriptorFor } from './platforms.mjs';
 
@@ -40,6 +51,9 @@ const ACCOUNT = descriptorFor('x');
 const PLATFORM = ACCOUNT.platform;
 
 const root = () => mkdtemp(path.join(os.tmpdir(), 'x-account-'));
+
+/** Where a lookup landed, for the cases that are about the folder and not its identity. */
+const dirOf = (folder) => folder?.dir ?? null;
 
 async function seed(dir, folderName, json) {
   const folder = path.join(dir, PLATFORM, folderName);
@@ -153,41 +167,41 @@ test('readAccount reads nothing as null rather than failing', async () => {
   assert.equal(await readAccount(path.join(await root(), 'x', 'nobody')), null);
 });
 
-test('findAccountDir finds the folder --go is looking for by the URL it was made from', async () => {
+test('finding a folder finds the folder --go is looking for by the URL it was made from', async () => {
   const dir = await root();
   const folder = await seed(dir, '55', { account: { id: '55', handle: 'oldhandle' }, url: 'https://x.com/newhandle' });
-  assert.equal(await findAccountDir(ACCOUNT, dir, { url: 'https://x.com/newhandle' }), folder);
+  assert.equal(dirOf(await findFolder(ACCOUNT, dir, { url: 'https://x.com/newhandle' })), folder);
 });
 
-test('findAccountDir takes the alias as a path before it scans anything', async () => {
+test('finding a folder takes the alias as a path before it scans anything', async () => {
   const dir = await root();
   const folder = await seed(dir, 'jia', { account: { id: '55', handle: 'someone', alias: 'jia' } });
-  assert.equal(await findAccountDir(ACCOUNT, dir, { alias: 'jia' }), folder);
+  assert.equal(dirOf(await findFolder(ACCOUNT, dir, { alias: 'jia' })), folder);
 });
 
-test('findAccountDir falls back through the mapping when the alias path is empty', async () => {
+test('finding a folder falls back through the mapping when the alias path is empty', async () => {
   // The mapping says the folder is aliased; the folder on disk is not. That is a
   // stale cache line, and a scan is what it costs.
   const dir = await root();
   const folder = await seed(dir, '55', { account: { id: '55', handle: 'someone' } });
   await writeAlias(dir, PLATFORM, '55', 'jia');
-  assert.equal(await findAccountDir(ACCOUNT, dir, { alias: 'jia' }), folder);
+  assert.equal(dirOf(await findFolder(ACCOUNT, dir, { alias: 'jia' })), folder);
 });
 
-test('findAccountDir falls back to the alias inside account.json, then to the handle', async () => {
+test('finding a folder falls back to the alias inside account.json, then to the handle', async () => {
   const dir = await root();
   const byAlias = await seed(dir, '55', { account: { id: '55', handle: 'someone', alias: 'work' } });
   const byHandle = await seed(dir, '66', { account: { id: '66', handle: 'other' } });
 
-  assert.equal(await findAccountDir(ACCOUNT, dir, { alias: 'work' }), byAlias);
-  assert.equal(await findAccountDir(ACCOUNT, dir, { handle: 'other' }), byHandle);
+  assert.equal(dirOf(await findFolder(ACCOUNT, dir, { alias: 'work' })), byAlias);
+  assert.equal(dirOf(await findFolder(ACCOUNT, dir, { handle: 'other' })), byHandle);
 });
 
 test('an alias outranks a handle that happens to match another account', async () => {
   const dir = await root();
   await seed(dir, '66', { account: { id: '66', handle: 'work' } });
   const aliased = await seed(dir, '55', { account: { id: '55', handle: 'someone', alias: 'work' } });
-  assert.equal(await findAccountDir(ACCOUNT, dir, { alias: 'work', handle: 'work' }), aliased);
+  assert.equal(dirOf(await findFolder(ACCOUNT, dir, { alias: 'work', handle: 'work' })), aliased);
 });
 
 test('a file from a version this build cannot read is not an archive', async () => {
@@ -198,18 +212,18 @@ test('a file from a version this build cannot read is not an archive', async () 
     path.join(folder, 'account.json'),
     JSON.stringify({ version: ACCOUNT_VERSION + 1, account: { id: '55', handle: 'someone' } }),
   );
-  assert.equal(await findAccountDir(ACCOUNT, dir, { handle: 'someone' }), null);
+  assert.equal(dirOf(await findFolder(ACCOUNT, dir, { handle: 'someone' })), null);
 });
 
-test('findAccountDir is null for a root nothing has been archived into', async () => {
-  assert.equal(await findAccountDir(ACCOUNT, await root(), { handle: 'someone' }), null);
-  assert.equal(await findAccountDir(ACCOUNT, '/no/such/root', { handle: 'someone' }), null);
+test('finding a folder is null for a root nothing has been archived into', async () => {
+  assert.equal(dirOf(await findFolder(ACCOUNT, await root(), { handle: 'someone' })), null);
+  assert.equal(dirOf(await findFolder(ACCOUNT, '/no/such/root', { handle: 'someone' })), null);
 });
 
-test('findAccountDir with nothing to go on matches nothing', async () => {
+test('finding a folder with nothing to go on matches nothing', async () => {
   const dir = await root();
   await seed(dir, '55', { account: { id: '55', handle: 'someone' } });
-  assert.equal(await findAccountDir(ACCOUNT, dir, {}), null);
+  assert.equal(dirOf(await findFolder(ACCOUNT, dir, {})), null);
 });
 
 test('resolveAccountDir goes straight to the mapped folder', async () => {
@@ -432,9 +446,9 @@ test('a Douyin account is found by its 抖音号, an X account by its handle', a
     account: { id: 'MS4wSEC', douyin_id: 'abc123', nickname: '小明' },
   });
 
-  assert.equal(await findAccountDir(douyin, dir, { handle: 'abc123' }), folder);
+  assert.equal(dirOf(await findFolder(douyin, dir, { handle: 'abc123' })), folder);
   // The same lookup under X's descriptor reads a key that is not there.
-  assert.equal(await findAccountDir(ACCOUNT, dir, { handle: 'abc123' }), null);
+  assert.equal(dirOf(await findFolder(ACCOUNT, dir, { handle: 'abc123' })), null);
 });
 
 test('an account is never refused its own alias, whatever the map says', async () => {

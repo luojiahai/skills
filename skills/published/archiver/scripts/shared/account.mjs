@@ -25,6 +25,21 @@
  * deriving the alias from `basename(dir)` every time it writes, so the two can
  * only ever disagree between one write and the next.
  *
+ * The interface is short: settle a folder, find one, file it, record who it is,
+ * read every folder under a root, and the three moments an alias is decided at.
+ * Everything else here is an internal seam, reachable through `internals` for
+ * this module's own tests and for nothing else.
+ *
+ * That ratio is the shape this module is meant to have, not a smell. The
+ * resolution order, the merge rules and the alias protocol are each worth
+ * asserting on their own, and driving them through the entries above would make
+ * every one of them a longer setup for a weaker assertion. Do not split them
+ * back out into modules of their own to make them reachable: they interlock —
+ * resolution reads the mapping and the identity file, the alias check reaches
+ * into both, and recording an identity derives the alias from the folder's own
+ * name and then writes the mapping — and a seam through the middle of that is
+ * one every caller would have to hold together.
+ *
  * `account.json` is authoritative for *identity* — which account is this folder
  * — and never for *progress*. What has been downloaded is answered by the post
  * folders (landed.mjs) and by nothing else: a stored count or newest-post id
@@ -39,7 +54,7 @@ import { readJson, writeJson } from './cli.mjs';
 import { readAliases, writeAlias } from './archiver.mjs';
 import { Refusal } from './errors.mjs';
 
-export const ACCOUNT_FILE = 'account.json';
+const ACCOUNT_FILE = 'account.json';
 export const ACCOUNT_VERSION = 1;
 
 /**
@@ -62,7 +77,7 @@ export const ACCOUNT_VERSION = 1;
  */
 
 /** Every account one platform has archived, whatever their ids. */
-export const platformDir = ({ platform }, root) => path.join(root, platform);
+const platformDir = ({ platform }, root) => path.join(root, platform);
 
 /**
  * An id that may be used as a directory name.
@@ -72,7 +87,7 @@ export const platformDir = ({ platform }, root) => path.join(root, platform);
  * anywhere it is joined. A separator or a `..` in this position does not produce
  * a badly named folder, it produces a tree somewhere else entirely.
  */
-export function isSafeId(accountId) {
+function isSafeId(accountId) {
   const id = String(accountId ?? '');
   return id.length > 0 && id.length <= 128 && /^[A-Za-z0-9._-]+$/.test(id) && id !== '.' && id !== '..';
 }
@@ -90,7 +105,7 @@ export function isSafeId(accountId) {
  * Refused rather than rewritten. An alias the user cannot predict is worse than
  * one they have to retype.
  */
-export function isSafeAlias(alias) {
+function isSafeAlias(alias) {
   const value = String(alias ?? '');
   return value.length > 0 && value.length <= 128 && /^[\p{L}\p{N}._-]+$/u.test(value) && !value.startsWith('.');
 }
@@ -102,7 +117,7 @@ export function isSafeAlias(alias) {
  * checkAlias reaches it again afterwards; two copies of a refusal like this is
  * how the two come to describe different rules.
  */
-export function aliasShapeRefusal(alias) {
+function aliasShapeRefusal(alias) {
   return new Refusal(
     'alias-invalid',
     `${JSON.stringify(String(alias ?? ''))} cannot be an alias — letters, digits, dots, dashes ` +
@@ -112,7 +127,7 @@ export function aliasShapeRefusal(alias) {
 }
 
 /** Where this account's folder is if it has no alias, whether or not it exists. */
-export function accountDirFor(descriptor, root, accountId) {
+function accountDirFor(descriptor, root, accountId) {
   if (!isSafeId(accountId)) {
     throw new Refusal(
       'unsafe-account-id',
@@ -124,7 +139,7 @@ export function accountDirFor(descriptor, root, accountId) {
 }
 
 /** Where an aliased folder is, whether or not it exists yet. */
-export function aliasDirFor(descriptor, root, alias) {
+function aliasDirFor(descriptor, root, alias) {
   if (!isSafeAlias(alias)) throw aliasShapeRefusal(alias);
   return path.join(platformDir(descriptor, root), String(alias));
 }
@@ -171,7 +186,7 @@ function identity(descriptor, existing, next, drop) {
  * what makes a lone account.json self-describing when it has been copied out of
  * the tree, since no spec ships beside the skill.
  */
-export function mergeAccount(descriptor, existing, next, { drop = [] } = {}) {
+function mergeAccount(descriptor, existing, next, { drop = [] } = {}) {
   return {
     version: ACCOUNT_VERSION,
     platform: descriptor.platform,
@@ -182,11 +197,11 @@ export function mergeAccount(descriptor, existing, next, { drop = [] } = {}) {
 }
 
 /** An account folder's identity, or null if it has none. */
-export async function readAccount(dir) {
+async function readAccount(dir) {
   return readJson(path.join(dir, ACCOUNT_FILE));
 }
 
-export async function writeAccount(descriptor, dir, next, options) {
+async function writeAccount(descriptor, dir, next, options) {
   const merged = mergeAccount(descriptor, await readAccount(dir), next, options);
   await writeJson(path.join(dir, ACCOUNT_FILE), merged);
   return merged;
@@ -382,7 +397,7 @@ async function resolveFolder(descriptor, root, { id } = {}) {
   return null;
 }
 
-export async function resolveAccountDir(descriptor, root, { id } = {}) {
+async function resolveAccountDir(descriptor, root, { id } = {}) {
   return (await resolveFolder(descriptor, root, { id }))?.dir ?? null;
 }
 
@@ -442,9 +457,6 @@ export async function findFolder(descriptor, root, { id, url, alias, handle } = 
   return found.alias ?? found.handle ?? null;
 }
 
-export async function findAccountDir(descriptor, root, keys = {}) {
-  return (await findFolder(descriptor, root, keys))?.dir ?? null;
-}
 
 /**
  * Every account id this platform has spoken for.
@@ -458,7 +470,7 @@ export async function findAccountDir(descriptor, root, keys = {}) {
  * account 12345 is un-aliased and wants its own folder back — which is precisely
  * why it has to be refused at the point it is typed.
  */
-export async function existingIds(descriptor, root) {
+async function existingIds(descriptor, root) {
   const aliases = await readAliases(root, descriptor.platform);
   const names = new Set(Object.values(aliases));
   const ids = new Set(Object.keys(aliases));
@@ -577,7 +589,7 @@ function aliasTaken(alias, holderId) {
  * identity — is refused. Nothing is ever merged: two accounts' posts in one
  * folder is the one mistake here that cannot be undone.
  */
-export async function applyAlias(descriptor, root, { id, alias }) {
+async function applyAlias(descriptor, root, { id, alias }) {
   const wanted = String(id);
   const target = aliasDirFor(descriptor, root, alias);
   const current = await resolveAccountDir(descriptor, root, { id: wanted });
@@ -658,7 +670,7 @@ async function move(from, to) {
  * of a rename are written by the one act rather than by whichever of these two
  * was reached.
  */
-export async function clearAlias(descriptor, root, { id }) {
+async function clearAlias(descriptor, root, { id }) {
   const wanted = String(id);
   const target = accountDirFor(descriptor, root, wanted);
   const current = await resolveAccountDir(descriptor, root, { id: wanted });
@@ -745,3 +757,26 @@ export async function fileAccount(descriptor, root, folder, { id, account, url =
     url: identity.url,
   };
 }
+
+/**
+ * The seams inside this module, for its own tests.
+ *
+ * Not an escape hatch. Anything reached through here is free to change shape
+ * whenever the implementation does, and a caller outside this file that needs
+ * one of them is a caller asking for an entry that does not exist yet.
+ */
+export const internals = {
+  ACCOUNT_FILE,
+  accountDirFor,
+  aliasDirFor,
+  applyAlias,
+  clearAlias,
+  existingIds,
+  isSafeAlias,
+  isSafeId,
+  mergeAccount,
+  platformDir,
+  readAccount,
+  resolveAccountDir,
+  writeAccount,
+};
