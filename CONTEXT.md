@@ -68,6 +68,12 @@ A name the user gives an account folder, standing in for the account's
 immutable id so the archive reads to a person.
 _Avoid_: handle, nickname, label
 
+**Filing**:
+Putting an account folder where its name says it goes and recording that it is
+there — one act, because a folder that has moved while `account.json` still
+names the old place is the disagreement this layout exists to prevent.
+_Avoid_: rename, move, apply alias
+
 **Run**:
 One invocation that archives one account into one account folder.
 _Avoid_: job, session, execution
