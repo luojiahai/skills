@@ -558,3 +558,21 @@ test('settling an id it will use says so, and hands over the folder', async () =
   assert.equal(settled.ok, true);
   assert.equal(settled.folder.id, '55');
 });
+
+test('settling says where a rename would put the folder', async () => {
+  // The announced move and the move itself are derived from one place, so a plan
+  // cannot promise a folder that filing would not produce.
+  const dir = await root();
+  await seed(dir, '55', { account: { id: '55' } });
+
+  const renamed = await settleFolder(ACCOUNT, dir, { id: '55', alias: 'jia' });
+  assert.equal(renamed.movingTo, aliasDirFor(ACCOUNT, dir, 'jia'));
+
+  const back = await settleFolder(ACCOUNT, dir, { id: '55', unalias: true });
+  assert.equal(back.movingTo, accountDirFor(ACCOUNT, dir, '55'));
+});
+
+test('settling announces no move when none was asked for', async () => {
+  const dir = await root();
+  assert.equal((await settleFolder(ACCOUNT, dir, { id: '55' })).movingTo, null);
+});

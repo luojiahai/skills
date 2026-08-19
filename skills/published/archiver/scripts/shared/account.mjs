@@ -310,15 +310,21 @@ function folderOf(dir, json) {
  * throw surfaces as an unexplained stream failure instead of the refusal the
  * user is owed — and the wording of that refusal is the platform's, since only
  * it can say what it reported an id for.
+ *
+ * `movingTo` is where filing would put this folder, or null when no rename was
+ * asked for. It is answered here, from the same id and the same flags the move
+ * itself will use, so a plan cannot announce a destination that filing would not
+ * produce.
  */
-export async function settleFolder(descriptor, root, { id, alias } = {}) {
+export async function settleFolder(descriptor, root, { id, alias, unalias } = {}) {
   if (!isSafeId(id)) return { ok: false, reason: 'unsafe-id', id: String(id ?? '') };
 
+  const movingTo = aliasTarget(descriptor, root, { id, alias, unalias });
   const found = await resolveFolder(descriptor, root, { id });
-  if (found) return { ok: true, folder: found };
+  if (found) return { ok: true, folder: found, movingTo };
 
   const dir = alias ? aliasDirFor(descriptor, root, alias) : accountDirFor(descriptor, root, id);
-  return { ok: true, folder: { dir, id: String(id), account: null, url: null } };
+  return { ok: true, folder: { dir, id: String(id), account: null, url: null }, movingTo };
 }
 
 /**
@@ -651,7 +657,7 @@ export async function clearAlias(descriptor, root, { id }) {
  * than throwing. The refusal itself belongs to the run, which says so properly
  * long before a block is rendered; a preview is not the place to raise it.
  */
-export function aliasTarget(descriptor, root, { id, alias, unalias }) {
+function aliasTarget(descriptor, root, { id, alias, unalias }) {
   try {
     if (unalias) return id ? accountDirFor(descriptor, root, id) : null;
     return alias ? aliasDirFor(descriptor, root, alias) : null;

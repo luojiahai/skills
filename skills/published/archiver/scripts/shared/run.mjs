@@ -19,7 +19,6 @@ import { mkdir } from 'node:fs/promises';
 
 import {
   aliasShapeRefusal,
-  aliasTarget,
   checkAlias,
   findFolder,
   isSafeAlias,
@@ -404,6 +403,7 @@ async function makePlan({ adapter, root, alias, unalias, session, target, full }
   // them can be known before it: the id itself only arrives with the first row,
   // and the folder is looked up from it.
   let folder = null;
+  let movingTo = null;
   let archive = new Map();
   let incremental = false;
   let badId = null;
@@ -422,7 +422,7 @@ async function makePlan({ adapter, root, alias, unalias, session, target, full }
     stopper: ({ archive: seen, incremental: on }) =>
       makeStopper({ archive: seen, threshold: adapter.threshold, enabled: on }),
     onAccount: async (account) => {
-      const settled = await settleFolder(descriptor, root, { id: account.id, alias });
+      const settled = await settleFolder(descriptor, root, { id: account.id, alias, unalias });
       // Recorded and stopped rather than thrown: collect() reads this inside
       // its row loop, where a throw would surface as an unexplained stream
       // failure. What the refusal says is the platform's to word.
@@ -431,6 +431,7 @@ async function makePlan({ adapter, root, alias, unalias, session, target, full }
         return { archive: new Map(), incremental: false, stopNow: true };
       }
       folder = settled.folder;
+      movingTo = settled.movingTo;
       archive = await readArchive(folder.dir);
       incremental = await sweepIsIncremental({
         accountDir: folder.dir, accountId: account.id, archive, full, postIdKey, root,
@@ -520,7 +521,7 @@ async function makePlan({ adapter, root, alias, unalias, session, target, full }
     // needs no second read to learn whose it is.
     folder: { ...folder, id: String(identity.account?.id ?? '') || null, account: identity.account, url: identity.url },
     previousRoot: lastRoot,
-    movingTo: aliasTarget(descriptor, root, { id: account.id, alias, unalias }),
+    movingTo,
   };
 }
 
