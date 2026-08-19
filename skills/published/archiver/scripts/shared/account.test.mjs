@@ -10,7 +10,9 @@ import {
   aliasDirFor,
   applyAlias,
   checkAlias,
+  checkAliasShape,
   clearAlias,
+  confirmAlias,
   existingIds,
   fileAccount,
   findAccountDir,
@@ -641,4 +643,51 @@ test('filing an account with no id to rename against leaves the folder alone', a
   });
 
   assert.equal(filed.dir, folder);
+});
+
+// ---- one alias protocol, two moments ---------------------------------------
+
+test('the shape of an alias is decided without an archives root', () => {
+  // Asked before the root is even resolved, so a typo costs nothing to refuse.
+  assert.equal(checkAliasShape('jia').ok, true);
+  assert.equal(checkAliasShape('a/b').ok, false);
+  assert.equal(checkAliasShape('a/b').refusal.code, 'alias-invalid');
+});
+
+test('the check before the fetch answers provisionally, and says so', async () => {
+  const dir = await root();
+  const provisional = await checkAlias(ACCOUNT, dir, { id: null, alias: 'jia' });
+  assert.equal(provisional.ok, true);
+  assert.equal(provisional.provisional, true);
+  assert.equal(provisional.alias, 'jia');
+});
+
+test('the real id is checked against the provisional verdict taken before it', async () => {
+  const dir = await root();
+  await seed(dir, 'jia', { account: { id: '99', handle: 'other', alias: 'jia' } });
+  await writeAlias(dir, PLATFORM, '99', 'jia');
+
+  // Nothing was known before the fetch, so the name looked free; the id that
+  // arrived with the listing is what settles it.
+  const provisional = await checkAlias(ACCOUNT, dir, { id: null, alias: 'jia' });
+  const verdict = await confirmAlias(ACCOUNT, dir, provisional, { id: '55', alias: 'jia' });
+  assert.equal(verdict.ok, false);
+  assert.equal(verdict.refusal.code, 'alias-taken');
+  assert.equal(verdict.provisional, undefined);
+});
+
+test('confirming without the verdict taken before the fetch is a mistake, not a refusal', async () => {
+  const dir = await root();
+  // A caller that skips the first moment is missing an argument rather than
+  // breaking a convention, and a Refusal here would report a bug as the user's.
+  await assert.rejects(
+    () => confirmAlias(ACCOUNT, dir, undefined, { id: '55', alias: 'jia' }),
+    (error) => error instanceof Error && !('code' in error),
+  );
+});
+
+test('confirming against a verdict for a different alias is a mistake too', async () => {
+  const dir = await root();
+  const provisional = await checkAlias(ACCOUNT, dir, { id: null, alias: 'jia' });
+  await assert.rejects(() => confirmAlias(ACCOUNT, dir, provisional, { id: '55', alias: 'other' }));
 });

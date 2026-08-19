@@ -460,18 +460,46 @@ export async function existingIds(descriptor, root) {
 }
 
 /**
+ * An alias is decided in three moments, and they are one protocol.
+ *
+ * `checkAliasShape` needs neither the filesystem nor the archives root, so a
+ * typo is refused by argument parsing rather than after a full timeline crawl.
+ * `checkAlias` answers everything the archives root alone can settle, which is
+ * why a run may ask it before it fetches anything — but it is answered against
+ * whatever id is knowable without a fetch, so it is marked provisional.
+ * `confirmAlias` asks again with the id the listing brought back, and takes the
+ * provisional verdict as an argument: a caller that reaches the second moment
+ * without having passed the first is missing an argument rather than breaking a
+ * convention, and promising a move that `--go` would then refuse is worse than
+ * stopping.
+ */
+export function checkAliasShape(alias) {
+  return isSafeAlias(alias) ? { ok: true, alias } : { ok: false, refusal: aliasShapeRefusal(alias) };
+}
+
+export async function checkAlias(descriptor, root, { id = null, alias } = {}) {
+  return { ...(await decideAlias(descriptor, root, { id, alias })), alias, provisional: true };
+}
+
+export async function confirmAlias(descriptor, root, provisional, { id, alias } = {}) {
+  // A plain Error rather than a Refusal: this is a caller that skipped the first
+  // moment, and reporting a bug in the skill as the user's mistake would send
+  // them off to fix an alias that is fine.
+  if (provisional?.provisional !== true || provisional.alias !== alias) {
+    throw new Error(`an alias is confirmed against the provisional verdict taken for it, not ${JSON.stringify(alias)} alone`);
+  }
+  if (!provisional.ok) return { ok: false, refusal: provisional.refusal, alias };
+  return { ...(await decideAlias(descriptor, root, { id, alias })), alias };
+}
+
+/**
  * Whether `alias` may be given to `id`, as `{ ok: true }` or
  * `{ ok: false, refusal }`.
- *
- * Shape is decided first and without touching the filesystem, so a typo is
- * refused by argument parsing rather than after a full timeline crawl. The rest
- * needs only the archives root — never the network — which is why the caller can
- * ask before it fetches anything.
  *
  * `id` may be null when the account has never been archived: a name already
  * taken is then taken by definition, because it cannot be taken by us.
  */
-export async function checkAlias(descriptor, root, { id = null, alias } = {}) {
+async function decideAlias(descriptor, root, { id = null, alias } = {}) {
   if (!isSafeAlias(alias)) return { ok: false, refusal: aliasShapeRefusal(alias) };
 
   const mine = id === null ? null : String(id);

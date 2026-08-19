@@ -18,11 +18,11 @@
 import { mkdir } from 'node:fs/promises';
 
 import {
-  aliasShapeRefusal,
   checkAlias,
+  checkAliasShape,
+  confirmAlias,
   fileAccount,
   findFolder,
-  isSafeAlias,
   recordIdentity,
   settleFolder,
 } from './account.mjs';
@@ -246,11 +246,12 @@ export async function runAccount(base, argv, overrides = {}) {
     });
   }
 
-  // The shape of an alias needs no filesystem and no network, so a typo is
-  // refused here rather than after a full crawl. checkAlias reaches the same
-  // refusal later — they share it rather than keeping two copies that could
-  // come to disagree.
-  if (alias && !isSafeAlias(alias)) return refuseHere(refusalFields(aliasShapeRefusal(alias)));
+  // The first of the alias protocol's three moments: shape needs no filesystem
+  // and no network, so a typo is refused here rather than after a full crawl.
+  if (alias) {
+    const shape = checkAliasShape(alias);
+    if (!shape.ok) return refuseHere(refusalFields(shape.refusal));
+  }
 
   let root;
   try {
@@ -268,20 +269,22 @@ export async function runAccount(base, argv, overrides = {}) {
     return refuseHere(refusalFields(error));
   }
 
-  // Everything an alias can be refused for except "it is already yours" needs
-  // only the archives root, so it is decided before the session and the first
-  // request. The id is whatever can be worked out without a fetch, and null for
-  // an account never seen, which cannot collide with itself either way. makePlan
-  // asks again once the real id is in hand.
+  // The second moment. Everything an alias can be refused for except "it is
+  // already yours" needs only the archives root, so it is decided before the
+  // session and the first request. The id is whatever can be worked out without
+  // a fetch, and null for an account never seen, which cannot collide with
+  // itself either way — so the verdict is provisional, and makePlan has to
+  // present it again once the real id is in hand.
+  let aliasChecked = null;
   if (alias) {
     const existing = await findFolder(descriptor, root, {
       url: target.url, alias, handle: target.handle,
     });
-    const verdict = await checkAlias(descriptor, root, {
+    aliasChecked = await checkAlias(descriptor, root, {
       id: existing ? existing.id : (target.id ?? null),
       alias,
     });
-    if (!verdict.ok) return refuseHere(refusalFields(verdict.refusal));
+    if (!aliasChecked.ok) return refuseHere(refusalFields(aliasChecked.refusal));
   }
 
   let session;
@@ -292,7 +295,7 @@ export async function runAccount(base, argv, overrides = {}) {
   }
 
   const planCommand = commandFor(argv, 'plan');
-  const shared = { adapter, root, alias, unalias, session, planCommand, command, opts, target, url: target.url };
+  const shared = { adapter, root, alias, aliasChecked, unalias, session, planCommand, command, opts, target, url: target.url };
 
   // Guarded like the listing half below. A hook a platform brings can raise a
   // Refusal of its own — Douyin's cookie mint does — and an unguarded throw
@@ -392,7 +395,7 @@ async function downloadAndReport(args) {
  * Throws its refusals rather than composing documents. `runAccount` owns the
  * envelope, so a `--yes` emits exactly one.
  */
-async function makePlan({ adapter, root, alias, unalias, session, target, full }) {
+async function makePlan({ adapter, root, alias, aliasChecked, unalias, session, target, full }) {
   const descriptor = adapter.account;
   const postIdKey = adapter.postIdKey;
 
@@ -456,12 +459,10 @@ async function makePlan({ adapter, root, alias, unalias, session, target, full }
   const account = result.account;
   if (!account?.id) throw adapter.refusals.unidentified();
 
-  // Checked again now the id is known. The pre-flight check ran before the
-  // fetch on whatever identity could be worked out without one, which is enough
-  // to catch a typo cheaply but not enough to be the answer — and promising a
-  // move that --go would then refuse is worse than stopping here.
+  // The third moment, now the id is known. The provisional verdict taken before
+  // the fetch is presented back, so this cannot be reached without it.
   if (alias) {
-    const verdict = await checkAlias(descriptor, root, { id: account.id, alias });
+    const verdict = await confirmAlias(descriptor, root, aliasChecked, { id: account.id, alias });
     // Nothing has moved: the alias is decided before the plan is written, so a
     // refusal here leaves the archive exactly as it was found.
     if (!verdict.ok) throw verdict.refusal;
