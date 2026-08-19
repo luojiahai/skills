@@ -1,5 +1,5 @@
 ---
-"luojiahai-skills": minor
+"luojiahai-skills": patch
 ---
 
 archiver: archive Instagram accounts
