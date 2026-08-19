@@ -2,7 +2,7 @@
  * run.mjs — the whole run: what the user asked for, in, and one document out.
  *
  * All of the orchestration lives here rather than in archive.sh, and the same is
- * true of the Douyin platform. Shell cannot hold this shape safely: a function
+ * true of the other platforms. Shell cannot hold this shape safely: a function
  * called under `||` runs with errexit off for its whole body, so a refused plan
  * prints its refusal and then keeps going, through the state write and a summary
  * telling the user to re-run the command that just failed. Shell holds the node
@@ -27,7 +27,7 @@ import {
   optString,
   parseCommandLine,
 } from '../../shared/cli.mjs';
-import { DEFAULT_ABORT, collect, diff, groupFiles, makeStopper } from './collect.mjs';
+import { CATEGORIES, DEFAULT_ABORT, collectFeeds, diff, groupFiles } from './collect.mjs';
 import {
   accountDirFor,
   aliasDirFor,
@@ -44,7 +44,6 @@ import {
   resolveAccountDir,
 } from '../../shared/account.mjs';
 import { checkRoot, stampRoot } from '../../shared/archiver.mjs';
-import { saveProfileAssets } from './assets.mjs';
 import { FAILURES } from './gallerydl.mjs';
 import { fetchPosts, outstanding } from './fetch.mjs';
 import { archivesRoot, normalizeRoot, stateDir, toolPath } from '../../shared/paths.mjs';
@@ -73,7 +72,7 @@ import { pickMode } from '../../shared/run.mjs';
 import { hatchToolMissing, onPath } from '../../shared/tools.mjs';
 import { ensureEnv } from '../../shared/env.mjs';
 
-const PLATFORM = 'x';
+const PLATFORM = 'instagram';
 const ACCOUNT = descriptorFor(PLATFORM);
 const POST_ID_KEY = postIdKeyFor(PLATFORM);
 const STATE_DIR = stateDir(PLATFORM);
@@ -81,13 +80,13 @@ const STATE_DIR = stateDir(PLATFORM);
 /** What a session refusal calls this site, taken from the registry rather than respelled. */
 const SESSION = { platform: PLATFORM, label: labelFor(PLATFORM) };
 
-/** What X adds to the flags every platform shares. */
+/** What Instagram adds to the flags every platform shares. */
 const BOOLEAN_FLAGS = new Set([...COMMON_BOOLEAN_FLAGS, 'full']);
 const KNOWN_FLAGS = new Set([...COMMON_FLAGS, ...BOOLEAN_FLAGS, 'browser', 'cookies']);
 
 const USAGE = `Usage: archive.sh <url> [--archives DIR] [--alias NAME] [--plan|--go|--yes]
 
-  <url>                 https://x.com/<handle>              an account's media
+  <url>                 https://www.instagram.com/<handle>   an account's posts
 
       --plan            Collect the account, report what would be fetched,
                         and stop. Downloads nothing, and moves nothing.
@@ -96,49 +95,45 @@ const USAGE = `Usage: archive.sh <url> [--archives DIR] [--alias NAME] [--plan|-
       --yes, -y         Plan and download in one run, without stopping.
 
       --archives DIR    Root directory the archives live in. The account
-                        folder is DIR/x/<alias>, or DIR/x/<numeric user id>
-                        for an account that has no alias.
+                        folder is DIR/instagram/<alias>, or
+                        DIR/instagram/<numeric user id> for one with no alias.
       --alias NAME      Name this account's folder NAME instead of its id, so
                         the archive is readable to a person. An existing folder
                         is renamed on the next --go; a new one is created with
                         this name. Recorded in archiver.json against the id,
                         which is what finds the folder again afterwards.
       --unalias         Put this account's folder back under its numeric id.
-      --full            Collect the whole timeline even when a re-run could
+      --full            Collect the whole profile even when a re-run could
                         stop early.
-      --browser NAME    Browser to read the X session from the first time
-                        (${BROWSERS.join(', ')}).
+      --browser NAME    Browser to read the Instagram session from the first
+                        time (${BROWSERS.join(', ')}).
       --cookies FILE    Use this cookies.txt instead of a browser or the cache.
   -h, --help            Show this help
+
+Posts and reels are two listing passes, so each can stop early on its own.
+Stories, highlights and tagged posts are out of scope.
 
 Every command but this one answers with a single JSON document on stdout;
 progress goes to stderr. gallery-dl's own output is buffered rather than
 relayed — it is what a failure is classified from.
 
 State lives in the account folder: posts/ holds one folder per post,
-account.json the account's identity, assets/ the current avatar and banner, and
-sync.json the list awaiting approval between --plan and --go. <DIR>/archiver.json
-records which schema the archive uses and maps each account's id to its alias.
-The cached X session is in ${STATE_DIR}.`;
-
-/** A rejected session is discarded, so the next run reads the browser again. */
-const discardCookies = () => discardSession(PLATFORM);
+account.json the account's identity, and sync.json the list awaiting approval
+between --plan and --go. <DIR>/archiver.json records which schema the archive
+uses and maps each account's id to its alias. The cached Instagram session is
+in ${STATE_DIR}.`;
 
 /**
- * The account's current look, refreshed on every run that downloads.
+ * A rejected session is discarded, so the next run reads the browser again.
  *
- * Not on `--plan`, which fetches nothing by definition — but on every run past
- * that, including a `--yes` against an account with no new posts, because
- * `assets/` is the account as it is *now* rather than as it was when it last
- * posted. Two CDN requests, and a failure is swallowed: an avatar must not end
- * a run that has just fetched an account's history.
+ * A checkpoint deliberately does not come through here. The cookies are fine
+ * and the account is held, so throwing them away would charge the user a
+ * Keychain prompt to replace a login that works.
  */
-function refreshAssets(accountDir, account) {
-  return saveProfileAssets(accountDir, { avatar: account?.avatar, banner: account?.banner });
-}
+const discardCookies = () => discardSession(PLATFORM);
 
 async function doPlan({
-  target, root, alias, unalias, cookies, full, threshold, bin = toolPath('gallery-dl'), collectImpl = collect,
+  target, root, alias, unalias, cookies, full, threshold, bin = toolPath('gallery-dl'), collectImpl = collectFeeds,
 }) {
   // All settled the moment the first row names the account, because none of them
   // can be known before it: the id itself only arrives with the first row, and
@@ -152,12 +147,13 @@ async function doPlan({
     url: target.url,
     cookies,
     bin,
+    threshold,
     onAccount: async (account) => {
       // Recorded and stopped rather than thrown: collect() reads this inside its
       // row loop, where a throw would surface as an unexplained stream failure.
       if (!isSafeId(account.id)) {
         badId = String(account.id ?? '');
-        return () => true;
+        return { archive: new Map(), incremental: false, stopNow: true };
       }
       // Resolved, never computed. The folder may be named for an alias, and
       // going straight to the id would quietly start a second, empty archive
@@ -168,28 +164,28 @@ async function doPlan({
       archive = await readArchive(accountDir);
       // A first run has nothing to recognise, so there is nothing to stop at.
       incremental = archive.size > 0 && !full;
-      return makeStopper({ archive, threshold, enabled: incremental });
+      return { archive, incremental };
     },
   });
-
-  if (result.failure) throw collectRefusal(result.failure, result.stderr);
 
   if (badId !== null) {
     throw new Refusal(
       'bad-account-id',
-      `X reported an account id this skill will not use as a folder name: ${JSON.stringify(badId)}`,
+      `Instagram reported an account id this skill will not use as a folder name: ${JSON.stringify(badId)}`,
       { details: { id: badId } },
     );
   }
 
+  if (result.failure) throw collectRefusal(result.failure, result.stderr);
+
   if (!result.rows.length) {
     // Zero posts and no error is a real answer for an account that has posted
-    // no media. It is never reported as "up to date", because an account you
-    // are not allowed to read produces exactly the same silence.
+    // nothing. It is never reported as "up to date", because an account you are
+    // not allowed to read produces exactly the same silence.
     throw new Refusal(
       'empty',
-      'found no media posts there — an account can genuinely have none, and it also ' +
-        'looks like this when the account is protected or the saved session has expired without saying so',
+      'found no posts or reels there — an account can genuinely have none, and it also ' +
+        'looks like this when the account is private or the saved session has expired without saying so',
     );
   }
 
@@ -200,14 +196,14 @@ async function doPlan({
   if (!account?.id) {
     throw new Refusal(
       'unidentified-account',
-      'the timeline was readable but never named the account, so there is no id to file it under',
+      'the profile was readable but never named the account, so there is no id to file it under',
     );
   }
 
-  // Checked again now the id is known. The pre-flight check ran before the
-  // fetch on whatever identity could be worked out without one, which is enough
-  // to catch a typo cheaply but not enough to be the answer — and promising a
-  // move that --go would then refuse is worse than stopping here.
+  // Checked again now the id is known. The pre-flight check ran before the fetch
+  // on whatever identity could be worked out without one, which is enough to
+  // catch a typo cheaply but not enough to be the answer — and promising a move
+  // that --go would then refuse is worse than stopping here.
   if (alias) {
     const verdict = await checkAlias(ACCOUNT, root, { id: account.id, alias });
     // Nothing has moved: the alias is decided before the plan is written, so a
@@ -222,8 +218,8 @@ async function doPlan({
     account,
     root,
     // The files array is kept rather than reduced to a count: --go re-derives
-    // what is still missing from this list, and totals alone could not say
-    // which of a post's four images had landed.
+    // what is still missing from this list, and totals alone could not say which
+    // of a carousel's four images had landed.
     collected: posts,
     pending: toFetch,
     counts: archiveCounts({
@@ -235,10 +231,11 @@ async function doPlan({
         fetch_files: counts.fetchFiles,
         images: counts.images,
         videos: counts.videos,
+        reels: counts.reels,
       },
     }),
     notes: [
-      sweepNote({ incremental, stoppedEarly: result.stoppedEarly, threshold }),
+      ...sweepNotes({ incremental, sweeps: result.sweeps, threshold }),
       ...underDescribedNote(counts.underDescribed),
     ],
     now: new Date(),
@@ -331,21 +328,18 @@ async function doGo({
   const { fetched, failed, stopped } = await fetchImpl({
     accountDir,
     posts: todo,
-    handle: plan.account?.handle,
     cookies,
     bin,
-    // A 2,000-post run takes hours. Without a line per post it is silent on
+    // A thousand-post run takes hours. Without a line per post it is silent on
     // stderr for all of them, which is indistinguishable from a hang.
     onPost: ({ post, ok }, done) =>
       progress(
         ok
-          ? `[x] ${done}/${todo.length} — ${post.tweetId}`
-          : `[x] failed: ${permalink(post.handle || plan.account?.handle, post.tweetId)}`,
+          ? `[instagram] ${done}/${todo.length} — ${post.shortcode}`
+          : `[instagram] failed: ${permalink(post.shortcode)}`,
         { progress: ok },
       ),
   });
-
-  await refreshAssets(accountDir, plan.account);
 
   const landed = await readArchive(accountDir);
   const remaining = outstanding(approved(plan), landed).length;
@@ -355,9 +349,9 @@ async function doGo({
   let total = 0;
   for (const [, entry] of landed) if (isLanded(entry)) total += 1;
 
-  // One id in two folders is not a Douyin-only shape: an X post archived once
-  // as `undated_5` and later as `2024-01-01_5` leaves one of them answering for
-  // nothing, and its media counted by nothing.
+  // One id in two folders: a post archived once as `undated_C3x` and later as
+  // `2024-01-01_C3x` leaves one of them answering for nothing, and its media
+  // counted by nothing.
   const duplicates = await duplicateFolders(accountDir);
 
   // After the move, so the alias recorded is the folder this run finished in.
@@ -391,7 +385,7 @@ function withPlanRemedy(refusal, planCommand) {
 
 export async function main(argv, deps = {}) {
   const {
-    collectImpl = collect,
+    collectImpl = collectFeeds,
     fetchImpl = fetchPosts,
     onPathImpl = onPath,
     cookiesImpl = ensureCookies,
@@ -441,11 +435,11 @@ export async function main(argv, deps = {}) {
     return refuseHere(refusalFields(error));
   }
 
-  // gallery-dl both enumerates and downloads, so nothing past here works
-  // without it. Built after the URL because a refusable URL should be refused on
-  // any machine — and before the session, because reading cookies out of a
-  // browser is a real cost to pay for a run that cannot proceed anyway. X needs
-  // no browser box: somebody who only ever archives X never downloads Chromium.
+  // gallery-dl both enumerates and downloads, so nothing past here works without
+  // it. Built after the URL because a refusable URL should be refused on any
+  // machine — and before the session, because reading cookies out of a browser
+  // is a real cost to pay for a run that cannot proceed anyway. Instagram needs
+  // no browser box: nothing here drives a page.
   try {
     await ensureEnvImpl(['runtime', 'tools'], { platform: PLATFORM });
   } catch (error) {
@@ -475,7 +469,7 @@ export async function main(argv, deps = {}) {
   }
 
   // The shape of an alias needs no filesystem and no network, so a typo is
-  // refused here rather than after a full timeline crawl. checkAlias reaches the
+  // refused here rather than after a full profile crawl. checkAlias reaches the
   // same refusal later — they share it rather than keeping two copies that could
   // come to disagree.
   if (alias && !isSafeAlias(alias)) return refuseHere(refusalFields(aliasShapeRefusal(alias)));
@@ -489,9 +483,7 @@ export async function main(argv, deps = {}) {
   }
 
   // Before the session, before the first API call, before anything is written:
-  // an archive this build cannot read must cost nothing to discover. With no
-  // old-layout detection behind it, this refusal is the only thing standing
-  // between a version mismatch and a silent full re-download.
+  // an archive this build cannot read must cost nothing to discover.
   try {
     await checkRoot(root);
   } catch (error) {
@@ -545,7 +537,8 @@ export async function main(argv, deps = {}) {
   } catch (error) {
     const fields = refusalFields(error);
     // The remedy text says the cached session has been thrown away, and leaving
-    // the file in place would make that a lie the next run repeats.
+    // the file in place would make that a lie the next run repeats. A checkpoint
+    // is deliberately not in this branch: that session still works.
     if (fields.code === 'session-rejected') await discardCookies();
     return refuseHere(fields);
   }
@@ -579,9 +572,6 @@ export async function main(argv, deps = {}) {
   }
 
   if (planned.plan.counts.to_fetch === 0) {
-    // Nothing to download, but this run was still approved — and the avatar may
-    // have changed even where the timeline has not.
-    await refreshAssets(planned.accountDir, planned.plan.account);
     return answer({
       command,
       platform: PLATFORM,
@@ -603,8 +593,8 @@ export async function main(argv, deps = {}) {
  * A finished download, as the one document it answers with.
  *
  * A run that stopped partway carries both halves: the posts that landed and the
- * reason it stopped. Collapsing it either way loses something the user needs —
- * a rate-limited run that fetched two hundred posts is neither a success nor a
+ * reason it stopped. Collapsing it either way loses something the user needs — a
+ * rate-limited run that fetched two hundred posts is neither a success nor a
  * nothing.
  */
 async function report(command, outcome, { url = null, notes = null, plan = null } = {}) {
@@ -628,8 +618,7 @@ async function report(command, outcome, { url = null, notes = null, plan = null 
       downloaded: outcome.fetched.posts,
       // Asked of the folder rather than added to the plan's `on_disk`, which was
       // frozen when the plan was made. A --go that fetched 40 of 100 and was
-      // rate-limited leaves the next one reporting 60 for an archive holding
-      // 100. Douyin asks the filesystem and gets this right.
+      // rate-limited leaves the next one reporting 60 for an archive holding 100.
       total: outcome.total,
       failed: outcome.failed,
       remaining: outcome.remaining,
@@ -665,7 +654,7 @@ function duplicateNote(count) {
 }
 
 /**
- * Posts the extractor said carry more files than this pass saw rows for.
+ * Posts the extractor said carry more files than these passes saw rows for.
  *
  * They are refetched, so the files land — but the plan's own list was written
  * short, and nothing can lengthen it after the fact. The count is what keeps
@@ -676,17 +665,24 @@ function underDescribedNote(count) {
 }
 
 /**
- * Whether the sweep reached the end of the timeline or stopped early. Without
- * it, `to_fetch: 0` cannot be told apart from "gave up before reaching anything
- * new".
+ * One note per listing pass: whether that feed reached the end of the profile
+ * or stopped early.
+ *
+ * Per pass rather than merged, because the two stop independently. A single
+ * `stopped_early` covering both would say the sweep may be short without saying
+ * short of what — and "I have all your posts but stopped partway through your
+ * reels" is exactly the sentence the user needs and a merged flag cannot make.
  */
-function sweepNote({ incremental, stoppedEarly, threshold }) {
-  return {
-    code: 'sweep',
-    mode: incremental ? 'incremental' : 'full',
-    stopped_early: Boolean(incremental && stoppedEarly),
-    threshold: incremental ? threshold : null,
-  };
+function sweepNotes({ incremental, sweeps, threshold }) {
+  return (sweeps?.length ? sweeps : CATEGORIES.map((category) => ({ category, stoppedEarly: false }))).map(
+    ({ category, stoppedEarly }) => ({
+      code: 'sweep',
+      mode: incremental ? 'incremental' : 'full',
+      stopped_early: Boolean(incremental && stoppedEarly),
+      threshold: incremental ? threshold : null,
+      category,
+    }),
+  );
 }
 
 if (isMainModule(import.meta.url)) {

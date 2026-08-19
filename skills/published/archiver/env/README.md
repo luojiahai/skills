@@ -6,8 +6,8 @@ turns them into directories on disk.
 
 ## Why the skill owns it
 
-`yt-dlp` and `gallery-dl` ship extractor fixes constantly, because Douyin and X
-keep changing. A copy of either that happens to be on somebody's machine is a
+`yt-dlp` and `gallery-dl` ship extractor fixes constantly, because Douyin, X and
+Instagram keep changing. A copy of either that happens to be on somebody's machine is a
 failure that cannot be diagnosed from here — nothing says which version ran, and
 "reinstall your yt-dlp" is not a support answer. Owning the environment means
 one known configuration to reason about, and one place to bump when a platform

@@ -1,5 +1,5 @@
 /**
- * collect.mjs — the listing pass. Enumerates, diffs, reports, downloads nothing.
+ * collect.mjs — the listing passes. Enumerate, diff, report, download nothing.
  *
  * gallery-dl prints one row per file; this reads those rows as they arrive,
  * folds them into posts, and decides when it has seen enough. The stopping rule
@@ -7,11 +7,15 @@
  * listing pass at all — and having it here is what lets the block report both
  * how much of the account exists and how much of it is already on disk.
  *
- * Enumeration is the expensive half of this skill: it is paginated API calls
- * against a rate limiter, and a decade-old account is thousands of posts. So a
- * re-run stops once it has passed enough consecutive posts it already has,
- * unless asked for a full sweep. The first run has nothing to stop at and
- * sweeps the lot.
+ * **Two passes, not one.** A profile's posts and its reels are two extractors,
+ * and they are enumerated separately so that each can stop early on its own. A
+ * single invocation covering both would be one stream, and the early stop would
+ * land in the posts half — leaving every reel uncollected on every re-run, which
+ * is the silent shortfall this skill exists not to have.
+ *
+ * The price is that a post appearing in both feeds arrives twice. That costs
+ * nothing to put right: the shortcode already keys the fold, so a duplicate
+ * collapses the same way a carousel's rows do.
  */
 import { spawn } from 'node:child_process';
 import readline from 'node:readline';
@@ -20,16 +24,20 @@ import { isLanded, isMissing } from '../../shared/landed.mjs';
 import { toolPath } from '../../shared/paths.mjs';
 import { TOOL, classifyFailure, parseRow } from './gallerydl.mjs';
 import { listArgs } from '../../shared/gallerydl.mjs';
+import { feedUrl } from './target.mjs';
 
 /**
- * Generous on purpose. X pins a post to the top of a timeline regardless of its
- * age, and a handful of recent posts can be edited or reordered, so a small
- * threshold is a stop-at-the-first-thing-you-recognise rule wearing a number.
+ * Generous on purpose. Instagram pins up to three posts to the top of a profile
+ * regardless of their age, so a small threshold is a
+ * stop-at-the-first-thing-you-recognise rule wearing a number.
  */
 export const DEFAULT_ABORT = 100;
 
+/** The feeds a run enumerates, in the order it enumerates them. */
+export const CATEGORIES = ['posts', 'reels'];
+
 /**
- * Runs gallery-dl and returns `{ rows, account, stoppedEarly, failure }`.
+ * Runs gallery-dl over one feed and returns `{ rows, account, stoppedEarly, failure }`.
  *
  * `shouldStop` is asked once per newly-seen post, never per file: stopping
  * halfway through a post's files would write a plan claiming fewer files than
@@ -64,7 +72,7 @@ export async function collect({
    * The exit status, captured now rather than awaited later.
    *
    * gallery-dl can finish before this function has drained its stdout — a short
-   * timeline, or a cached response, and the process is gone while the read loop
+   * profile, or a cached response, and the process is gone while the read loop
    * is still going. An 'exit' listener attached after that loop would be
    * attached after the event it is waiting for had already fired, and the run
    * would hang forever on a promise nothing could ever settle.
@@ -118,24 +126,19 @@ export async function collect({
       // already filed under its old handle. Everything that depends on knowing
       // the folder, the archive included, waits for this and is settled here.
       if (!account && row.user?.id) {
-        // gallery-dl calls the display name `nick`; everything downstream of
+        // gallery-dl calls the display name `fullname`; everything downstream of
         // here — the plan, the block, account.json — calls it `nickname`, the
-        // same word the Douyin platform uses. This line is the one boundary.
-        // The avatar and banner URLs ride on the same row, so an account's
-        // assets cost no request of their own — they are already here by the
-        // time the folder is known.
+        // same word the other platforms use. This line is the one boundary.
         account = {
           id: row.user.id,
-          handle: row.user.name,
+          username: row.user.name,
           nickname: row.user.nick,
-          avatar: row.user.avatar || '',
-          banner: row.user.banner || '',
         };
         if (onAccount) shouldStop = (await onAccount(account)) ?? shouldStop;
       }
 
-      if (!seen.has(row.tweetId)) {
-        seen.add(row.tweetId);
+      if (!seen.has(row.shortcode)) {
+        seen.add(row.shortcode);
         if (shouldStop && shouldStop(row)) {
           stoppedEarly = true;
           break;
@@ -177,6 +180,75 @@ export async function collect({
 }
 
 /**
+ * Both feeds, in order, as one set of rows and one sweep record per pass.
+ *
+ * `onAccount` fires on the first row of whichever pass names the account first —
+ * which is not always the posts pass, because an account can have reels and no
+ * feed posts. It answers with `{ archive, incremental }` rather than with a
+ * stopper, and the stopper is built here, once per pass: the consecutive counter
+ * is per feed, and one shared between them would carry a streak off the end of
+ * the posts feed into the first row of the reels feed and stop it before it had
+ * begun.
+ *
+ * A pass that fails ends the collection. The alternative is a plan whose counts
+ * compare the archive against half a listing, which reads as an account being
+ * up to date when a whole feed was never read.
+ */
+export async function collectFeeds({
+  url,
+  cookies,
+  onAccount,
+  threshold = DEFAULT_ABORT,
+  bin = toolPath('gallery-dl'),
+  spawnImpl = spawn,
+  collectImpl = collect,
+}) {
+  const rows = [];
+  const sweeps = [];
+  let account = null;
+  let stopRule = null;
+
+  // Fired on the first row of every pass; the real `onAccount` runs only the
+  // first time, because resolving the folder and reading the archive again
+  // would be the same work for the same answer.
+  const perPass = async (found) => {
+    if (!account) {
+      account = found;
+      stopRule = (await onAccount?.(found)) ?? null;
+    }
+    if (!stopRule) return undefined;
+    // The caller found something about this account it will not archive under —
+    // an id that cannot be a folder name. Ending the pass here rather than
+    // throwing, because a throw inside the row loop surfaces as an unexplained
+    // stream failure rather than as the refusal it is.
+    if (stopRule.stopNow) return () => true;
+    return makeStopper({ archive: stopRule.archive, threshold, enabled: stopRule.incremental });
+  };
+
+  for (const category of CATEGORIES) {
+    const result = await collectImpl({
+      url: feedUrl(url, category),
+      cookies,
+      bin,
+      spawnImpl,
+      onAccount: perPass,
+    });
+
+    if (result.failure) {
+      return { rows, account, sweeps, failure: result.failure, stderr: result.stderr, code: result.code };
+    }
+
+    // Stamped from the pass that ran rather than read back out of the
+    // extractor's own subcategory: which feed was asked for is the one thing
+    // about a row that cannot be wrong.
+    for (const row of result.rows) rows.push({ ...row, category });
+    sweeps.push({ category, stoppedEarly: result.stoppedEarly });
+  }
+
+  return { rows, account, sweeps, failure: null, stderr: '', code: 0 };
+}
+
+/**
  * The stopping rule: N consecutive posts, in enumeration order, already complete.
  *
  * "Complete" is landed.mjs's one definition, so a post whose media is half here
@@ -187,7 +259,7 @@ export function makeStopper({ archive, threshold, enabled }) {
   let consecutive = 0;
   return (row) => {
     if (!enabled) return false;
-    if (isLanded(archive.get(row.tweetId))) {
+    if (isLanded(archive.get(row.shortcode))) {
       consecutive += 1;
       return consecutive >= threshold;
     }
@@ -198,46 +270,56 @@ export function makeStopper({ archive, threshold, enabled }) {
 
 // ---- rows into posts -------------------------------------------------------
 // gallery-dl reports one row per *file*; everything downstream counts posts.
-// Folding them lives here, beside the pass that produced them, rather than in
+// Folding them lives here, beside the passes that produced them, rather than in
 // the plan — what a plan means is the same on every platform, and this is not.
 
 const VIDEO_EXT = new Set(['mp4', 'm4v', 'mov', 'webm', 'mkv', 'ts']);
 
 /**
- * The per-file rows the listing pass emits, folded into one row per post.
+ * The per-file rows the listing passes emit, folded into one row per post.
  *
- * Order is preserved as enumerated — newest first — because that is the order
- * `--go` fetches in, and a run stopped partway should have got the recent
- * things rather than an arbitrary slice.
+ * The shortcode is the key, so a post that both feeds reported folds into one
+ * and a carousel's twenty rows fold into one post carrying twenty files. Order
+ * is preserved as enumerated, because that is the order `--go` fetches in and a
+ * run stopped partway should have got the recent things.
+ *
+ * A post either feed called a reel is a reel. The posts feed is the one that
+ * can carry it without saying so, so `reels` winning is the answer that cannot
+ * undercount.
  */
 export function groupFiles(rows) {
   const posts = new Map();
   for (const row of rows) {
-    const id = String(row.tweetId);
+    const id = String(row.shortcode);
     let post = posts.get(id);
     if (!post) {
       post = {
-        tweetId: id,
+        shortcode: id,
         date: row.date || '',
         content: row.content || '',
-        replyId: row.replyId || '',
-        handle: row.user?.name || '',
+        username: row.user?.name || '',
+        category: row.category || 'posts',
         count: 0,
         files: [],
       };
       posts.set(id, post);
     }
-    post.files.push({
-      num: row.num,
-      ext: row.ext || '',
-      // Already in the shape post.json's media list wants, so the plan's file
-      // records are handed to buildPost unchanged. `id` is blank for anything
-      // whose basename is not an identity — parseRow decides that, so the rule
-      // lives in one place.
-      url: row.url || '',
-      type: row.type || '',
-      id: row.mediaId || '',
-    });
+    if (row.category === 'reels') post.category = 'reels';
+
+    // A file this fold has already seen is the same file reported by the other
+    // pass, not a second copy of it: `num` is the post's own ordering, so it is
+    // what says whether two rows are one file.
+    if (!post.files.some((file) => file.num === row.num)) {
+      post.files.push({
+        num: row.num,
+        ext: row.ext || '',
+        // Already in the shape post.json's media list wants, so the plan's file
+        // records are handed to buildPost unchanged.
+        url: row.url || '',
+        type: row.type || '',
+        id: row.mediaId || '',
+      });
+    }
     // The extractor reports how many files the post carries; trust it over our
     // own tally, which is short whenever enumeration was cut off mid-post.
     post.count = Math.max(Number(row.count) || 0, post.files.length);
@@ -245,17 +327,26 @@ export function groupFiles(rows) {
   return [...posts.values()];
 }
 
-/** Images versus videos, for the one line of the block that says what you are getting. */
+/**
+ * Images versus videos, and how many of the posts are reels, for the one line of
+ * the block that says what you are getting.
+ *
+ * The first two count *files* — a carousel of twenty is twenty — and `reels`
+ * counts posts, because a reel is one video and the number a user could check
+ * against their own profile is the post count.
+ */
 export function classify(posts) {
   let images = 0;
   let videos = 0;
+  let reels = 0;
   for (const post of posts) {
+    if (post.category === 'reels') reels++;
     for (const file of post.files) {
       if (VIDEO_EXT.has(String(file.ext).toLowerCase())) videos++;
       else images++;
     }
   }
-  return { images, videos };
+  return { images, videos, reels };
 }
 
 /**
@@ -263,9 +354,9 @@ export function classify(posts) {
  * of its files. Incomplete counts as missing, so a run that died mid-post is
  * finished rather than abandoned.
  *
- * A post the extractor says carries more files than this pass saw rows for is
+ * A post the extractor says carries more files than these passes saw rows for is
  * missing too, whatever is on disk. That gap is enumeration cut off between two
- * of one post's rows — a rate limit landing mid-post — and the plan it would
+ * of one post's rows — a rate limit landing mid-carousel — and the plan it would
  * otherwise write lists two of the post's four images. gallery-dl then fetches
  * all four, `isComplete` is satisfied by the two that were listed, and the
  * archive under-describes that post for good.

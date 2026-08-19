@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { PLATFORMS, detect, supported } from './platforms.mjs';
+import { PLATFORMS, detect, labelFor, supported } from './platforms.mjs';
 
 test('a Douyin profile URL is Douyin', () => {
   assert.equal(detect(['https://www.douyin.com/user/MS4wLjABAAAA']).name, 'douyin');
@@ -41,9 +41,25 @@ test('detection answers which platform, never whether the URL is archivable', ()
   assert.equal(detect(['https://x.com/i/bookmarks']).name, 'x');
 });
 
+test('an Instagram profile URL is Instagram', () => {
+  assert.equal(detect(['https://www.instagram.com/someone']).name, 'instagram');
+  assert.equal(detect(['https://instagram.com/someone']).name, 'instagram');
+});
+
+test("instagr.am is Instagram's own shortener, and resolves with it", () => {
+  assert.equal(detect(['https://instagr.am/someone']).name, 'instagram');
+});
+
+test('a third-party embed mirror is not Instagram', () => {
+  // ddinstagram.com and its kin are somebody else's rewriting proxy. Answering
+  // for them would be this skill claiming a host it has never read.
+  assert.equal(detect(['https://ddinstagram.com/someone']), null);
+  assert.equal(detect(['https://kkinstagram.com/someone']), null);
+});
+
 test('a platform this skill does not archive resolves to nothing', () => {
-  assert.equal(detect(['https://www.instagram.com/someone']), null);
   assert.equal(detect(['https://youtube.com/@someone']), null);
+  assert.equal(detect(['https://facebook.com/someone']), null);
 });
 
 test('no URL at all resolves to nothing', () => {
@@ -79,7 +95,25 @@ test('every platform names a folder and a label', () => {
 });
 
 test('the supported list reads as prose for a refusal message', () => {
-  assert.equal(supported(), 'Douyin (douyin.com) and X, formerly Twitter (x.com, twitter.com)');
+  assert.equal(
+    supported(),
+    'Douyin (douyin.com), X, formerly Twitter (x.com, twitter.com) and Instagram (instagram.com, instagr.am)',
+  );
+});
+
+test('a platform label is answerable by name, so nothing respells it', () => {
+  // The session refusals name the site, and a second spelling in a platform's
+  // run.mjs is a second place for it to drift from the registry.
+  assert.equal(labelFor('x'), 'X, formerly Twitter');
+  assert.equal(labelFor('instagram'), 'Instagram');
+  assert.throws(() => labelFor('nowhere'));
+});
+
+test('two platforms named in one command is still a refusal with three of them', () => {
+  assert.throws(
+    () => detect(['https://x.com/jack', 'https://www.instagram.com/jack']),
+    /one account at a time/,
+  );
 });
 
 test('a flag value is never read as a URL, however much it looks like one', () => {

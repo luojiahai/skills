@@ -91,3 +91,33 @@ test('an id that would mean another directory is refused, not put in the name', 
 
   assert.equal(postFolderName({ date: '2024-01-01', postId: '1767' }), '2024-01-01_1767');
 });
+
+test('an id that is not digits still comes back out of the folder', () => {
+  // Instagram identifies a post by its shortcode, which is base64ish rather
+  // than numeric. A folder the archive wrote and cannot read back is a post
+  // counted as missing forever, re-downloaded on every run.
+  assert.equal(postIdFromFolder('2024-03-11_C3xY-_9Ab'), 'C3xY-_9Ab');
+  assert.equal(postIdFromFolder('undated_C3xY-_9Ab'), 'C3xY-_9Ab');
+});
+
+test('every name the archive will write is a name it can read back', () => {
+  // The two halves of this file are one rule seen from both ends, and the whole
+  // completeness check rests on them agreeing. A charset accepted by one and
+  // refused by the other is an archive that re-downloads what it already has.
+  for (const postId of ['1767', 'C3xY-_9Ab', 'a.b', '_leading', 'trailing_', 'A-B_c.d']) {
+    const name = postFolderName({ date: '2024-03-11', postId });
+    assert.equal(postIdFromFolder(name), postId, postId);
+  }
+});
+
+test('a folder holding a name we would refuse to write yields no id', () => {
+  // Read and write are one rule, in full. `.` and `..` are refused on the way
+  // in, and so is an id past the length bound — a folder carrying either was
+  // not written here and is not read as a post.
+  assert.equal(postIdFromFolder('2024-03-11_.'), null);
+  assert.equal(postIdFromFolder('2024-03-11_..'), null);
+
+  const tooLong = 'a'.repeat(129);
+  assert.throws(() => postFolderName({ date: '2024-03-11', postId: tooLong }));
+  assert.equal(postIdFromFolder(`2024-03-11_${tooLong}`), null);
+});

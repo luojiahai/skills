@@ -10,7 +10,7 @@
     "schema": { "const": 1 },
     "ok": { "type": "boolean" },
     "command": { "enum": ["plan", "go", "yes", "list", "login", null] },
-    "platform": { "enum": ["x", "douyin", null] },
+    "platform": { "enum": ["x", "douyin", "instagram", null] },
     "exit": { "enum": [0, 2, 3, 4, 5, 6] },
     "result": {
       "anyOf": [
@@ -47,6 +47,7 @@
         "id": { "type": ["string", "null"] },
         "handle": { "type": ["string", "null"] },
         "douyin_id": { "type": ["string", "null"] },
+        "username": { "type": ["string", "null"] },
         "nickname": { "type": ["string", "null"] },
         "url": { "type": ["string", "null"] }
       }
@@ -69,6 +70,7 @@
             "fetch_files": { "type": "integer", "minimum": 0 },
             "images": { "type": "integer", "minimum": 0 },
             "videos": { "type": "integer", "minimum": 0 },
+            "reels": { "type": "integer", "minimum": 0 },
             "reported": { "type": ["integer", "null"] },
             "skipped_image_posts": { "type": "integer", "minimum": 0 },
             "unlisted": { "type": ["integer", "null"] }
@@ -129,7 +131,11 @@
             "code": { "const": "sweep" },
             "mode": { "enum": ["full", "incremental"] },
             "stopped_early": { "type": "boolean" },
-            "threshold": { "type": ["integer", "null"] }
+            "threshold": { "type": ["integer", "null"] },
+            "category": {
+              "description": "Which listing pass this note is about, where a platform runs more than one. Absent where a platform sweeps a single feed.",
+              "enum": ["posts", "reels"]
+            }
           }
         },
         {
@@ -205,7 +211,7 @@
             "additionalProperties": false,
             "required": ["platform", "folder", "dir", "nickname", "url", "posts", "last_run", "to_fetch"],
             "properties": {
-              "platform": { "enum": ["x", "douyin"] },
+              "platform": { "enum": ["x", "douyin", "instagram"] },
               "folder": { "type": "string" },
               "dir": { "type": "string" },
               "nickname": { "type": ["string", "null"] },
@@ -274,6 +280,7 @@
             "login-abandoned",
             "login-timed-out",
             "session-rejected",
+            "checkpoint-required",
             "no-session-source",
             "session-unreadable",
             "no-archive",

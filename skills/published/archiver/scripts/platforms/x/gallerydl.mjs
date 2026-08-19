@@ -102,79 +102,12 @@ export const ROW_MARKER = 'xdl';
  */
 export const PRINT_FORMAT = `prepare:${[ROW_MARKER, ...FIELDS].join('\t')}`;
 
-function optionArgs(options) {
-  return Object.entries(options).flatMap(([key, value]) => ['-o', `${key}=${JSON.stringify(value)}`]);
-}
-
 /**
- * The listing pass: enumerate, print a row per file, download nothing.
- *
- * No archive is passed. gallery-dl's own skip-and-abort machinery does not run
- * in a listing pass anyway, and we need to see every post to report both "found"
- * and "on disk" honestly — a pass that only showed new posts could not tell the
- * user what fraction of the account they already have. The diff and the decision
- * to stop early are ours, in collect.mjs.
+ * What this platform says to gallery-dl that another would not: its extractor's
+ * config keys, its pauses, and the rows it asks for. The two invocations those
+ * feed are `../../shared/gallerydl.mjs`.
  */
-export function listArgs({ url, cookies }) {
-  return [
-    '--config-ignore',
-    ...cookieArgs({ cookies }),
-    ...optionArgs(POLICY),
-    ...THROTTLE,
-    '--print',
-    PRINT_FORMAT,
-    url,
-  ];
-}
-
-/**
- * One post, into a folder we have already named.
- *
- * `--directory` is an exact path, which is what lets naming.mjs own the layout
- * rather than expressing it as a gallery-dl format string — the naming rules are
- * ours, they are unit-tested, and they are not re-implemented in a config file.
- */
-export function fetchArgs({ url, directory, cookies }) {
-  return [
-    '--config-ignore',
-    ...cookieArgs({ cookies }),
-    ...optionArgs(POLICY),
-    ...THROTTLE,
-    '--directory',
-    directory,
-    '--filename',
-    '{num}.{extension}',
-    url,
-  ];
-}
-
-/**
- * Always a cookies.txt path, never a live browser read.
- *
- * run.mjs resolves the session to a file before anything here is called —
- * cached from a previous run, or exported from the browser once by
- * `cookieExportArgs`. Reading the browser prompts for Keychain access on macOS
- * and wants the browser closed, and a plan and a go would each pay it; twice per
- * download is the friction that makes people paste a raw token instead.
- */
-export function cookieArgs({ cookies }) {
-  return cookies ? ['--cookies', cookies] : [];
-}
-
-/** Seed the cache: read the browser once, write what it found to `cookies`. */
-export function cookieExportArgs({ browser, cookies, url }) {
-  return [
-    '--config-ignore',
-    '--cookies-from-browser',
-    browser,
-    '--cookies-export',
-    cookies,
-    '--simulate',
-    '--range',
-    '1',
-    url,
-  ];
-}
+export const TOOL = { policy: POLICY, throttle: THROTTLE, printFormat: PRINT_FORMAT };
 
 /**
  * One printed row back into a file record, or null for anything that is not

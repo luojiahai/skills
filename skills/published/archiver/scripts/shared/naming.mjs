@@ -2,8 +2,9 @@
  * naming.mjs — a post's identity as a directory name, and a moment as a string.
  *
  * A post folder is `<date>_<id>` and nothing else. Both halves are machine
- * fields: a date derived from the post's own timestamp and a numeric post id. No
- * part of a post's body reaches a path, which is the point. User text in a
+ * fields: a date derived from the post's own timestamp, and whatever the
+ * platform calls the post — a numeric id on X and Douyin, a base64ish shortcode
+ * on Instagram. No part of a post's body reaches a path, which is the point. User text in a
  * *directory* name is a sharper edge than in a filename, because a stray
  * separator does not produce a badly named file, it produces a tree in the wrong
  * place. Keeping the body out of the path retires that entire class of bug
@@ -30,8 +31,20 @@ import { Refusal } from './errors.mjs';
 /** An id that may sit in a path, the same rule `isSafeId` holds account ids to. */
 const SAFE_POST_ID = /^[A-Za-z0-9._-]+$/;
 
-/** A folder name we could have written ourselves, and the id inside it. */
-const POST_FOLDER = /^(?:\d{4}-\d{2}-\d{2}|undated)_(\d+)$/;
+/** The longest id either half will use, so the two agree on that too. */
+const MAX_POST_ID = 128;
+
+/**
+ * A folder name we could have written ourselves, and the id inside it.
+ *
+ * The id half is `SAFE_POST_ID` again rather than a narrower charset, because
+ * these two are one rule read from both ends: a name this file writes and
+ * cannot read back is a post counted as missing forever and re-downloaded on
+ * every run. Not every platform's id is numeric — Instagram identifies a post
+ * by its base64ish shortcode — and the date prefix is fixed-width, so an id
+ * containing `_` is still unambiguous.
+ */
+const POST_FOLDER = /^(?:\d{4}-\d{2}-\d{2}|undated)_([A-Za-z0-9._-]+)$/;
 
 /** `2024-03-11 07:22:19` and `2024-03-11T07:22:19Z` — gallery-dl's form and ISO. */
 const WALL_CLOCK = /^(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2}:\d{2})/;
@@ -102,7 +115,7 @@ export function datePart(value) {
  */
 export function postFolderName({ date, postId }) {
   const id = String(postId ?? '');
-  if (!id || id.length > 128 || !SAFE_POST_ID.test(id) || id === '.' || id === '..') {
+  if (!id || !isSafePostId(id)) {
     throw new Refusal(
       'unsafe-post-id',
       `refusing to use ${JSON.stringify(id)} as a post folder name`,
@@ -124,5 +137,19 @@ export function postFolderName({ date, postId }) {
  */
 export function postIdFromFolder(name) {
   const m = POST_FOLDER.exec(String(name ?? ''));
-  return m ? m[1] : null;
+  // The same rule the write side holds an id to, so the claim holds in full: a
+  // name this file would refuse to write is not a name it wrote.
+  return m && isSafePostId(m[1]) ? m[1] : null;
+}
+
+/**
+ * An id this file will both write into a folder name and read back out of one.
+ *
+ * One predicate rather than two lists of conditions, because these are one rule
+ * seen from both ends — and a charset or a length the write side enforces and
+ * the read side does not is a folder the archive creates and then cannot
+ * recognise as its own.
+ */
+function isSafePostId(id) {
+  return id.length > 0 && id.length <= MAX_POST_ID && SAFE_POST_ID.test(id) && id !== '.' && id !== '..';
 }
