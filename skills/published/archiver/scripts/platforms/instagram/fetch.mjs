@@ -153,7 +153,7 @@ export async function fetchPosts({
     }
 
     fetched.posts += 1;
-    fetched.files += post.files?.length || post.count || 0;
+    fetched.files += post.files?.length ?? 0;
     onPost?.({ post, ok: true }, done);
   }
 

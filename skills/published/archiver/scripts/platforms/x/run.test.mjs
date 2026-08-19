@@ -42,7 +42,6 @@ const archivesRoot = async () => realpathSync(await mkdtemp(path.join(os.tmpdir(
 const row = (tweetId, over = {}) => ({
   tweetId,
   num: 1,
-  count: 1,
   ext: 'jpg',
   mediaId: `m${tweetId}`,
   type: 'photo',
@@ -167,6 +166,36 @@ test('--yes emits exactly one document', async () => {
   assert.equal(document.result.run.downloaded, 2);
   assert.equal(document.result.run.total, 2);
   assert.ok(document.result.plan, '--yes carries the plan window too');
+});
+
+test('a run never approves a post it will not then fetch', async () => {
+  // The plan's `to_fetch` and the list `--go` hands the fetcher are one question,
+  // asked through `landed.mjs`'s `outstanding`. A second predicate on the plan
+  // side offers posts the fetch skips as already landed, and the document then
+  // says a hundred posts were approved and none downloaded — which reads as a
+  // broken download rather than as a plan that was never true.
+  const dir = await archivesRoot();
+  let handed = null;
+
+  // One post fully landed by a first run, one that has never been seen.
+  await run(['https://x.com/jack', '--archives', dir, '--yes'], {
+    collectImpl: async () => collected({ rows: [row('1')] }),
+  });
+
+  const { document } = await run(['https://x.com/jack', '--archives', dir, '--yes'], {
+    collectImpl: async () => collected({ rows: [row('1'), row('2')] }),
+    fetchImpl: async ({ accountDir, posts }) => {
+      handed = posts.map((post) => post.tweetId);
+      for (const post of posts) {
+        await writePost(postDir(accountDir, post), buildPost({ id: post.tweetId }));
+      }
+      return { fetched: { posts: posts.length, files: posts.length }, failed: 0, stopped: null };
+    },
+  });
+
+  assert.deepEqual(handed, ['2'], 'the fetcher is handed the posts the plan counted');
+  assert.equal(document.result.counts.to_fetch, 1);
+  assert.equal(document.result.run.downloaded, document.result.counts.to_fetch);
 });
 
 test('--yes still says a rename is happening', async () => {

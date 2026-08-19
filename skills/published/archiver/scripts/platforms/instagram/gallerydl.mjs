@@ -17,6 +17,8 @@ import { httpStatus } from '../../shared/subprocess.mjs';
  *
  *   videos      the reels and the video half of a carousel are the point
  *   previews    a video's poster frame is not a second piece of media
+ *   audio       a reel's soundtrack is not media this archive holds, and the
+ *               extractor counts it whether or not it writes it
  *   metadata    an extra request per post for figures nothing here reads
  *   order-files carousel order is what `1.jpg, 2.jpg` means, so it is stated
  *               rather than inherited
@@ -33,6 +35,7 @@ import { httpStatus } from '../../shared/subprocess.mjs';
 export const POLICY = {
   'extractor.instagram.videos': true,
   'extractor.instagram.previews': false,
+  'extractor.instagram.audio': false,
   'extractor.instagram.metadata': false,
   'extractor.instagram.order-files': 'asc',
   'extractor.instagram.pinned': true,
@@ -75,13 +78,17 @@ export const THROTTLE = ['--sleep-request', '6.0-12.0', '--sleep', '1.0-3.0', '-
  * There is no bare `url` key to ask for: the URL gallery-dl downloads from is
  * passed beside the metadata rather than inside it.
  *
- * `count` is how many files the extractor found for the post, which is what
- * makes a listing cut off mid-carousel detectable at all.
+ * `{count}` is deliberately not among them, and must not be added. The extractor
+ * counts every file it found for the post, a soundtrack included — and with
+ * `extractor.instagram.audio` off, which is what this skill wants, it prints no
+ * row for that soundtrack and writes no file for it. So `count` exceeds the rows
+ * for every reel carrying music, and anything comparing the two reads an ordinary
+ * post as short. The rows are the record: they come from the same policy the
+ * fetch runs under, so they are exactly the files a `--go` will write.
  */
 const FIELDS = [
   '{post_shortcode}',
   '{num}',
-  '{count}',
   '{extension}',
   "{media_id|''}",
   "{typename|''}",
@@ -131,7 +138,7 @@ export function parseRow(line) {
   if (parts[0] !== ROW_MARKER) return null;
 
   const [
-    , shortcode, num, count, ext, mediaId, typename, url, date,
+    , shortcode, num, ext, mediaId, typename, url, date,
     ownerId, username, fullname, description,
   ] = parts;
 
@@ -144,7 +151,6 @@ export function parseRow(line) {
   return {
     shortcode,
     num: Number(num) || 0,
-    count: Number(count) || 0,
     ext,
     // Instagram gives every item of a carousel its own id, so unlike X's videos
     // there is nothing here that a re-encode could change.

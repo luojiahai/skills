@@ -187,13 +187,6 @@
           "additionalProperties": false,
           "required": ["code", "count"],
           "properties": { "code": { "const": "duplicate-posts" }, "count": { "type": "integer", "minimum": 1 } }
-        },
-        {
-          "description": "A post whose own file list is shorter than the file count the listing reported for it, so the archive under-describes it.",
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["code", "count"],
-          "properties": { "code": { "const": "under-described-posts" }, "count": { "type": "integer", "minimum": 1 } }
         }
       ]
     },

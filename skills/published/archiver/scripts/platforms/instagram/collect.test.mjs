@@ -18,10 +18,11 @@ import {
 } from './collect.mjs';
 import { ROW_MARKER } from './gallerydl.mjs';
 import { buildPost } from '../../shared/post.mjs';
+import { outstanding } from '../../shared/landed.mjs';
 
-const row = (shortcode, num = 1, count = 1) =>
+const row = (shortcode, num = 1) =>
   [
-    ROW_MARKER, shortcode, num, count, 'jpg',
+    ROW_MARKER, shortcode, num, 'jpg',
     `m${shortcode}${num}`, 'GraphImage', `https://scontent.cdninstagram.com/${shortcode}_${num}.jpg`,
     '2024-03-11 07:22:19', '55', 'someone', '"Some One"', '"hi"',
   ].join('\t');
@@ -87,9 +88,8 @@ test('the default threshold is generous enough to survive pinned posts', () => {
 // ---- folding ---------------------------------------------------------------
 
 test('a carousel is one post carrying its files in order', () => {
-  const posts = groupFiles([parsed('A', 1, 3), parsed('A', 2, 3), parsed('A', 3, 3)]);
+  const posts = groupFiles([parsed('A', 1), parsed('A', 2), parsed('A', 3)]);
   assert.equal(posts.length, 1);
-  assert.equal(posts[0].count, 3);
   assert.deepEqual(posts[0].files.map((f) => f.num), [1, 2, 3]);
 });
 
@@ -123,15 +123,26 @@ test('the classification counts files for media and posts for reels', () => {
   assert.deepEqual(classify(posts), { images: 2, videos: 1, reels: 1 });
 });
 
-test('a post listing more files than were seen is fetched again', () => {
-  // A rate limit landing between two of one carousel's rows writes a short list
-  // that nothing can lengthen afterwards, and the archive then under-describes
-  // that post for good.
-  const posts = [{ shortcode: 'A', count: 4, files: [{ num: 1, ext: 'jpg' }] }];
-  const archive = archiveOf(['A']);
+test('the diff offers exactly what the fetch will take, and never more', () => {
+  // The one rule this file exists to hold. `--go` decides what to hand the
+  // fetcher by calling `outstanding`; a diff that answered this question its own
+  // way would offer posts the fetch then skips, and the run would report zero
+  // downloaded against everything the user approved.
+  const posts = [
+    { shortcode: 'A', files: [{ num: 1, ext: 'jpg' }] },
+    { shortcode: 'B', files: [{ num: 1, ext: 'jpg' }] },
+    { shortcode: 'C', files: [{ num: 1, ext: 'jpg' }, { num: 2, ext: 'jpg' }] },
+  ];
+  // A landed, a never-seen, and one whose second image never arrived.
+  const archive = new Map([
+    ...archiveOf(['A']),
+    ...archiveOf(['C'], { listed: ['1.jpg', '2.jpg'], present: ['1.jpg'] }),
+  ]);
   const result = diff(posts, archive, 'shortcode');
-  assert.equal(result.toFetch.length, 1);
-  assert.equal(result.counts.underDescribed, 1);
+
+  assert.deepEqual(result.toFetch, outstanding(posts, archive, 'shortcode'));
+  assert.deepEqual(result.toFetch.map((p) => p.shortcode), ['B', 'C']);
+  assert.equal(result.counts.onDiskPosts, 1);
 });
 
 // ---- the process ------------------------------------------------------------
@@ -369,11 +380,10 @@ test('the listing pass spawns through the seam it was handed', async () => {
 });
 
 /** One parsed row, the shape `parseRow` returns. */
-function parsed(shortcode, num = 1, count = 1) {
+function parsed(shortcode, num = 1) {
   return {
     shortcode,
     num,
-    count,
     ext: 'jpg',
     mediaId: `m${shortcode}${num}`,
     type: 'GraphImage',

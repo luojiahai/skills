@@ -68,6 +68,13 @@ export const THROTTLE = ['--sleep-request', '2.0', '--sleep', '1.0-3.0', '--retr
  * Free text goes through `!j`, which JSON-encodes it: a post body containing
  * newlines or tabs would otherwise be indistinguishable from several rows.
  *
+ * `{count}` is deliberately not among them, and must not be added. The rows are
+ * the record: they are printed by the same policy the fetch runs under, so they
+ * are exactly the files a `--go` will write, and what is still missing is one
+ * question asked of them and the folder. A second tally beside them is a second
+ * answer free to disagree — which is what a block promising posts the download
+ * then skips is made of.
+ *
  * `filename` is the basename of the media URL. For an image that is the
  * pbs.twimg.com media token — globally unique, stable for the life of the
  * upload — which is what makes it worth carrying into post.json. For a video it
@@ -77,7 +84,6 @@ export const THROTTLE = ['--sleep-request', '2.0', '--sleep', '1.0-3.0', '--retr
 const FIELDS = [
   '{tweet_id}',
   '{num}',
-  '{count}',
   '{extension}',
   "{filename|''}",
   "{type|''}",
@@ -120,7 +126,7 @@ export function parseRow(line) {
   if (parts[0] !== ROW_MARKER) return null;
 
   const [
-    , tweetId, num, count, ext, filename, type, url, date,
+    , tweetId, num, ext, filename, type, url, date,
     userId, userName, userNick, profileImage, profileBanner, replyId, content,
   ] = parts;
   if (!/^\d+$/.test(tweetId)) return null;
@@ -128,7 +134,6 @@ export function parseRow(line) {
   return {
     tweetId,
     num: Number(num) || 0,
-    count: Number(count) || 0,
     ext,
     // Only a photo's basename is the media token. A video's is a variant name
     // that a re-encode can change, so it is not recorded as an identity.

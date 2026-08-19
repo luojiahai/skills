@@ -20,7 +20,7 @@
 import { spawn } from 'node:child_process';
 import readline from 'node:readline';
 
-import { isLanded, isMissing } from '../../shared/landed.mjs';
+import { isLanded, outstanding } from '../../shared/landed.mjs';
 import { toolPath } from '../../shared/paths.mjs';
 import { TOOL, classifyFailure, parseRow } from './gallerydl.mjs';
 import { listArgs } from '../../shared/gallerydl.mjs';
@@ -299,7 +299,6 @@ export function groupFiles(rows) {
         content: row.content || '',
         username: row.user?.name || '',
         category: row.category || 'posts',
-        count: 0,
         files: [],
       };
       posts.set(id, post);
@@ -320,9 +319,6 @@ export function groupFiles(rows) {
         id: row.mediaId || '',
       });
     }
-    // The extractor reports how many files the post carries; trust it over our
-    // own tally, which is short whenever enumeration was cut off mid-post.
-    post.count = Math.max(Number(row.count) || 0, post.files.length);
   }
   return [...posts.values()];
 }
@@ -354,16 +350,15 @@ export function classify(posts) {
  * of its files. Incomplete counts as missing, so a run that died mid-post is
  * finished rather than abandoned.
  *
- * A post the extractor says carries more files than these passes saw rows for is
- * missing too, whatever is on disk. That gap is enumeration cut off between two
- * of one post's rows — a rate limit landing mid-carousel — and the plan it would
- * otherwise write lists two of the post's four images. gallery-dl then fetches
- * all four, `isComplete` is satisfied by the two that were listed, and the
- * archive under-describes that post for good.
+ * Asked through `landed.mjs`'s `outstanding`, which is the same call `--go` makes
+ * to decide what it hands the fetcher. That shared call is the whole of the rule:
+ * a second predicate here, on top of it, is what makes a block promise a number
+ * the download then disagrees with — the plan offers a hundred posts, the fetch
+ * asks the shared question and skips every one, and the run reports zero
+ * downloaded against a hundred approved.
  */
 export function diff(posts, archive, postIdKey) {
-  const cutShort = (post) => post.count > post.files.length;
-  const toFetch = posts.filter((post) => isMissing(post, archive, postIdKey) || cutShort(post));
+  const toFetch = outstanding(posts, archive, postIdKey);
 
   const foundFiles = posts.reduce((n, p) => n + p.files.length, 0);
   const onDisk = posts.length - toFetch.length;
@@ -376,9 +371,6 @@ export function diff(posts, archive, postIdKey) {
       onDiskPosts: onDisk,
       fetchPosts: toFetch.length,
       fetchFiles: toFetch.reduce((n, p) => n + p.files.length, 0),
-      // Refetching lands the files; it cannot lengthen the list the plan wrote,
-      // so the count is reported rather than quietly put right.
-      underDescribed: posts.filter(cutShort).length,
       ...classify(toFetch),
     },
   };
