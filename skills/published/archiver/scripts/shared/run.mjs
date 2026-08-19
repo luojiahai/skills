@@ -20,9 +20,9 @@ import { mkdir } from 'node:fs/promises';
 import {
   aliasShapeRefusal,
   checkAlias,
+  fileAccount,
   findFolder,
   isSafeAlias,
-  moveToAlias,
   recordIdentity,
   settleFolder,
 } from './account.mjs';
@@ -349,22 +349,19 @@ export async function runAccount(base, argv, overrides = {}) {
     // Nothing to download, but this run was still approved — so the rename it
     // asked for happens, and anything the platform refreshes on every finished
     // run is refreshed.
-    let accountDir = planned.folder.dir;
+    let filed;
     try {
-      accountDir = await moveToAlias(descriptor, root, accountDir, {
-        id: planned.plan.account?.id, alias, unalias,
-      });
-      // The other two of the rename's three writes. Moving the folder and
-      // stopping leaves account.json naming the folder this run just left and
-      // archiver.json caching it — the archive disagreeing with itself until
-      // something else happens to write it.
-      await recordIdentity(descriptor, root, accountDir, {
-        account: planned.plan.account, url: target.url,
+      filed = await fileAccount(descriptor, root, planned.folder, {
+        id: planned.plan.account?.id,
+        account: planned.plan.account,
+        url: target.url,
+        alias,
+        unalias,
       });
     } catch (error) {
       return refuseHere(refusalFields(error));
     }
-    await adapter.afterFetch?.(accountDir, planned.plan.account);
+    await adapter.afterFetch?.(filed.dir, planned.plan.account);
     return answer({
       command,
       platform,
@@ -550,25 +547,30 @@ async function download({ adapter, root, folder: settled, alias, unalias, url, t
   // read it on its way to answering, so nothing opens account.json again here.
   const account = folder.account;
 
-  let accountDir = folder.dir;
-
   // Read and approved before the folder moves. A plan this run will not act on
   // downloads nothing, so there is no final home to prepare, and a refusal that
   // renamed the archive on its way out would leave the user hunting for a folder
   // this run moved while telling them it did nothing.
-  const plan = await loadPlan(accountDir);
+  const plan = await loadPlan(folder.dir);
   const valid = validatePlan(plan, { root, accountId: account?.id ?? target?.id });
   if (!valid.ok) return { refusal: withPlanRemedy(planRefusal(valid), planCommand) };
 
-  // The rename lands here rather than on --plan, and before the download rather
-  // than after, so what is fetched goes straight into its final home.
+  // Filed here rather than on --plan, and before the download rather than after,
+  // so what is fetched goes straight into its final home and the folder says
+  // whose it is for the whole of a download that may not finish.
+  let filed;
   try {
-    accountDir = await moveToAlias(descriptor, root, accountDir, {
-      id: account?.id ?? target?.id, alias, unalias,
+    filed = await fileAccount(descriptor, root, folder, {
+      id: account?.id ?? target?.id,
+      account: plan.account,
+      url,
+      alias,
+      unalias,
     });
   } catch (error) {
     return { refusal: error };
   }
+  const accountDir = filed.dir;
 
   const archive = await readArchive(accountDir);
   const todo = outstanding(approved(plan), archive, postIdKey);
@@ -610,8 +612,6 @@ async function download({ adapter, root, folder: settled, alias, unalias, url, t
   // media counted by nothing.
   const duplicates = await duplicateFolders(accountDir);
 
-  // After the move, so the alias recorded is the folder this run finished in.
-  await recordIdentity(descriptor, root, accountDir, { account: plan.account, url });
   await recordRun(accountDir, {
     root,
     found: plan.counts?.found ?? null,

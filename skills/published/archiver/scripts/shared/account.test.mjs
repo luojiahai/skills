@@ -12,6 +12,7 @@ import {
   checkAlias,
   clearAlias,
   existingIds,
+  fileAccount,
   findAccountDir,
   findFolder,
   isSafeAlias,
@@ -379,8 +380,6 @@ test('clearAlias puts the folder back under the id', async () => {
   const back = await clearAlias(ACCOUNT, dir, { id: '55' });
   assert.equal(back, accountDirFor(ACCOUNT, dir, '55'));
   assert.equal((await readAccount(back)).account.id, '55');
-  assert.equal('alias' in (await readAccount(back)).account, false);
-  assert.deepEqual(await readAliases(dir, PLATFORM), {});
 });
 
 test('clearAlias on an account that never had one is not an error', async () => {
@@ -575,4 +574,71 @@ test('settling says where a rename would put the folder', async () => {
 test('settling announces no move when none was asked for', async () => {
   const dir = await root();
   assert.equal((await settleFolder(ACCOUNT, dir, { id: '55' })).movingTo, null);
+});
+
+// ---- filing ----------------------------------------------------------------
+
+test('filing an account with no rename asked for still records who it is', async () => {
+  const dir = await root();
+  const folder = await seed(dir, '55', { account: { id: '55' } });
+
+  const filed = await fileAccount(ACCOUNT, dir, { dir: folder, id: '55' }, {
+    id: '55',
+    account: { id: '55', handle: 'someone' },
+    url: 'https://x.com/someone',
+  });
+
+  assert.equal(filed.dir, folder);
+  assert.equal(filed.account.handle, 'someone');
+  assert.equal((await readAccount(folder)).url, 'https://x.com/someone');
+});
+
+test('filing an alias moves the folder and records it there, as one act', async () => {
+  const dir = await root();
+  const folder = await seed(dir, '55', { account: { id: '55', handle: 'someone' } });
+
+  const filed = await fileAccount(ACCOUNT, dir, { dir: folder, id: '55' }, {
+    id: '55',
+    account: { id: '55', handle: 'someone' },
+    url: 'https://x.com/someone',
+    alias: 'jia',
+  });
+
+  assert.equal(filed.dir, aliasDirFor(ACCOUNT, dir, 'jia'));
+  // The three writes the rename owes: the folder, the identity inside it, and
+  // the mapping that finds it again.
+  assert.equal(filed.account.alias, 'jia');
+  assert.equal((await readAccount(filed.dir)).account.alias, 'jia');
+  assert.deepEqual(await readAliases(dir, PLATFORM), { 55: 'jia' });
+});
+
+test('filing an unalias puts the folder back and clears the mapping, once', async () => {
+  const dir = await root();
+  const folder = await seed(dir, 'jia', { account: { id: '55', handle: 'someone', alias: 'jia' } });
+  await writeAlias(dir, PLATFORM, '55', 'jia');
+
+  const filed = await fileAccount(ACCOUNT, dir, { dir: folder, id: '55' }, {
+    id: '55',
+    account: { id: '55', handle: 'someone' },
+    url: 'https://x.com/someone',
+    unalias: true,
+  });
+
+  assert.equal(filed.dir, accountDirFor(ACCOUNT, dir, '55'));
+  assert.equal('alias' in filed.account, false);
+  assert.equal('alias' in (await readAccount(filed.dir)).account, false);
+  assert.deepEqual(await readAliases(dir, PLATFORM), {});
+});
+
+test('filing an account with no id to rename against leaves the folder alone', async () => {
+  const dir = await root();
+  const folder = await seed(dir, '55', { account: { id: '55' } });
+
+  const filed = await fileAccount(ACCOUNT, dir, { dir: folder, id: null }, {
+    id: null,
+    account: null,
+    alias: 'jia',
+  });
+
+  assert.equal(filed.dir, folder);
 });

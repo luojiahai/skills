@@ -611,11 +611,9 @@ async function move(from, to) {
  * blank `--alias` cannot mean it — every run passes flags it has no value for,
  * so an empty one has to read as silence.
  *
- * Unlike applyAlias this writes the records itself rather than leaving them to
- * the next write. `--unalias` is a whole instruction on its own: there is no
- * fetch behind it whose recordIdentity would tidy up afterwards, and a folder
- * that had moved while account.json still claimed the old alias would be exactly
- * the disagreement this layout is built to avoid.
+ * Moves and no more, as applyAlias does. Filing is what records, so both halves
+ * of a rename are written by the one act rather than by whichever of these two
+ * was reached.
  */
 export async function clearAlias(descriptor, root, { id }) {
   const wanted = String(id);
@@ -636,10 +634,6 @@ export async function clearAlias(descriptor, root, { id }) {
     }
     await move(current, target);
   }
-
-  const json = await identityAt(target);
-  if (json) await recordIdentity(descriptor, root, target, { account: json.account, url: json.url });
-  else await writeAlias(root, descriptor.platform, wanted, null);
 
   return target;
 }
@@ -667,21 +661,44 @@ function aliasTarget(descriptor, root, { id, alias, unalias }) {
 }
 
 /**
- * The rename a run was asked for, performed.
- *
- * Returns where the account folder is afterwards — the folder it was already in
- * when nothing was asked for, and when the account has no id to rename against.
- *
- * Every run that was approved goes through here, including one that found
- * nothing new to fetch. An alias is a thing the user asked of the archive, not
- * a reward for having downloaded something: announcing the move and skipping it
- * leaves the folder under its id and the next run announcing the same move
- * again.
+ * The rename a run was asked for, performed — the folder it was already in when
+ * nothing was asked for, or when there is no id to rename against.
  */
-export async function moveToAlias(descriptor, root, accountDir, { id, alias, unalias }) {
+async function moveFolder(descriptor, root, accountDir, { id, alias, unalias }) {
   if (!id || !(alias || unalias)) return accountDir;
   const moved = unalias
     ? await clearAlias(descriptor, root, { id })
     : await applyAlias(descriptor, root, { id, alias });
   return moved ?? accountDir;
+}
+
+/**
+ * Filing: putting this account's folder where its name says it goes, and
+ * recording that it is there.
+ *
+ * One act, because the two must agree. A folder that has moved while
+ * account.json still names the old place — and archiver.json still maps the id
+ * to it — is the disagreement this layout exists to prevent, and leaving the
+ * record to a later call is what opens the window for it. Do not split these
+ * again to record after some work in between: whatever that work is can fail,
+ * and the folder will have moved anyway.
+ *
+ * The move goes first and the record follows, because the tree is the truth and
+ * the map is the cache: a crash between them leaves a folder whose next write
+ * adopts it, while the other order would leave the index ahead of reality.
+ *
+ * Every approved run files, including one that found nothing new to fetch. An
+ * alias is a thing the user asked of the archive, not a reward for having
+ * downloaded something: announcing the move and skipping it leaves the folder
+ * under its id and the next run announcing the same move again.
+ */
+export async function fileAccount(descriptor, root, folder, { id, account, url = null, alias, unalias } = {}) {
+  const dir = await moveFolder(descriptor, root, folder.dir, { id, alias, unalias });
+  const identity = await recordIdentity(descriptor, root, dir, { account, url });
+  return {
+    dir,
+    id: String(identity.account?.id ?? '') || null,
+    account: identity.account,
+    url: identity.url,
+  };
 }
