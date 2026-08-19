@@ -1,13 +1,19 @@
 /**
- * run.mjs — the handful of decisions every platform's run makes identically.
+ * run.mjs — the run itself, for whichever platform asked.
  *
- * Not the run itself: each platform keeps its own `main(argv)`, because listing
- * a Douyin profile and listing an X timeline have almost nothing in common. What
- * is here is what would otherwise be copied verbatim into both — and a mode rule
- * that drifted between platforms would mean `--yes` meaning two things.
+ * What the command line meant, the order refusals are reached in, where the
+ * account folder is, what `--go` may act on, and the one document it all
+ * answers with. A platform brings an adapter and nothing here branches on
+ * which one supplied it.
  *
- * A refusal is not here: it goes through `output.mjs`, which owns the envelope
- * every command answers in.
+ * Listing a Douyin profile and listing an X timeline have almost nothing in
+ * common, and that is why the listing and download halves are adapter members
+ * rather than fixed: `defaultPlan` and `defaultGo` below are what the two
+ * gallery-dl platforms share, and Douyin brings its own. Everything either side
+ * of them is the same run for all three.
+ *
+ * A refusal's envelope is not here: it goes through `output.mjs`, which owns
+ * the document every command answers in.
  */
 import { mkdir } from 'node:fs/promises';
 
@@ -160,19 +166,16 @@ export function adapterFor(adapter, overrides = {}) {
  * all answers with. What differs arrives as the adapter, and nothing here
  * branches on which platform supplied it.
  *
- * The adapter's behaviour is six members — `boxes`, `preflight`, `session`,
- * `collect`, `fetch` and `commands`. The rest of it is data: the usage prose,
- * the flags, the registry's descriptor, and the wording of the three refusals
- * only the platform can phrase.
+ * What an adapter owes is specified in `../platforms/README.md`, beside the
+ * folders that write them.
  */
-export async function runAccount(adapter, argv, overrides = {}) {
-  const a = adapterFor(adapter, overrides);
-  const { platform, account: descriptor } = a;
-  const usage = a.usage;
+export async function runAccount(base, argv, overrides = {}) {
+  const adapter = adapterFor(base, overrides);
+  const { platform, account: descriptor, usage } = adapter;
 
   const { opts, positional, unknown, missing } = parseCommandLine(argv, {
-    booleans: a.booleans,
-    known: a.flags,
+    booleans: adapter.booleans,
+    known: adapter.flags,
   });
 
   if (opts.help || opts.h) {
@@ -183,7 +186,7 @@ export async function runAccount(adapter, argv, overrides = {}) {
   // What the command line asked for, settled before the first refusal so every
   // document says which command was being run when it stopped. A platform's own
   // command — Douyin's `--login` — is declared rather than known here.
-  const declared = Object.keys(a.commands ?? {}).find((name) => opts[name] === true);
+  const declared = Object.keys(adapter.commands ?? {}).find((name) => opts[name] === true);
   const command = declared ?? pickMode(opts);
   const refuseHere = (fields) => refuse({ command, platform, ...fields });
 
@@ -213,7 +216,7 @@ export async function runAccount(adapter, argv, overrides = {}) {
   // read or written, because refusing a URL needs nothing installed.
   let target;
   try {
-    target = a.parseTarget(url);
+    target = adapter.parseTarget(url);
   } catch (error) {
     return refuseHere(refusalFields(error));
   }
@@ -223,7 +226,7 @@ export async function runAccount(adapter, argv, overrides = {}) {
   // cookies out of a browser is a real cost to pay for a run that cannot
   // proceed anyway. A platform names only the boxes it needs.
   try {
-    await a.ensureEnv(a.boxes(command), { platform, adapter: a });
+    await adapter.ensureEnv(adapter.boxes(command), { platform, adapter });
   } catch (error) {
     return refuseHere(refusalFields(error));
   }
@@ -232,10 +235,10 @@ export async function runAccount(adapter, argv, overrides = {}) {
   // the environment, because it is the whole reason a login has a browser to
   // open, and before the downloader preflight, which it has no use for.
   if (declared) {
-    return await a.commands[declared]({ target, opts, argv, refuseHere, adapter: a });
+    return await adapter.commands[declared]({ target, opts, argv, refuseHere, adapter });
   }
 
-  const noTool = await a.preflight(a);
+  const noTool = await adapter.preflight(adapter);
   if (noTool) return refuseHere(refusalFields(noTool));
 
   const alias = optString(opts, 'alias');
@@ -288,21 +291,21 @@ export async function runAccount(adapter, argv, overrides = {}) {
 
   let session;
   try {
-    session = await a.session({ opts, target, adapter: a });
+    session = await adapter.session({ opts, target, adapter });
   } catch (error) {
     return refuseHere(refusalFields(error));
   }
 
   const planCommand = commandFor(argv, 'plan');
-  const shared = { a, root, alias, unalias, session, planCommand, command, opts, target, url: target.url };
+  const shared = { adapter, root, alias, unalias, session, planCommand, command, opts, target, url: target.url };
 
   // The listing and the download are the platform's where it needs them to be.
   // Douyin resolves its folder before the browser opens, counts against the
   // profile header and drives yt-dlp; the two gallery-dl platforms share the
   // implementations below, which is what makes them the default rather than the
   // only shape.
-  const plan = a.plan ?? defaultPlan;
-  const go = a.go ?? defaultGo;
+  const plan = adapter.plan ?? defaultPlan;
+  const go = adapter.go ?? defaultGo;
 
   // Guarded like the listing half below. A platform's download half can raise
   // a Refusal of its own — Douyin's cookie mint does — and an unguarded throw
@@ -323,7 +326,7 @@ export async function runAccount(adapter, argv, overrides = {}) {
     const fields = refusalFields(error);
     // The remedy text says the cached session has been thrown away, and leaving
     // the file in place would make that a lie the next run repeats.
-    if (fields.code === 'session-rejected') await a.discardSession?.();
+    if (fields.code === 'session-rejected') await adapter.discardSession?.();
     return refuseHere(fields);
   }
 
@@ -367,7 +370,7 @@ export async function runAccount(adapter, argv, overrides = {}) {
     } catch (error) {
       return refuseHere(refusalFields(error));
     }
-    await a.afterFetch?.(accountDir, planned.plan.account);
+    await adapter.afterFetch?.(accountDir, planned.plan.account);
     return answer({
       command,
       platform,
@@ -398,9 +401,9 @@ async function defaultGo(args) {
  * Throws its refusals rather than composing documents. `runAccount` owns the
  * envelope, so a `--yes` emits exactly one.
  */
-async function defaultPlan({ a, root, alias, unalias, session, target, full }) {
-  const descriptor = a.account;
-  const postIdKey = a.postIdKey;
+async function defaultPlan({ adapter, root, alias, unalias, session, target, full }) {
+  const descriptor = adapter.account;
+  const postIdKey = adapter.postIdKey;
 
   // All settled the moment the first row names the account, because none of
   // them can be known before it: the id itself only arrives with the first row,
@@ -410,15 +413,15 @@ async function defaultPlan({ a, root, alias, unalias, session, target, full }) {
   let incremental = false;
   let badId = null;
 
-  const result = await a.collect({
+  const result = await adapter.collect({
     url: target.url,
     session,
-    threshold: a.threshold,
+    threshold: adapter.threshold,
     // The stopping rule as a factory, called once per listing pass. A platform
     // sweeping one feed calls it once; Instagram calls it per feed, because the
     // two stop independently and a streak in one proves nothing about the other.
     stopper: ({ archive: seen, incremental: on }) =>
-      makeStopper({ archive: seen, threshold: a.threshold, enabled: on }),
+      makeStopper({ archive: seen, threshold: adapter.threshold, enabled: on }),
     onAccount: async (account) => {
       // Recorded and stopped rather than thrown: collect() reads this inside
       // its row loop, where a throw would surface as an unexplained stream
@@ -441,19 +444,19 @@ async function defaultPlan({ a, root, alias, unalias, session, target, full }) {
     },
   });
 
-  if (badId !== null) throw a.refusals.badId(badId);
-  if (result.failure) throw a.collectRefusal(result.failure, result.stderr);
+  if (badId !== null) throw adapter.refusals.badId(badId);
+  if (result.failure) throw adapter.collectRefusal(result.failure, result.stderr);
 
   // Zero posts and no error is a real answer for an account that has posted
   // nothing. It is never reported as "up to date", because an account you are
   // not allowed to read produces exactly the same silence.
-  if (!result.rows.length) throw a.refusals.empty();
+  if (!result.rows.length) throw adapter.refusals.empty();
 
   // Without an id there is no folder to write into. Naming it after the handle
   // instead is not an option: the handle changes, so that folder is one the
   // next run would not find again, and inventing it is worse than stopping.
   const account = result.account;
-  if (!account?.id) throw a.refusals.unidentified();
+  if (!account?.id) throw adapter.refusals.unidentified();
 
   // Checked again now the id is known. The pre-flight check ran before the
   // fetch on whatever identity could be worked out without one, which is enough
@@ -466,8 +469,8 @@ async function defaultPlan({ a, root, alias, unalias, session, target, full }) {
     if (!verdict.ok) throw verdict.refusal;
   }
 
-  const posts = a.groupFiles(result.rows);
-  const { counts, toFetch } = a.diff(posts, archive, postIdKey);
+  const posts = adapter.groupFiles(result.rows);
+  const { counts, toFetch } = adapter.diff(posts, archive, postIdKey);
 
   const plan = buildPlan({
     account,
@@ -481,9 +484,9 @@ async function defaultPlan({ a, root, alias, unalias, session, target, full }) {
       found: counts.foundPosts,
       onDisk: counts.onDiskPosts,
       toFetch: counts.fetchPosts,
-      platform: a.platformCounts(counts, result),
+      platform: adapter.platformCounts(counts, result),
     }),
-    notes: a.planNotes({ incremental, result, threshold: a.threshold }),
+    notes: adapter.planNotes({ incremental, result, threshold: adapter.threshold }),
     now: new Date(),
   });
 
@@ -517,9 +520,9 @@ async function defaultPlan({ a, root, alias, unalias, session, target, full }) {
  * Returns `{ refusal }` for a plan it will not run, and otherwise everything
  * the finished run has to report. It composes no document itself.
  */
-async function doGo({ a, root, dir, alias, unalias, url, target, session, planCommand }) {
-  const descriptor = a.account;
-  const postIdKey = a.postIdKey;
+async function doGo({ adapter, root, dir, alias, unalias, url, target, session, planCommand }) {
+  const descriptor = adapter.account;
+  const postIdKey = adapter.postIdKey;
 
   // --yes has just enumerated and knows exactly which folder it wrote into, so
   // it passes it in. A bare --go enumerates nothing, never learns the id, and
@@ -552,7 +555,7 @@ async function doGo({ a, root, dir, alias, unalias, url, target, session, planCo
   const archive = await readArchive(accountDir);
   const todo = outstanding(approved(plan), archive, postIdKey);
 
-  const { fetched, failed, stopped } = await a.fetch({
+  const { fetched, failed, stopped } = await adapter.fetch({
     accountDir,
     posts: todo,
     plan,
@@ -560,10 +563,10 @@ async function doGo({ a, root, dir, alias, unalias, url, target, session, planCo
     // A long run takes hours. Without a line per post it is silent on stderr
     // for all of them, which is indistinguishable from a hang.
     onPost: ({ post, ok }, done) =>
-      progress(a.progressLabel({ post, plan, done, total: todo.length, ok }), { progress: ok }),
+      progress(adapter.progressLabel({ post, plan, done, total: todo.length, ok }), { progress: ok }),
   });
 
-  await a.afterFetch?.(accountDir, plan.account);
+  await adapter.afterFetch?.(accountDir, plan.account);
 
   const landed = await readArchive(accountDir);
   const remaining = outstanding(approved(plan), landed, postIdKey).length;
@@ -601,14 +604,14 @@ async function doGo({ a, root, dir, alias, unalias, url, target, session, planCo
  * a rate-limited run that fetched two hundred posts is neither a success nor a
  * nothing.
  */
-async function reportRun({ a }, command, outcome, { url = null, notes = null, plan = null } = {}) {
-  const platform = a.platform;
+async function reportRun({ adapter }, command, outcome, { url = null, notes = null, plan = null } = {}) {
+  const platform = adapter.platform;
   if (outcome.refusal) {
     return refuse({ command, platform, ...refusalFields(outcome.refusal) });
   }
 
   const payload = archiveResult({
-    account: accountFields(a.account, outcome.plan.account, url),
+    account: accountFields(adapter.account, outcome.plan.account, url),
     dir: outcome.accountDir,
     root: outcome.plan.root,
     counts: outcome.plan.counts,
@@ -637,9 +640,9 @@ async function reportRun({ a }, command, outcome, { url = null, notes = null, pl
   // session has been thrown away, and leaving the file in place would make that
   // a lie the next run repeats — it would read the same dead token back and
   // stop in exactly the same way, forever.
-  if (outcome.stopped === 'session-rejected') await a.discardSession?.();
+  if (outcome.stopped === 'session-rejected') await adapter.discardSession?.();
 
-  const known = a.failures[outcome.stopped];
+  const known = adapter.failures[outcome.stopped];
   return refuse({
     command,
     platform,

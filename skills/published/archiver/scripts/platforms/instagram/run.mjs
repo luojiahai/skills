@@ -15,15 +15,14 @@
  */
 import { COMMON_BOOLEAN_FLAGS, COMMON_FLAGS, isMainModule, optString } from '../../shared/cli.mjs';
 import { Refusal } from '../../shared/errors.mjs';
-import { descriptorFor, labelFor, postIdKeyFor } from '../../shared/platforms.mjs';
+import { descriptorFor, postIdKeyFor } from '../../shared/platforms.mjs';
 import { stateDir, toolPath } from '../../shared/paths.mjs';
 import { runAccount, sweepNote } from '../../shared/run.mjs';
 import { BROWSERS, discardCookies as discardSession, ensureCookies } from '../../shared/session.mjs';
-import { hatchToolMissing, onPath } from '../../shared/tools.mjs';
-import { ensureEnv } from '../../shared/env.mjs';
 
 import { CATEGORIES, DEFAULT_ABORT, collectFeeds, diff, groupFiles } from './collect.mjs';
 import { FAILURES } from './gallerydl.mjs';
+import { galleryDlAdapter } from '../../shared/gallerydl.mjs';
 import { fetchPosts } from './fetch.mjs';
 import { parseTarget, permalink } from './target.mjs';
 
@@ -31,9 +30,6 @@ const PLATFORM = 'instagram';
 const ACCOUNT = descriptorFor(PLATFORM);
 const POST_ID_KEY = postIdKeyFor(PLATFORM);
 const STATE_DIR = stateDir(PLATFORM);
-
-/** What a session refusal calls this site, taken from the registry rather than respelled. */
-export const SESSION = { platform: PLATFORM, label: labelFor(PLATFORM) };
 
 /** What Instagram adds to the flags every platform shares. */
 const BOOLEAN_FLAGS = new Set([...COMMON_BOOLEAN_FLAGS, 'full']);
@@ -93,22 +89,8 @@ function sweepNotes({ incremental, sweeps, threshold }) {
   );
 }
 
-/** What a failed listing pass was, as the refusal the run answers with. */
-function collectRefusal(failure, stderr) {
-  const known = FAILURES[failure];
-  return new Refusal(failure, known?.message ?? `the listing pass failed: ${failure}`, {
-    // Carried only where nothing has classified the failure. The tail is the
-    // last of gallery-dl's own words, which is all that is left to go on when
-    // the classifier recognised nothing.
-    details:
-      failure === 'collect-failed'
-        ? { stderr_tail: stderr?.trim().split('\n').slice(-8).join('\n') ?? '' }
-        : null,
-    remedy: known?.remedy ?? null,
-  });
-}
-
-const ADAPTER = {
+export const ADAPTER = {
+  ...galleryDlAdapter({ platform: PLATFORM, failures: FAILURES }),
   platform: PLATFORM,
   account: ACCOUNT,
   postIdKey: POST_ID_KEY,
@@ -116,32 +98,16 @@ const ADAPTER = {
   booleans: BOOLEAN_FLAGS,
   flags: KNOWN_FLAGS,
   threshold: DEFAULT_ABORT,
-  failures: FAILURES,
   // Instagram adds no command of its own to the three every platform answers.
   commands: {},
 
   parseTarget,
   groupFiles,
   diff,
-  collectRefusal,
 
-  // Nothing here drives a page, so nobody downloads Chromium for Instagram.
-  boxes: () => ['runtime', 'tools'],
-  ensureEnv,
 
-  // Answers only under the escape hatch, where the machine's own gallery-dl is
-  // being used and can simply not be there. Off it the box holds gallery-dl,
-  // and a box that could not be built has already refused.
-  preflight: (a) =>
-    hatchToolMissing(
-      toolPath('gallery-dl'),
-      { install: 'uv tool install gallery-dl', docs: 'https://github.com/mikf/gallery-dl#installation' },
-      a.onPath,
-    ),
-  onPath,
-
-  session: ({ opts, target }) =>
-    ensureCookies(SESSION, {
+  session: ({ opts, target, adapter }) =>
+    ensureCookies(adapter.site, {
       cookies: optString(opts, 'cookies'),
       browser: optString(opts, 'browser'),
       url: target.url,

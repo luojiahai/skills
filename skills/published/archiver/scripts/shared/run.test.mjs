@@ -11,7 +11,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { buildPost } from './post.mjs';
-import { makeStopper, sweepNote , adapterFor } from './run.mjs';
+import { adapterFor, makeStopper, sweepNote } from './run.mjs';
 
 /**
  * An archive whose posts each list `listed` files and hold `present` of them —

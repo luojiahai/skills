@@ -86,7 +86,11 @@ _Avoid_: response, payload, result, output
 
 **Refusal**:
 A run stopping and naming why, as a code rather than a sentence.
-_Avoid_: error, failure, exception
+_Avoid_: error, exception
+
+**Failure**:
+What a downloader did, before a run classifies it into a refusal.
+_Avoid_: error, refusal
 
 **Note**:
 A coded fact a run reports that is not a count.

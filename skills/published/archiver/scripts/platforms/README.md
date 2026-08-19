@@ -19,6 +19,20 @@ written down once.
 adapter — the descriptor from the registry, the usage prose, the flags, and the
 behaviour this platform does its own way:
 
+**Data — what this platform is.**
+
+| Member | What it holds |
+| --- | --- |
+| `platform`, `account`, `postIdKey` | From the registry. Never respelled here. |
+| `usage` | The whole `--help` text, as prose. |
+| `booleans`, `flags` | The command line this platform accepts. |
+| `threshold` | The streak an incremental sweep stops on — a claim about this platform's reordering, so it stays with it. |
+| `failures` | How this extractor's failures classify. |
+| `refusals` | The wording of `empty`, `unidentified` and `bad-account-id`, which only this platform can phrase. |
+| `site` | What the cookie cache is keyed by, from the registry. Named apart from `session`, which is the step. |
+
+**Behaviour — what this platform does its own way.**
+
 | Member | What it answers |
 | --- | --- |
 | `boxes(command)` | Which tool boxes this command needs, and no others. |
@@ -28,6 +42,22 @@ behaviour this platform does its own way:
 | `collect` | The listing pass, given the run's stopping rule as a factory. |
 | `fetch` | Downloading the posts the plan approved. |
 | `commands` | Any command this platform answers that the others do not. |
+| `parseTarget` | What a URL of this platform's names. |
+| `groupFiles`, `diff` | Rows into posts, and posts against the archive. |
+| `platformCounts`, `planNotes` | What only this platform can count, or has to say. |
+| `progressLabel` | The line a long download writes per post. |
+| `afterFetch` | Anything refreshed on every approved run — X's avatar and banner. Not simply the tail of `fetch`, because a run with nothing to fetch still passes here. |
+| `discardSession` | Throwing a rejected session away. |
+| `plan`, `go` | The listing and download halves. |
+
+A gallery-dl platform takes the boxes, the preflight, the session descriptor and
+the failure classification from `galleryDlAdapter` in
+[`../shared/gallerydl.mjs`](../shared/gallerydl.mjs), spread into its own
+adapter, and names only what is its alone.
+
+A member left `undefined` in a caller's overrides is absent rather than
+overriding, so a test bench builds one bag of fakes for a whole file and names
+the one member it wants the real implementation of.
 
 `plan` and `go` default to the implementations in `shared/run.mjs`, which is
 what the two gallery-dl platforms use. A platform whose listing is a different

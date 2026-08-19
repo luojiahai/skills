@@ -1,15 +1,19 @@
 /**
- * run.mjs — the whole Douyin run: what the user asked for, in, and one document out.
+ * run.mjs — what Douyin brings to a run.
  *
  *   --login  sign in once, in a browser, and stop.
  *   --plan   collect, diff, report. Downloads nothing.
  *   --go     download exactly what the last plan listed.
  *   --yes    both, without stopping to confirm.
  *
- * All of the orchestration is here rather than in shell, and belongs here. A
- * shell function called under `||` runs with errexit off for its whole body, so
- * a refused plan prints its refusal and then keeps going — through the state
- * write and a summary telling the user to re-run the command that just failed.
+ * The run is `shared/run.mjs` — the command line, the refusal order, the
+ * folder, the envelope. `--login` is declared here as a command of this
+ * platform's own, and the run dispatches it by name without knowing what it is.
+ *
+ * The listing and download halves are also here rather than shared: the sec_uid
+ * is in the URL, so the folder is settled before the browser opens; the counts
+ * are against the profile header; and the downloader is yt-dlp. None of that is
+ * the shape the two gallery-dl platforms have in common.
  *
  * Every command answers with a single JSON document on stdout, composed by
  * `shared/output.mjs`. The scrolling chatter of a long collection goes to
@@ -24,15 +28,12 @@ import {
   answer,
   archiveCounts,
   archiveResult,
-  commandFor,
-  nothingFetched,
   planWindow,
   progress,
   quote,
   refuse,
   runCounts,
   self,
-  sharedNotes,
 } from '../../shared/output.mjs';
 import { makeStopper, runAccount, sweepIsIncremental, sweepNote, sweepStoppedEarly } from '../../shared/run.mjs';
 import { hatchToolMissing, onPath } from '../../shared/tools.mjs';
@@ -40,24 +41,20 @@ import { COMMON_BOOLEAN_FLAGS, COMMON_FLAGS, isMainModule, optString } from '../
 import {
   accountDirFor,
   aliasDirFor,
-  aliasShapeRefusal,
   aliasTarget,
   applyAlias,
   checkAlias,
-  findAccountDir,
-  isSafeAlias,
   moveToAlias,
-  readAccount,
   recordIdentity,
   resolveAccountDir,
 } from '../../shared/account.mjs';
-import { checkRoot, stampRoot } from '../../shared/archiver.mjs';
+import { stampRoot } from '../../shared/archiver.mjs';
 import { ensureEnv } from '../../shared/env.mjs';
 import { DEFAULT_ABORT, collect } from './collect.mjs';
 import { fetchPosts, outstanding } from './fetch.mjs';
 import { duplicateFolders, onDiskIds, readArchive, unlistedIds } from '../../shared/landed.mjs';
 import { login } from './login.mjs';
-import { archivesRoot, cookieFile, normalizeRoot, toolPath } from '../../shared/paths.mjs';
+import { cookieFile, toolPath } from '../../shared/paths.mjs';
 import { PLATFORM, PROFILE_DIR, discardDerivedState, loadPlaywright } from './playwright.mjs';
 import { descriptorFor, postIdKeyFor } from '../../shared/platforms.mjs';
 import {
@@ -110,8 +107,8 @@ Image posts (图文) are counted and reported, but not yet downloaded:
 https://github.com/luojiahai/skills/issues/48`;
 
 /** Collect the account, diff it against disk, park the plan. */
-async function doPlan({ a, root, target, alias, unalias, session, full }) {
-  const { collect } = a;
+async function doPlan({ adapter, root, target, alias, unalias, session, full }) {
+  const { collect } = adapter;
   const { chromium, profileDir } = session;
   // Settled before the browser opens, which it can be here and cannot on the
   // other platforms: the sec_uid is in the URL, so whose account this is does
@@ -266,10 +263,10 @@ async function doPlan({ a, root, target, alias, unalias, session, full }) {
 
 /** Download the plan that was approved. No collection, no browser. */
 async function doGo({
-  a, command, root, target, alias, unalias, session, planCommand,
+  adapter, command, root, target, alias, unalias, session, planCommand,
   notes: announced = [], plan: made = null,
 }) {
-  const { fetch, mint, freshCookies, discardCookies } = a;
+  const { fetch, mint, freshCookies, discardCookies } = adapter;
   const { chromium, profileDir } = session;
   const refuseHere = (fields) => refuse({ command, platform: PLATFORM, ...fields });
 
@@ -471,9 +468,6 @@ const FAILURES = {
   },
 };
 
-if (isMainModule(import.meta.url)) {
-  process.exitCode = await main(process.argv.slice(2));
-}
 
 /** The one handoff in this skill only a person can complete. */
 function loginRemedy(url) {
@@ -525,11 +519,11 @@ const ADAPTER = {
 
   // Answers only under the escape hatch, where the machine's own yt-dlp is
   // being used and can simply not be there.
-  preflight: (a) =>
+  preflight: (adapter) =>
     hatchToolMissing(
       toolPath('yt-dlp'),
       { install: 'uv tool install yt-dlp', docs: 'https://github.com/yt-dlp/yt-dlp#installation' },
-      a.onPath,
+      adapter.onPath,
     ),
 
   /**

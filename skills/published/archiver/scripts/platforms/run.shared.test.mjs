@@ -17,6 +17,9 @@ import { existsSync, realpathSync } from 'node:fs';
 import { mkdir, mkdtemp, readFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { execFile } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+import { promisify } from 'node:util';
 
 import { main as xMain } from './x/run.mjs';
 import { fetchPosts as xFetch, postDir as xPostDir } from './x/fetch.mjs';
@@ -25,7 +28,7 @@ import { fetchPosts as igFetch, postDir as igPostDir } from './instagram/fetch.m
 import { main as douyinMain } from './douyin/run.mjs';
 
 import { recordIdentity } from '../shared/account.mjs';
-import { descriptorFor } from '../shared/platforms.mjs';
+import { descriptorFor, labelFor } from '../shared/platforms.mjs';
 import { EXIT } from '../shared/exit.mjs';
 import { Refusal } from '../shared/errors.mjs';
 import { buildPlan } from '../shared/plan.mjs';
@@ -544,3 +547,34 @@ for (const bench of BENCHES) {
     }
   });
 }
+
+// ---- the entry points -------------------------------------------------------
+
+test('every platform runs as an entry point, not only as an import', async () => {
+  // Every case above reaches `main` by importing it, which is how the dispatcher
+  // reaches it too — and is exactly why none of them would notice a module that
+  // cannot be executed at all. `--help` is the one command that needs neither a
+  // tool box nor a network, so it is what this can afford to ask.
+  const here = path.dirname(fileURLToPath(import.meta.url));
+
+  for (const bench of BENCHES) {
+    const { stdout } = await promisify(execFile)(
+      process.execPath,
+      [path.join(here, bench.name, 'run.mjs'), '--help'],
+      { env: { ...process.env, ARCHIVER_SYSTEM_TOOLS: '1' } },
+    );
+    assert.match(stdout, /Usage: archive\.sh/, `${bench.name}/run.mjs prints its usage`);
+  }
+});
+
+test('every gallery-dl platform is named to the cookie cache by the registry', async () => {
+  // The cache is keyed by this descriptor, so a platform carrying the wrong one
+  // reads and writes another platform's cookies. It is asserted of the adapter
+  // rather than through a run, because every run-level case here substitutes
+  // the session step and would never reach it.
+  for (const bench of GALLERYDL) {
+    const { ADAPTER } = await import(`./${bench.name}/run.mjs`);
+    assert.deepEqual(ADAPTER.site, { platform: bench.name, label: labelFor(bench.name) });
+    assert.equal(typeof ADAPTER.session, 'function', 'the step and the descriptor are different members');
+  }
+});

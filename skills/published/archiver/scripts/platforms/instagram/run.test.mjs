@@ -20,7 +20,7 @@ import { mkdir, mkdtemp, readFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
-import { SESSION, main } from './run.mjs';
+import { main } from './run.mjs';
 import { postDir } from './fetch.mjs';
 import { recordIdentity } from '../../shared/account.mjs';
 import { descriptorFor } from '../../shared/platforms.mjs';
@@ -365,11 +365,10 @@ test('a flag given no value is refused rather than dropped', async () => {
 });
 
 test('the session is resolved through the shared cookie cache, named for this platform', async () => {
-  // The cache is keyed by the descriptor, so a platform respelling its own name
-  // here would read and write somebody else's cookies.
-  assert.equal(SESSION.platform, 'instagram');
-  assert.equal(SESSION.label, 'Instagram');
-
+  // The descriptor the cache is keyed by comes from the registry, through the
+  // gallery-dl defaults — there is nowhere here to respell it and read somebody
+  // else's cookies. What is asserted here is that the flags reach the step that
+  // uses it.
   const dir = await archivesRoot();
   const asked = [];
   await run([PROFILE, '--archives', dir, '--browser', 'chrome', '--plan'], {

@@ -133,8 +133,8 @@ partway, so a retry re-fetches only what is missing.
 never reaches for it — an agent asks — but it outranks a `--plan` or `--go` that
 comes after it on the command line, so a user who typed it keeps their
 pre-authorisation when the skill appends its own mode flag. Last-one-wins would
-take that back. `pickMode` inside `shared/run.mjs` is the one implementation,
-and every platform imports it.
+take that back. `pickMode` is settled inside `shared/run.mjs`, once, for every
+platform's run.
 
 ## One envelope
 
