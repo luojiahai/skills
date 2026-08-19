@@ -194,14 +194,11 @@ which nobody approved. That costs an API call per post where pagination costs on
 per page. It is the price of the guarantee, and the media downloads dominate the
 wall clock anyway.
 
-## The sweep stops early, unlike Douyin's
+## The sweep stops early
 
-Douyin always scrolls a whole feed and refuses to stop early. That rule rests on
-evidence, not principle: a full scroll of a few hundred posts measures ~34
-seconds. The evidence does not transfer. An X timeline is paginated API calls
-against a rate limiter and a decade-old account is thousands of posts, so
-re-collecting all of it every time somebody checks their status would make the
-confirm step cost more than the download.
+An X timeline is paginated API calls against a rate limiter, and a decade-old
+account is thousands of posts, so re-collecting all of it every time somebody
+checks their status would make the confirm step cost more than the download.
 
 So a re-run stops after **20 consecutive** already-complete posts. The number's
 only job is to outlast how far X can reorder its own timeline: it pins exactly
@@ -219,9 +216,9 @@ with "gave up before reaching anything new". A bare `--go` collects nothing and
 repeats the note its plan recorded, which is up to a day old; a refusal carries
 none.
 
-Instagram has a threshold of its own. Should the two ever read the same, that is
-two claims about two platforms landing on one number rather than a constant
-wanting to move to `shared/`.
+Douyin and Instagram have thresholds of their own. That all three read the same
+is three claims about three platforms landing on one number, each defended by
+its own test, rather than a constant wanting to move to `shared/`.
 
 The rule needs the archive to be an unbroken run of the newest posts, and one
 thing punches a hole in it: a `--go` that stopped partway leaves the posts below

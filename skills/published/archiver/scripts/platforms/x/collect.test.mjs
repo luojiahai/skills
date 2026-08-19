@@ -6,7 +6,8 @@ import path from 'node:path';
 import { Readable } from 'node:stream';
 import test from 'node:test';
 
-import { DEFAULT_ABORT, collect, makeStopper } from './collect.mjs';
+import { DEFAULT_ABORT, collect } from './collect.mjs';
+import { makeStopper } from '../../shared/run.mjs';
 import { ROW_MARKER } from './gallerydl.mjs';
 import { buildPost } from '../../shared/post.mjs';
 
@@ -40,43 +41,6 @@ function archiveOf(ids, { listed = ['1.jpg'], present = listed } = {}) {
   ]));
 }
 
-test('the stopper does nothing on a first run', () => {
-  const stop = makeStopper({ archive: archiveOf([1, 2, 3]), threshold: 2, enabled: false });
-  assert.equal(stop({ tweetId: '1', count: 1 }), false);
-  assert.equal(stop({ tweetId: '2', count: 1 }), false);
-  assert.equal(stop({ tweetId: '3', count: 1 }), false);
-});
-
-test('the stopper fires after N consecutive posts already on disk', () => {
-  const stop = makeStopper({ archive: archiveOf([1, 2, 3]), threshold: 3, enabled: true });
-  assert.equal(stop({ tweetId: '1', count: 1 }), false);
-  assert.equal(stop({ tweetId: '2', count: 1 }), false);
-  assert.equal(stop({ tweetId: '3', count: 1 }), true);
-});
-
-test('one unseen post resets the run of known ones', () => {
-  const stop = makeStopper({ archive: archiveOf([1, 2, 4, 5]), threshold: 3, enabled: true });
-  stop({ tweetId: '1', count: 1 });
-  stop({ tweetId: '2', count: 1 });
-  assert.equal(stop({ tweetId: '3', count: 1 }), false); // not on disk — resets
-  assert.equal(stop({ tweetId: '4', count: 1 }), false);
-  assert.equal(stop({ tweetId: '5', count: 1 }), false);
-});
-
-test('a post on disk but incomplete does not count as known', () => {
-  // Otherwise a sweep retires early over posts it would then have to fetch.
-  const archive = archiveOf([1, 2], { listed: ['1.jpg', '2.jpg'], present: ['1.jpg'] });
-  const stop = makeStopper({ archive, threshold: 2, enabled: true });
-  assert.equal(stop({ tweetId: '1', count: 4 }), false);
-  assert.equal(stop({ tweetId: '2', count: 4 }), false);
-});
-
-test('a post whose folder has no post.json does not count as known', () => {
-  const archive = new Map([['1', { folder: '2024-03-11_1', names: ['1.jpg'], post: null }]]);
-  const stop = makeStopper({ archive, threshold: 1, enabled: true });
-  assert.equal(stop({ tweetId: '1', count: 1 }), false);
-});
-
 /** Posts X can put at the top of a timeline regardless of their age. */
 const PIN_BLOCK = 1;
 
@@ -98,7 +62,7 @@ test('the stopper fires inside a timeline of forty posts', () => {
   const stop = makeStopper({
     archive: archiveOf(timeline), threshold: DEFAULT_ABORT, enabled: true,
   });
-  const stopped = timeline.some((id) => stop({ tweetId: id, count: 1 }));
+  const stopped = timeline.some((id) => stop(id));
   assert.ok(stopped, 'a 40-post timeline retires rather than re-sweeping forever');
 });
 

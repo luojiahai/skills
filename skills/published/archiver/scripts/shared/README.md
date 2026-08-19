@@ -26,7 +26,7 @@ platforms are threaded with a descriptor where they differ.
 | `session.mjs` | The browser session a gallery-dl platform runs on, as a cookies.txt: where it is cached, how it is minted, and when it is thrown away. Takes a descriptor, because the platform's name and its label in a refusal are the only things that vary. |
 | `tools.mjs` | Whether a downloader is on PATH, and the refusal when it is not. Reachable only through the `ARCHIVER_SYSTEM_TOOLS` escape hatch. |
 | `subprocess.mjs` | Running a downloader and reading what it said, so every platform answers "what did it exit with" the same way — including for a process that never started. |
-| `run.mjs` | The decisions every platform's run makes identically: which mode a command line asked for, so `--yes` outranks a `--plan` appended after it, and whether a re-run may stop once it recognises enough posts. |
+| `run.mjs` | The decisions every platform's run makes identically: which mode a command line asked for, so `--yes` outranks a `--plan` appended after it, whether a re-run may stop once it recognises enough posts and the streak rule it stops on, and the `sweep` note saying which of the two it did. Each platform's threshold stays with the platform, because it is a claim about that platform's reordering. |
 
 ## The archive every platform writes
 
@@ -178,12 +178,14 @@ What genuinely differs arrives as data the platform supplied:
   descriptor (`handle`, `douyin_id`)
 - `counts.platform` — what only one platform knows, as counts: X's file totals
   and image/video split, Instagram's the same plus how many of the posts are
-  reels, Douyin's header count and skipped image posts. They
+  reels, Douyin's header count and skipped image posts. A figure a short
+  listing cannot stand behind goes out as `null`, which is unknown rather than
+  zero. They
   nest inside `counts` because they *are* counts, which leaves `details` meaning
   one thing only — the facts behind a refusal.
 - `notes` — anything one platform has to say and the others do not, each a
   `{ code, … }` with its numbers beside it: Douyin's unfetchable image posts,
-  X's sweep that stopped early, one such sweep per feed on Instagram
+  a sweep that stopped early, one such sweep per feed on Instagram
 
 A rule keyed off wording is a rule that breaks the next time the wording
 changes, which is the whole reason a note is a code and a count is an integer.

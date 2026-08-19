@@ -68,7 +68,7 @@ import {
   runCounts,
   sharedNotes,
 } from '../../shared/output.mjs';
-import { pickMode, sweepIsIncremental } from '../../shared/run.mjs';
+import { pickMode, sweepIsIncremental, sweepNote } from '../../shared/run.mjs';
 import { hatchToolMissing, onPath } from '../../shared/tools.mjs';
 import { ensureEnv } from '../../shared/env.mjs';
 
@@ -667,13 +667,7 @@ function duplicateNote(count) {
  */
 function sweepNotes({ incremental, sweeps, threshold }) {
   return (sweeps?.length ? sweeps : CATEGORIES.map((category) => ({ category, stoppedEarly: false }))).map(
-    ({ category, stoppedEarly }) => ({
-      code: 'sweep',
-      mode: incremental ? 'incremental' : 'full',
-      stopped_early: Boolean(incremental && stoppedEarly),
-      threshold: incremental ? threshold : null,
-      category,
-    }),
+    ({ category, stoppedEarly }) => sweepNote({ incremental, stoppedEarly, threshold, category }),
   );
 }
 

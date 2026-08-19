@@ -34,7 +34,7 @@ import {
   self,
   sharedNotes,
 } from '../../shared/output.mjs';
-import { pickMode } from '../../shared/run.mjs';
+import { makeStopper, pickMode, sweepIsIncremental, sweepNote, sweepStoppedEarly } from '../../shared/run.mjs';
 import { hatchToolMissing, onPath } from '../../shared/tools.mjs';
 import {
   COMMON_BOOLEAN_FLAGS,
@@ -60,7 +60,7 @@ import {
 } from '../../shared/account.mjs';
 import { checkRoot, stampRoot } from '../../shared/archiver.mjs';
 import { ensureEnv } from '../../shared/env.mjs';
-import { collect } from './collect.mjs';
+import { DEFAULT_ABORT, collect } from './collect.mjs';
 import { fetchPosts, outstanding } from './fetch.mjs';
 import { duplicateFolders, onDiskIds, readArchive, unlistedIds } from '../../shared/landed.mjs';
 import { login } from './login.mjs';
@@ -86,7 +86,7 @@ const POST_ID_KEY = postIdKeyFor(PLATFORM);
 const COOKIE_FILE = cookieFile(PLATFORM);
 
 /** What Douyin adds to the flags every platform shares. */
-const BOOLEAN_FLAGS = new Set([...COMMON_BOOLEAN_FLAGS, 'login']);
+const BOOLEAN_FLAGS = new Set([...COMMON_BOOLEAN_FLAGS, 'login', 'full']);
 const KNOWN_FLAGS = new Set([...COMMON_FLAGS, ...BOOLEAN_FLAGS, 'profile']);
 
 const USAGE = `Usage: archive.sh <url> [--archives DIR] [--alias NAME] [--plan|--go|--yes]
@@ -105,6 +105,8 @@ const USAGE = `Usage: archive.sh <url> [--archives DIR] [--alias NAME] [--plan|-
                         DIR/douyin/<alias> or DIR/douyin/<sec_uid>.
       --alias NAME      Name this account's folder NAME instead of its sec_uid.
       --unalias         Put this account's folder back under its sec_uid.
+      --full            Collect the whole profile even when a re-run could stop
+                        early.
       --profile DIR     Browser profile holding the Douyin session.
   -h, --help            Show this help
 
@@ -315,7 +317,9 @@ export async function main(argv, deps = {}) {
 
   let planned;
   try {
-    planned = await doPlan({ root, target, alias, unalias, profileDir, chromium, collectImpl });
+    planned = await doPlan({
+      root, target, alias, unalias, profileDir, chromium, collectImpl, full: opts.full === true,
+    });
   } catch (error) {
     return refuseHere(refusalFields(error));
   }
@@ -367,7 +371,30 @@ function loginRemedy(url) {
 }
 
 /** Collect the account, diff it against disk, park the plan. */
-async function doPlan({ root, target, alias, unalias, profileDir, chromium, collectImpl }) {
+async function doPlan({ root, target, alias, unalias, profileDir, chromium, collectImpl, full }) {
+  // Settled before the browser opens, which it can be here and cannot on the
+  // other platforms: the sec_uid is in the URL, so whose account this is does
+  // not have to wait for the listing to name it.
+  //
+  // Resolved through the alias map first: an account already archived under an
+  // alias has a folder that is not named after its sec_uid, and going straight
+  // to the id would quietly start a second, empty archive beside the real one
+  // on every aliased account. Nothing resolves for an account never archived,
+  // and that is where the folder gets invented.
+  const accountDir =
+    (await resolveAccountDir(ACCOUNT, root, { id: target.secUid })) ??
+    (alias ? aliasDirFor(ACCOUNT, root, alias) : accountDirFor(ACCOUNT, root, target.secUid));
+
+  const archive = await readArchive(accountDir);
+  const incremental = await sweepIsIncremental({
+    accountDir,
+    accountId: target.secUid,
+    archive,
+    full,
+    postIdKey: POST_ID_KEY,
+    root,
+  });
+
   progress('[douyin] collecting post IDs…');
   const listing = await collectImpl({
     url: target.url,
@@ -376,6 +403,7 @@ async function doPlan({ root, target, alias, unalias, profileDir, chromium, coll
     headless: true,
     launch: chromium,
     log: progress,
+    shouldStop: makeStopper({ archive, threshold: DEFAULT_ABORT, enabled: incremental }),
   });
 
   if (listing.failure === 'empty-grid') {
@@ -411,15 +439,6 @@ async function doPlan({ root, target, alias, unalias, profileDir, chromium, coll
     if (!verdict.ok) throw verdict.refusal;
   }
 
-  // Resolved through the alias map first: an account already archived under an
-  // alias has a folder that is not named after its sec_uid, and going straight
-  // to the id would quietly start a second, empty archive beside the real one
-  // on every aliased account. Nothing resolves for an account never archived,
-  // and that is where the folder gets invented.
-  const accountDir =
-    (await resolveAccountDir(ACCOUNT, root, { id: target.secUid })) ??
-    (alias ? aliasDirFor(ACCOUNT, root, alias) : accountDirFor(ACCOUNT, root, target.secUid));
-
   // Read before anything is written: the "last run used …" note compares the
   // root this run was given against the one the previous run recorded.
   const lastRoot = await previousRoot(accountDir);
@@ -439,12 +458,18 @@ async function doPlan({ root, target, alias, unalias, profileDir, chromium, coll
   // disagreeing.
   await recordIdentity(ACCOUNT, root, accountDir, { account, url: target.url });
 
-  const archive = await readArchive(accountDir);
   const onDisk = await onDiskIds(accountDir);
   const pending = outstanding(listing.posts, archive);
 
+  // A listing that stopped early read the newest posts and no further, so both
+  // of these describe a profile it never finished looking at: `reported` would
+  // render a deliberately short collection as a catastrophically failed one,
+  // and every archived post below the cut would be counted as one the profile
+  // no longer lists. Withheld rather than computed against the collected prefix
+  // — where the profile's real tail is, is exactly what was skipped.
+  const stoppedEarly = Boolean(incremental && listing.stoppedEarly);
   const listed = listedIds(listing.posts, POST_ID_KEY);
-  const unlisted = unlistedIds(listed, onDisk).length;
+  const unlisted = stoppedEarly ? null : unlistedIds(listed, onDisk).length;
 
   const plan = buildPlan({
     account,
@@ -459,21 +484,27 @@ async function doPlan({ root, target, alias, unalias, profileDir, chromium, coll
       // recomputing them there would mean a --go describing an account it never
       // listed.
       platform: {
-        reported: listing.reported ?? null,
+        reported: stoppedEarly ? null : (listing.reported ?? null),
         skipped_image_posts: listing.skippedImagePosts ?? 0,
         unlisted,
       },
     }),
-    notes: notes({
-      collected: listing.posts.length,
-      reported: listing.reported,
-      reportedRounded: listing.reportedRounded,
-      skipped: listing.skippedImagePosts,
-      unlisted,
-      truncated: listing.hitRoundLimit,
-      unattributed: listing.unattributed,
-      duplicates: await duplicateFolders(accountDir),
-    }),
+    notes: [
+      // First, because it is what says why the counts beside it are absent —
+      // and a --go reads it back out of the plan to withhold them again.
+      sweepNote({ incremental, stoppedEarly, threshold: DEFAULT_ABORT }),
+      ...notes({
+        collected: listing.posts.length,
+        reported: listing.reported,
+        reportedRounded: listing.reportedRounded,
+        skipped: listing.skippedImagePosts,
+        unlisted,
+        truncated: listing.hitRoundLimit,
+        stoppedEarly,
+        unattributed: listing.unattributed,
+        duplicates: await duplicateFolders(accountDir),
+      }),
+    ],
     now: new Date(),
   });
 
@@ -603,7 +634,12 @@ async function doGo({
   // paying for another collection; retired once it has all landed.
   if (remaining === 0) await clearPlan(accountDir);
 
-  const unlisted = unlistedCountFromPlan(plan, landed, POST_ID_KEY);
+  // The plan's own sweep note is what says the listing behind it stopped early,
+  // and so is short by design. Recomputing the unlisted count against it here
+  // would report most of the archive as no longer on the profile — the same
+  // false number the plan withheld, made fresh by the run that acts on it.
+  const stoppedEarly = sweepStoppedEarly(plan.notes);
+  const unlisted = stoppedEarly ? null : unlistedCountFromPlan(plan, landed, POST_ID_KEY);
 
   const payload = archiveResult({
     command,
@@ -633,6 +669,7 @@ async function doGo({
         reported: null,
         skipped: 0,
         unlisted,
+        stoppedEarly,
         // Reported here rather than only on stderr. A run that filed forty posts
         // under `undated_<id>` has said something about the archive, and the
         // agent reading stdout is the one who tells the user.

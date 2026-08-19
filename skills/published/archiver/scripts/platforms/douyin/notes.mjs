@@ -23,15 +23,16 @@ export function notes({
   skipped,
   unlisted,
   truncated = false,
+  stoppedEarly = false,
   unattributed = 0,
   undated = 0,
   duplicates = 0,
 }) {
   return [
     ...listingTruncated(truncated),
-    ...hidden(collected, reported, reportedRounded, skipped),
+    ...hidden(collected, reported, reportedRounded, skipped, stoppedEarly),
     ...images(skipped),
-    ...missing(unlisted),
+    ...missing(unlisted, stoppedEarly),
     ...unattributedPosts(unattributed),
     ...undatedPosts(undated),
     ...duplicatePosts(duplicates),
@@ -62,8 +63,12 @@ function listingTruncated(truncated) {
  * between 11,500 and 12,499, so the subtraction is out by up to five hundred:
  * an account with 12,345 posts, every one of them collected, would be reported
  * as hiding −345.
+ *
+ * A sweep that stopped early says nothing either. Its listing is short by
+ * design, so the whole of the remaining profile would be reported as hidden.
  */
-function hidden(collected, reported, reportedRounded, skipped) {
+function hidden(collected, reported, reportedRounded, skipped, stoppedEarly) {
+  if (stoppedEarly) return [];
   if (reported === null || reported === undefined) return [];
   if (reportedRounded) return [];
   const count = reported - collected - (skipped || 0);
@@ -90,9 +95,15 @@ function images(skipped) {
  * without fetching each one.
  *
  * Unknown — a plan carrying no collected list — is not zero, and says nothing
- * rather than a reassuring nothing.
+ * rather than a reassuring nothing. So is a sweep that stopped early: it read
+ * the newest posts and no further, so every archived post below where it
+ * stopped is on disk and not in the listing, and the count would be an
+ * announcement that most of the archive has vanished from the profile.
+ * Computing it against the collected prefix instead is not available — where
+ * the profile's real tail is, is exactly what was skipped.
  */
-function missing(unlisted) {
+function missing(unlisted, stoppedEarly) {
+  if (stoppedEarly) return [];
   if (!unlisted) return [];
   return [{ code: 'unlisted-posts', count: unlisted }];
 }

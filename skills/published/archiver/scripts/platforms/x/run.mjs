@@ -27,7 +27,7 @@ import {
   optString,
   parseCommandLine,
 } from '../../shared/cli.mjs';
-import { DEFAULT_ABORT, collect, diff, groupFiles, makeStopper } from './collect.mjs';
+import { DEFAULT_ABORT, collect, diff, groupFiles } from './collect.mjs';
 import {
   accountDirFor,
   aliasDirFor,
@@ -69,7 +69,7 @@ import {
   runCounts,
   sharedNotes,
 } from '../../shared/output.mjs';
-import { pickMode, sweepIsIncremental } from '../../shared/run.mjs';
+import { makeStopper, pickMode, sweepIsIncremental, sweepNote } from '../../shared/run.mjs';
 import { hatchToolMissing, onPath } from '../../shared/tools.mjs';
 import { ensureEnv } from '../../shared/env.mjs';
 
@@ -174,7 +174,8 @@ async function doPlan({
         postIdKey: POST_ID_KEY,
         root,
       });
-      return makeStopper({ archive, threshold, enabled: incremental });
+      const stop = makeStopper({ archive, threshold, enabled: incremental });
+      return (row) => stop(row[POST_ID_KEY]);
     },
   });
 
@@ -665,20 +666,6 @@ async function report(command, outcome, { url = null, notes = null, plan = null 
  */
 function duplicateNote(count) {
   return count ? [{ code: 'duplicate-posts', count }] : [];
-}
-
-/**
- * Whether the sweep reached the end of the timeline or stopped early. Without
- * it, `to_fetch: 0` cannot be told apart from "gave up before reaching anything
- * new".
- */
-function sweepNote({ incremental, stoppedEarly, threshold }) {
-  return {
-    code: 'sweep',
-    mode: incremental ? 'incremental' : 'full',
-    stopped_early: Boolean(incremental && stoppedEarly),
-    threshold: incremental ? threshold : null,
-  };
 }
 
 if (isMainModule(import.meta.url)) {
