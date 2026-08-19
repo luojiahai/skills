@@ -182,21 +182,6 @@ test('the in-place counter is suppressed when nothing is a terminal', async () =
 
 // ---- what a plan writes -----------------------------------------------------
 
-test('a plan records the account before anything is downloaded', async () => {
-  // account.json is written the moment the folder is known, so a folder that
-  // exists always says whose it is.
-  const dir = await root();
-  const { document } = await run([URL_MS4W, '--archives', dir, '--plan']);
-
-  assert.equal(document.exit, EXIT.OK);
-  const folder = path.join(dir, 'douyin', 'MS4wSEC');
-  const json = await accountJson(folder);
-  assert.equal(json.account.id, 'MS4wSEC');
-  assert.equal(json.account.douyin_id, 'abc123');
-  assert.equal(json.account.nickname, '小明');
-  assert.equal(json.url, URL_MS4W);
-});
-
 test('a plan downloads nothing', async () => {
   const dir = await root();
   let fetched = false;
@@ -204,51 +189,6 @@ test('a plan downloads nothing', async () => {
     download: async () => ((fetched = true), { fetched: 0, failed: 0 }),
   });
   assert.equal(fetched, false);
-});
-
-test('an account new to the archive is created under its alias straight away', async () => {
-  const dir = await root();
-  const { document } = await run([URL_MS4W, '--archives', dir, '--alias', '小明', '--plan']);
-
-  assert.ok(existsSync(path.join(dir, 'douyin', '小明')));
-  assert.ok(!existsSync(path.join(dir, 'douyin', 'MS4wSEC')), 'no second, empty archive beside it');
-  // There is nowhere to move from, so nothing is announced as moving.
-  assert.equal(noteWith(document, 'moving-to'), undefined);
-});
-
-test('a plan says where --alias would move an existing folder, and moves nothing', async () => {
-  // The move is reported and performed on --go, never before: a preview that
-  // silently reorganised the archive would be a preview that lied.
-  const dir = await root();
-  await run([URL_MS4W, '--archives', dir, '--plan']);
-
-  const { document } = await run([URL_MS4W, '--archives', dir, '--alias', '小明', '--plan']);
-  assert.equal(noteWith(document, 'moving-to').dir, path.join(dir, 'douyin', '小明'));
-  assert.ok(existsSync(path.join(dir, 'douyin', 'MS4wSEC')), 'still where it was');
-  assert.ok(!existsSync(path.join(dir, 'douyin', '小明')));
-});
-
-test('an alias asked for with nothing left to fetch still moves the folder', async () => {
-  // A run that finds nothing new is still a run that was asked to rename. Told
-  // the folder moved and left where it was, the next run announces the same
-  // move again and the archive never gets the name the user asked for.
-  const dir = await root();
-  await run([URL_MS4W, '--archives', dir, '--yes'], {
-    download: async ({ posts }) => ({ fetched: posts.length, failed: 0 }),
-  });
-
-  const { document } = await run([URL_MS4W, '--archives', dir, '--alias', '小明', '--yes'], {
-    list: async () => listing({ posts: [] }),
-  });
-
-  assert.equal(document.result.counts.to_fetch, 0, 'nothing was left to fetch');
-  assert.ok(existsSync(path.join(dir, 'douyin', '小明')), 'and the folder still moved');
-  assert.ok(!existsSync(path.join(dir, 'douyin', 'MS4wSEC')));
-
-  // The other two of the rename's three writes.
-  assert.equal((await accountJson(path.join(dir, 'douyin', '小明'))).account.alias, '小明');
-  const cache = JSON.parse(await readFile(path.join(dir, 'archiver.json'), 'utf8'));
-  assert.equal(cache.accounts.douyin.MS4wSEC, '小明');
 });
 
 test('an archive whose root has moved says where the last run put it', async () => {
@@ -270,29 +210,6 @@ test('an archive whose root has moved says where the last run put it', async () 
   });
   const again = await run([URL_MS4W, '--archives', second, '--plan']);
   assert.equal(noteWith(again.document, 'root-changed'), undefined, 'a root that has not moved says nothing');
-});
-
-test('--go performs the move the plan announced, before downloading', async () => {
-  const dir = await root();
-  await run([URL_MS4W, '--archives', dir, '--plan']);
-  await run([URL_MS4W, '--archives', dir, '--alias', '小明', '--plan']);
-
-  let fetchedInto = null;
-  await run([URL_MS4W, '--archives', dir, '--alias', '小明', '--go'], {
-    download: async ({ accountDir }) => ((fetchedInto = accountDir), { fetched: 2, failed: 0 }),
-  });
-
-  assert.equal(fetchedInto, path.join(dir, 'douyin', '小明'));
-  assert.ok(!existsSync(path.join(dir, 'douyin', 'MS4wSEC')));
-
-  // The move is only half of it. Without the mapping, the folder is a directory
-  // archiver.json does not name — which reads as another account's id, so the
-  // user is refused their own alias from then on, permanently.
-  const map = JSON.parse(await readFile(path.join(dir, 'archiver.json'), 'utf8'));
-  assert.equal(map.accounts.douyin.MS4wSEC, '小明');
-
-  const again = await run([URL_MS4W, '--archives', dir, '--alias', '小明', '--plan']);
-  assert.equal(again.document.ok, true, 'the alias is still the account’s own on the next run');
 });
 
 test('an account keeps its own alias when archiver.json is gone', async () => {
@@ -354,17 +271,6 @@ test('a plan with nothing pending replaces the last one, and --go says so by nam
 
 // ---- what --go refuses ------------------------------------------------------
 
-test('--go without a plan is refused, with the plan command as the remedy', async () => {
-  const dir = await root();
-  const { document } = await run([URL_MS4W, '--archives', dir, '--go']);
-
-  assert.equal(document.exit, EXIT.REFUSED);
-  assert.equal(document.error.code, 'no-archive');
-  assert.equal(document.error.details.root, dir);
-  assert.equal(document.error.remedy.run_by, 'agent');
-  assert.match(document.error.remedy.command, /--plan$/);
-});
-
 test('--go refuses a plan made for another archives root, and names it', async () => {
   // Downloading it would fetch a list the user approved somewhere else.
   const dir = await root();
@@ -397,41 +303,6 @@ test('--go refuses a plan past its day, and says how old it is as a number', asy
 });
 
 // ---- what --go downloads ----------------------------------------------------
-
-test('--go hands the fetcher exactly the posts the plan listed', async () => {
-  const dir = await root();
-  await run([URL_MS4W, '--archives', dir, '--plan']);
-
-  let handed = null;
-  await run([URL_MS4W, '--archives', dir, '--go'], {
-    download: async ({ posts }) => ((handed = posts), { fetched: posts.length, failed: 0 }),
-  });
-
-  assert.deepEqual(handed.map((p) => p.id), ['7111', '7222']);
-  // Whole records, not ids: --go writes every post.json without a browser.
-  assert.equal(handed[0].createTime, 1710144139);
-});
-
-test('--go fetches what the plan counted, not everything the listing saw', async () => {
-  // 7111 is on disk when the plan is made, so one post is counted as new. It
-  // then leaves the disk before --go runs. --go re-checks against disk, but only
-  // across what was approved, so it still fetches exactly the one.
-  const dir = await root();
-  const folder = path.join(dir, 'douyin', 'MS4wSEC');
-  await land(folder, post('7111'));
-
-  const { document } = await run([URL_MS4W, '--archives', dir, '--plan']);
-  assert.equal(document.result.counts.to_fetch, 1);
-
-  await rm(postDir(folder, post('7111')), { recursive: true });
-
-  let handed = null;
-  await run([URL_MS4W, '--archives', dir, '--go'], {
-    download: async ({ posts }) => ((handed = posts), { fetched: posts.length, failed: 0 }),
-  });
-
-  assert.deepEqual(handed.map((p) => p.id), ['7222']);
-});
 
 test('a finished run reports what landed and what is left', async () => {
   const dir = await root();
@@ -488,21 +359,6 @@ test('a plan is retired by what is on disk, not by the fetcher’s own report', 
   assert.ok(sync.plan, 'the plan stays, so the retry needs no new approval');
 });
 
-test('a plan is retired once every post in it has landed', async () => {
-  const dir = await root();
-  await run([URL_MS4W, '--archives', dir, '--plan']);
-
-  await run([URL_MS4W, '--archives', dir, '--go'], {
-    download: async ({ accountDir, posts }) => {
-      for (const p of posts) await land(accountDir, p);
-      return { fetched: posts.length, failed: 0 };
-    },
-  });
-
-  const sync = await syncJson(path.join(dir, 'douyin', 'MS4wSEC'));
-  assert.equal(sync.plan ?? null, null);
-});
-
 test('--go never collects again', async () => {
   const dir = await root();
   await run([URL_MS4W, '--archives', dir, '--plan']);
@@ -531,18 +387,6 @@ test('--yes still says a rename is happening, and which root the last run used',
 
   assert.equal(noteWith(document, 'moving-to').dir, path.join(second, 'douyin', '小明'));
   assert.equal(noteWith(document, 'root-changed').previous, first);
-});
-
-test('--go carries no plan window, because it is acting on a list already approved', async () => {
-  const dir = await root();
-  await run([URL_MS4W, '--archives', dir, '--plan']);
-
-  const { document } = await run([URL_MS4W, '--archives', dir, '--go'], {
-    download: async ({ posts }) => ({ fetched: posts.length, failed: 0 }),
-  });
-
-  assert.equal(document.result.plan, undefined);
-  assert.equal(noteWith(document, 'moving-to'), undefined, 'nor a move it has already made');
 });
 
 test('--yes plans and fetches in one run, and emits exactly one document', async () => {
@@ -582,22 +426,6 @@ test('--yes outranks a --plan the skill appended after it', async () => {
 });
 
 // ---- the session ------------------------------------------------------------
-
-test('a run with no session refuses before opening anything', async () => {
-  // A cookie's absence is knowable instantly. Without this the user waits half
-  // a minute for a grid that renders nothing.
-  const dir = await root();
-  let collected = false;
-  const { document } = await run([URL_MS4W, '--archives', dir, '--plan'], {
-    hasSession: async () => false,
-    list: async () => ((collected = true), listing()),
-  });
-
-  assert.equal(document.exit, EXIT.UNAUTHORIZED);
-  assert.equal(document.error.code, 'session-missing');
-  assert.equal(collected, false);
-  assert.equal(document.error.remedy.run_by, 'user', 'only a human can pass this login');
-});
 
 test('--login returns a document, so "wait for the user" has a machine answer', async () => {
   // Finishing the sign-in does not start a collection. That coupling is what
@@ -735,30 +563,6 @@ test('signing in downloads a browser but never a downloader', async () => {
 
   assert.equal(document.exit, EXIT.OK);
   assert.deepEqual(asked, ['runtime', 'browser']);
-});
-
-test('the first run asks before downloading anything', async () => {
-  const dir = await root();
-  let collected = false;
-  const { document } = await run([URL_MS4W, '--archives', dir, '--plan'], {
-    list: async () => {
-      collected = true;
-      return listing();
-    },
-    ensureEnv: async (boxes, { platform }) => {
-      assert.deepEqual(boxes, ['runtime', 'tools', 'browser']);
-      assert.equal(platform, 'douyin');
-      throw new Refusal('env-consent', 'nothing built yet', {
-        details: { boxes, download_mb: 320, dir: '/cache' },
-        remedy: { message: 'ask first', command: '/skill/setup.sh douyin', run_by: 'agent' },
-      });
-    },
-  });
-
-  assert.equal(document.exit, EXIT.REFUSED);
-  assert.equal(document.error.code, 'env-consent');
-  assert.equal(document.error.remedy.run_by, 'agent');
-  assert.equal(collected, false);
 });
 
 // ---- the notes --------------------------------------------------------------

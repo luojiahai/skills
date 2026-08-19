@@ -1,5 +1,5 @@
 /**
- * The run behaviours every gallery-dl platform owes, asserted of each of them.
+ * The run behaviours every platform owes, asserted of each of them.
  *
  * These are decisions the run makes the same way whoever is being archived —
  * what `--go` may act on, when the account folder is settled, what an alias
@@ -26,6 +26,7 @@ import { fetchPosts as xFetch, postDir as xPostDir } from './x/fetch.mjs';
 import { main as igMain } from './instagram/run.mjs';
 import { fetchPosts as igFetch, postDir as igPostDir } from './instagram/fetch.mjs';
 import { main as douyinMain } from './douyin/run.mjs';
+import { postDir as douyinPostDir } from './douyin/fetch.mjs';
 
 import { recordIdentity } from '../shared/account.mjs';
 import { descriptorFor, labelFor } from '../shared/platforms.mjs';
@@ -66,6 +67,7 @@ const X = {
   }),
   listed: (rows) => ({ rows, stoppedEarly: false }),
   post: (tweetId) => ({ tweetId, date: '2024-03-11T09:22:19Z', content: '', files: [] }),
+  downloader: () => ({ fetch: (args) => xFetch({ ...args, bin: '/usr/bin/true', intervalMs: 0 }) }),
 };
 
 const INSTAGRAM = {
@@ -102,6 +104,7 @@ const INSTAGRAM = {
     ],
   }),
   post: (shortcode) => ({ shortcode, date: '2024-03-11 07:22:19', content: '', files: [] }),
+  downloader: () => ({ fetch: (args) => igFetch({ ...args, bin: '/usr/bin/true', intervalMs: 0 }) }),
 };
 
 /**
@@ -116,18 +119,36 @@ const DOUYIN = {
   url: 'https://www.douyin.com/user/MS4wSEC',
   handle: undefined,
   id: 'MS4wSEC',
+  idKey: 'id',
   boxes: ['runtime', 'tools', 'browser'],
+  postDir: douyinPostDir,
+  account: { id: 'MS4wSEC', douyin_id: 'abc123', nickname: '小明' },
+  identity: { id: 'MS4wSEC', douyin_id: 'abc123' },
+  ids: ['7111', '7222', '7333'],
+  // The grid yields posts rather than one row per file, so a row and a post are
+  // the same thing here.
+  row: (id) => ({ id, text: '', createTime: 1710144139 }),
+  listed: (posts) => ({
+    posts,
+    reported: 284,
+    skippedImagePosts: 0,
+    hitRoundLimit: false,
+    stoppedEarly: false,
+  }),
+  post: (id) => ({ id, text: '', createTime: 1710144139 }),
+  // Nothing more real to fall back to: yt-dlp writing nothing is a failed post
+  // by design here, so a downloader that exits clean cannot land one.
+  downloader: () => ({}),
   extra: () => ({
-    list: async () => ({
-      posts: [{ id: '7111', text: '', createTime: 1710144139 }],
-      account: { id: 'MS4wSEC', douyin_id: 'abc123', nickname: '小明' },
-      reported: 284,
-      skippedImagePosts: 0,
-      hitRoundLimit: false,
-      stoppedEarly: false,
-      described: 1,
-    }),
-    download: async ({ posts }) => ({ fetched: posts.length, failed: 0, undated: 0 }),
+    list: async () => collected(DOUYIN),
+    // Faked one module lower than the other two, so the fetch member wrapping it
+    // — where the cookies are minted and the progress is written — still runs.
+    download: async ({ accountDir, posts }) => {
+      for (const post of posts) {
+        await writePost(douyinPostDir(accountDir, post), buildPost({ id: post.id }));
+      }
+      return { fetched: posts.length, failed: 0 };
+    },
     playwright: async () => ({ chromium: {} }),
     login: async () => ({ ok: true }),
     hasSession: async () => true,
@@ -138,10 +159,10 @@ const DOUYIN = {
   }),
 };
 
-/** Every platform, for the run they all share. */
+/** Every platform. There is one run, and all of them go through the whole of it. */
 const BENCHES = [X, INSTAGRAM, DOUYIN];
 
-/** The two whose listing and download halves are the shared ones. */
+/** The two that drive gallery-dl, for the few things that is true of. */
 const GALLERYDL = [X, INSTAGRAM];
 
 // ---- the harness ------------------------------------------------------------
@@ -241,10 +262,11 @@ async function parked(bench, root, { collected: seen, pending, counts } = {}) {
 async function go(bench, root, plan = {}, over = {}) {
   const accountDir = await parked(bench, root, plan);
   const { document } = await run(bench, [bench.url, '--archives', root, '--go'], {
-    // The real fetcher against a downloader that succeeds and writes nothing,
-    // because what is being asserted is which folders it makes. The pacing
-    // between posts is real and is asserted in each platform's fetch tests.
-    fetch: (args) => bench.fetchPosts({ ...args, bin: '/usr/bin/true', intervalMs: 0 }),
+    // Where there is one, the platform's real fetcher against a downloader that
+    // succeeds and writes nothing, because what is being asserted is which
+    // folders it makes. The pacing between posts is real and is asserted in each
+    // platform's own fetch tests.
+    ...bench.downloader(),
     ...over,
   });
   return { accountDir, document };
@@ -252,9 +274,7 @@ async function go(bench, root, plan = {}, over = {}) {
 
 // ---- the cases --------------------------------------------------------------
 
-// ---- the listing and download halves the gallery-dl platforms share ---------
-
-for (const bench of GALLERYDL) {
+for (const bench of BENCHES) {
   const at = (title) => `[${bench.name}] ${title}`;
 
   // ---- what --go may act on -------------------------------------------------
@@ -342,12 +362,18 @@ for (const bench of GALLERYDL) {
 
   // ---- the account folder ---------------------------------------------------
 
-  test(at('the account folder is the immutable id, not the handle that can change'), async () => {
+  test(at('the account folder is the immutable id, not a name that can change'), async () => {
     const root = await archivesRoot();
     await run(bench, [bench.url, '--archives', root, '--yes']);
 
     assert.equal(existsSync(accountDirIn(root, bench)), true);
-    assert.equal(existsSync(accountDirIn(root, bench, bench.handle)), false);
+
+    // Where the platform gives an account a readable name of its own, the folder
+    // is not under it: that name changes, and a folder named for one is a folder
+    // the next run would not find.
+    if (bench.handle) {
+      assert.equal(existsSync(accountDirIn(root, bench, bench.handle)), false);
+    }
   });
 
   test(at('account.json records the identity before anything is downloaded'), async () => {
@@ -533,19 +559,7 @@ for (const bench of GALLERYDL) {
     assert.equal(document.result.counts.to_fetch, 2, 'the unfetched posts are still outstanding');
   });
 
-}
-
-// ---- what every platform's run does the same, listing halves aside ----------
-
-for (const bench of BENCHES) {
-  const at = (title) => `[${bench.name}] ${title}`;
-
-  test(at('the account folder is the immutable id, not a name that can change'), async () => {
-    const root = await archivesRoot();
-    await run(bench, [bench.url, '--archives', root, '--plan']);
-
-    assert.equal(existsSync(accountDirIn(root, bench)), true);
-  });
+  // ---- the run around them --------------------------------------------------
 
 
   test(at('the environment is built before the session is read out of a browser'), async () => {
