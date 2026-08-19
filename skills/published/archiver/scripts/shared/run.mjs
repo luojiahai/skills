@@ -95,3 +95,22 @@ export function sweepNote({ incremental, stoppedEarly, threshold, category }) {
 export function sweepStoppedEarly(notes) {
   return (notes ?? []).some((note) => note.code === 'sweep' && note.stopped_early);
 }
+
+/**
+ * A platform's adapter with a caller's substitutions laid over it.
+ *
+ * A member left `undefined` is absent rather than overridden. A test bench
+ * builds one bag of fakes for every case in a file and names the member it
+ * wants back off; a plain spread would hand the run an `undefined` and fail it
+ * somewhere far from the line that asked for the real one.
+ *
+ * Nothing here knows which members carry behaviour, so a threshold is
+ * substituted through the same door as a listing pass.
+ */
+export function adapterFor(adapter, overrides = {}) {
+  const merged = { ...adapter };
+  for (const [member, value] of Object.entries(overrides)) {
+    if (value !== undefined) merged[member] = value;
+  }
+  return merged;
+}

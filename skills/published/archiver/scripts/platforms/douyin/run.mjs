@@ -34,7 +34,7 @@ import {
   self,
   sharedNotes,
 } from '../../shared/output.mjs';
-import { makeStopper, pickMode, sweepIsIncremental, sweepNote, sweepStoppedEarly } from '../../shared/run.mjs';
+import { adapterFor, makeStopper, pickMode, sweepIsIncremental, sweepNote, sweepStoppedEarly } from '../../shared/run.mjs';
 import { hatchToolMissing, onPath } from '../../shared/tools.mjs';
 import {
   COMMON_BOOLEAN_FLAGS,
@@ -122,20 +122,31 @@ https://github.com/luojiahai/skills/issues/48`;
  * anything is written at all — is testable without a browser, a network or
  * yt-dlp on the machine running the tests.
  */
-export async function main(argv, deps = {}) {
+/**
+ * What this platform brings to the run, and the only thing a caller substitutes.
+ *
+ * Every member is overridable per call, so a test replaces one by name rather
+ * than through a parallel bag of its own.
+ */
+const ADAPTER = {
+  collect,
+  fetch: fetchPosts,
+  login,
+  playwright: loadPlaywright,
+  hasSession: profileHasSession,
+  mint: mintCookies,
+  onPath,
+  ensureEnv,
+  discardDerivedState,
+  freshCookies: hasFreshCookies,
+  discardCookies,
+};
+
+export async function main(argv, overrides = {}) {
   const {
-    collectImpl = collect,
-    fetchImpl = fetchPosts,
-    loginImpl = login,
-    playwrightImpl = loadPlaywright,
-    hasSessionImpl = profileHasSession,
-    mintImpl = mintCookies,
-    onPathImpl = onPath,
-    ensureEnvImpl = ensureEnv,
-    discardImpl = discardDerivedState,
-    freshCookiesImpl = hasFreshCookies,
-    discardCookiesImpl = discardCookies,
-  } = deps;
+    collect, fetch, login, playwright, hasSession, mint,
+    onPath, ensureEnv, discardDerivedState, freshCookies, discardCookies,
+  } = adapterFor(ADAPTER, overrides);
 
   const { opts, positional, unknown, missing } = parseCommandLine(argv, {
     booleans: BOOLEAN_FLAGS,
@@ -189,14 +200,14 @@ export async function main(argv, deps = {}) {
   // dependency tree is not that. Cleared before the build rather than after, so
   // a machine that declines the download or has no network is not left carrying
   // a hundred megabytes it will never read again.
-  await discardImpl();
+  await discardDerivedState();
 
   // The tools this platform runs on, built before the first one is reached and
   // never at dispatch — a mistyped flag and a refusable URL have both already
   // been answered above, without a byte being downloaded. Signing in needs the
   // browser and nothing else; everything else needs yt-dlp too.
   try {
-    await ensureEnvImpl(
+    await ensureEnv(
       command === 'login' ? ['runtime', 'browser'] : ['runtime', 'tools', 'browser'],
       { platform: PLATFORM },
     );
@@ -208,13 +219,13 @@ export async function main(argv, deps = {}) {
   // needed on every path past here.
   let chromium;
   try {
-    ({ chromium } = await playwrightImpl());
+    ({ chromium } = await playwright());
   } catch (error) {
     return refuseHere(refusalFields(error));
   }
 
   if (command === 'login') {
-    const outcome = await loginImpl({ url: target.url, profileDir, launch: chromium });
+    const outcome = await login({ url: target.url, profileDir, launch: chromium });
     if (outcome.ok) return answer({ command, platform: PLATFORM, result: { profile_dir: profileDir } });
     return refuseHere({
       code: outcome.code,
@@ -230,7 +241,7 @@ export async function main(argv, deps = {}) {
   const noYtDlp = await hatchToolMissing(
     toolPath('yt-dlp'),
     { install: 'uv tool install yt-dlp', docs: 'https://github.com/yt-dlp/yt-dlp#installation' },
-    onPathImpl,
+    onPath,
   );
   if (noYtDlp) return refuseHere(refusalFields(noYtDlp));
 
@@ -288,8 +299,8 @@ export async function main(argv, deps = {}) {
   // A live cookies.txt answers it without opening anything, which is the whole
   // point of caching the file: reading the profile means launching Chromium, and
   // a --go that did that would be paying the cost of having no cache at all.
-  const cached = await freshCookiesImpl(COOKIE_FILE);
-  if (!cached && !(await hasSessionImpl(profileDir, { launch: chromium }))) {
+  const cached = await freshCookies(COOKIE_FILE);
+  if (!cached && !(await hasSession(profileDir, { launch: chromium }))) {
     return refuseHere({
       code: 'session-missing',
       message: `no Douyin session in ${profileDir}`,
@@ -307,8 +318,8 @@ export async function main(argv, deps = {}) {
   if (command === 'go') {
     try {
       return await doGo({
-        command, root, target, alias, unalias, profileDir, chromium, planCommand, fetchImpl, mintImpl,
-        freshImpl: freshCookiesImpl, discardImpl: discardCookiesImpl,
+        command, root, target, alias, unalias, profileDir, chromium, planCommand, fetch, mint,
+        freshCookies, discardCookies,
       });
     } catch (error) {
       return refuseHere(refusalFields(error));
@@ -318,7 +329,7 @@ export async function main(argv, deps = {}) {
   let planned;
   try {
     planned = await doPlan({
-      root, target, alias, unalias, profileDir, chromium, collectImpl, full: opts.full === true,
+      root, target, alias, unalias, profileDir, chromium, collect, full: opts.full === true,
     });
   } catch (error) {
     return refuseHere(refusalFields(error));
@@ -349,8 +360,8 @@ export async function main(argv, deps = {}) {
 
   try {
     return await doGo({
-      command, root, target, alias, unalias, profileDir, chromium, planCommand, fetchImpl, mintImpl,
-      freshImpl: freshCookiesImpl, discardImpl: discardCookiesImpl,
+      command, root, target, alias, unalias, profileDir, chromium, planCommand, fetch, mint,
+      freshCookies, discardCookies,
       // A --yes has just announced a rename or a moved root; it must still say so
       // now the user is past being asked.
       announced: planned.announced,
@@ -371,7 +382,7 @@ function loginRemedy(url) {
 }
 
 /** Collect the account, diff it against disk, park the plan. */
-async function doPlan({ root, target, alias, unalias, profileDir, chromium, collectImpl, full }) {
+async function doPlan({ root, target, alias, unalias, profileDir, chromium, collect, full }) {
   // Settled before the browser opens, which it can be here and cannot on the
   // other platforms: the sec_uid is in the URL, so whose account this is does
   // not have to wait for the listing to name it.
@@ -396,7 +407,7 @@ async function doPlan({ root, target, alias, unalias, profileDir, chromium, coll
   });
 
   progress('[douyin] collecting post IDs…');
-  const listing = await collectImpl({
+  const listing = await collect({
     url: target.url,
     secUid: target.secUid,
     profileDir,
@@ -530,8 +541,8 @@ async function doPlan({ root, target, alias, unalias, profileDir, chromium, coll
 
 /** Download the plan that was approved. No collection, no browser. */
 async function doGo({
-  command, root, target, alias, unalias, profileDir, chromium, planCommand, fetchImpl, mintImpl,
-  freshImpl, discardImpl, announced = [], plan: made = null,
+  command, root, target, alias, unalias, profileDir, chromium, planCommand, fetch, mint,
+  freshCookies, discardCookies, announced = [], plan: made = null,
 }) {
   const refuseHere = (fields) => refuse({ command, platform: PLATFORM, ...fields });
 
@@ -598,21 +609,21 @@ async function doGo({
     // not. Minting reads the Playwright profile, which means launching
     // Chromium — the slowest thing in the skill — so minting on every --go is
     // paying the whole cost of having no cache at all.
-    const cookies = (await freshImpl(COOKIE_FILE))
+    const cookies = (await freshCookies(COOKIE_FILE))
       ? COOKIE_FILE
-      : await mintImpl(profileDir, COOKIE_FILE, { launch: chromium });
-    ({ fetched, failed, undated, stopped, sessionStale } = await fetchImpl({
+      : await mint(profileDir, COOKIE_FILE, { launch: chromium });
+    ({ fetched, failed, undated, stopped, sessionStale } = await fetch({
       accountDir,
       posts: pending,
       cookies,
-      refreshCookies: () => mintImpl(profileDir, COOKIE_FILE, { launch: chromium }),
+      refreshCookies: () => mint(profileDir, COOKIE_FILE, { launch: chromium }),
       log: progress,
     }));
   }
 
   // A session even the re-mint could not rescue is thrown away rather than read
   // back next run, which would fail in exactly the same way forever.
-  if (sessionStale || stopped === 'session-rejected') await discardImpl(COOKIE_FILE);
+  if (sessionStale || stopped === 'session-rejected') await discardCookies(COOKIE_FILE);
 
   const landed = await onDiskIds(accountDir);
   const total = landed.size;

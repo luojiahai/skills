@@ -11,7 +11,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { buildPost } from './post.mjs';
-import { makeStopper, sweepNote } from './run.mjs';
+import { makeStopper, sweepNote , adapterFor } from './run.mjs';
 
 /**
  * An archive whose posts each list `listed` files and hold `present` of them —
@@ -99,4 +99,32 @@ test('a platform sweeping one feed names no category at all', () => {
     sweepNote({ incremental: true, stoppedEarly: false, threshold: 20, category: 'reels' }).category,
     'reels',
   );
+});
+
+// ---- the adapter --------------------------------------------------------
+
+test('an override replaces the member it names, and leaves the rest', () => {
+  const collect = async () => 'real';
+  const fetch = async () => 'real';
+  const swapped = async () => 'fake';
+  assert.deepEqual(adapterFor({ collect, fetch }, { collect: swapped }), { collect: swapped, fetch });
+});
+
+test('an override of undefined is not an override', () => {
+  // A test bench builds one bag of fakes for every case and names the member it
+  // wants back off. Spread alone would hand the run an undefined and crash it
+  // somewhere far from the line that asked.
+  const collect = async () => 'real';
+  assert.equal(adapterFor({ collect }, { collect: undefined }).collect, collect);
+});
+
+test('an override may replace data as readily as a function', () => {
+  // Nothing here knows which members are behaviour: a threshold is substituted
+  // through the same door as a fake listing pass.
+  assert.equal(adapterFor({ threshold: 20 }, { threshold: 3 }).threshold, 3);
+});
+
+test('no overrides at all is the adapter itself', () => {
+  const adapter = { collect: async () => 'real' };
+  assert.deepEqual(adapterFor(adapter), adapter);
 });

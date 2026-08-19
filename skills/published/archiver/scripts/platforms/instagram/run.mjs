@@ -68,7 +68,7 @@ import {
   runCounts,
   sharedNotes,
 } from '../../shared/output.mjs';
-import { pickMode, sweepIsIncremental, sweepNote } from '../../shared/run.mjs';
+import { adapterFor, pickMode, sweepIsIncremental, sweepNote } from '../../shared/run.mjs';
 import { hatchToolMissing, onPath } from '../../shared/tools.mjs';
 import { ensureEnv } from '../../shared/env.mjs';
 
@@ -132,8 +132,22 @@ in ${STATE_DIR}.`;
  */
 const discardCookies = () => discardSession(PLATFORM);
 
+/**
+ * What this platform brings to the run, and the only thing a caller substitutes.
+ *
+ * Every member is overridable per call, so a test replaces one by name rather
+ * than through a parallel bag of its own.
+ */
+const ADAPTER = {
+  collect: collectFeeds,
+  fetch: fetchPosts,
+  onPath,
+  session: ensureCookies,
+  ensureEnv,
+};
+
 async function doPlan({
-  target, root, alias, unalias, cookies, full, threshold, bin = toolPath('gallery-dl'), collectImpl = collectFeeds,
+  target, root, alias, unalias, cookies, full, threshold, bin = toolPath('gallery-dl'), collect,
 }) {
   // All settled the moment the first row names the account, because none of them
   // can be known before it: the id itself only arrives with the first row, and
@@ -143,7 +157,7 @@ async function doPlan({
   let incremental = false;
   let badId = null;
 
-  const result = await collectImpl({
+  const result = await collect({
     url: target.url,
     cookies,
     bin,
@@ -292,7 +306,7 @@ function collectRefusal(failure, stderr) {
  */
 async function doGo({
   root, dir, alias, unalias, url, handle, cookies, planCommand,
-  bin = toolPath('gallery-dl'), fetchImpl = fetchPosts,
+  bin = toolPath('gallery-dl'), fetch,
 }) {
   // --yes has just enumerated and knows exactly which folder it wrote into, so
   // it passes it in. A bare --go enumerates nothing, never learns the numeric
@@ -328,7 +342,7 @@ async function doGo({
   const archive = await readArchive(accountDir);
   const todo = outstanding(approved(plan), archive);
 
-  const { fetched, failed, stopped } = await fetchImpl({
+  const { fetched, failed, stopped } = await fetch({
     accountDir,
     posts: todo,
     cookies,
@@ -386,14 +400,8 @@ function withPlanRemedy(refusal, planCommand) {
   return refusal;
 }
 
-export async function main(argv, deps = {}) {
-  const {
-    collectImpl = collectFeeds,
-    fetchImpl = fetchPosts,
-    onPathImpl = onPath,
-    cookiesImpl = ensureCookies,
-    ensureEnvImpl = ensureEnv,
-  } = deps;
+export async function main(argv, overrides = {}) {
+  const { collect, fetch, onPath, session, ensureEnv } = adapterFor(ADAPTER, overrides);
 
   const { opts, positional, unknown, missing } = parseCommandLine(argv, {
     booleans: BOOLEAN_FLAGS,
@@ -444,7 +452,7 @@ export async function main(argv, deps = {}) {
   // is a real cost to pay for a run that cannot proceed anyway. Instagram needs
   // no browser box: nothing here drives a page.
   try {
-    await ensureEnvImpl(['runtime', 'tools'], { platform: PLATFORM });
+    await ensureEnv(['runtime', 'tools'], { platform: PLATFORM });
   } catch (error) {
     return refuseHere(refusalFields(error));
   }
@@ -455,7 +463,7 @@ export async function main(argv, deps = {}) {
   const noGalleryDl = await hatchToolMissing(
     toolPath('gallery-dl'),
     { install: 'uv tool install gallery-dl', docs: 'https://github.com/mikf/gallery-dl#installation' },
-    onPathImpl,
+    onPath,
   );
   if (noGalleryDl) return refuseHere(refusalFields(noGalleryDl));
 
@@ -510,7 +518,7 @@ export async function main(argv, deps = {}) {
 
   let cookies;
   try {
-    cookies = await cookiesImpl(SESSION, {
+    cookies = await session(SESSION, {
       cookies: optString(opts, 'cookies'),
       browser,
       url: target.url,
@@ -526,7 +534,7 @@ export async function main(argv, deps = {}) {
     return await report(
       command,
       await doGo({
-        root, url: target.url, alias, unalias, handle: target.handle, cookies, planCommand, fetchImpl,
+        root, url: target.url, alias, unalias, handle: target.handle, cookies, planCommand, fetch,
       }),
       { url: target.url },
     );
@@ -535,7 +543,7 @@ export async function main(argv, deps = {}) {
   let planned;
   try {
     planned = await doPlan({
-      target, root, alias, unalias, cookies, full, threshold: DEFAULT_ABORT, collectImpl,
+      target, root, alias, unalias, cookies, full, threshold: DEFAULT_ABORT, collect,
     });
   } catch (error) {
     const fields = refusalFields(error);
@@ -586,7 +594,7 @@ export async function main(argv, deps = {}) {
     command,
     await doGo({
       root, dir: planned.accountDir, alias, unalias, url: target.url, handle: target.handle,
-      cookies, planCommand, fetchImpl,
+      cookies, planCommand, fetch,
     }),
     { url: target.url, notes, plan: planned.plan },
   );

@@ -68,25 +68,25 @@ const collected = (over = {}) => ({
 });
 
 function deps(over = {}) {
-  const listing = over.collectImpl ?? (async () => collected());
+  const listing = over.collect ?? (async () => collected());
   return {
     // Lands each post the way the real fetcher does — post.json written, media
     // listed and present — because the run reports its total by asking the
     // folder, and a fetcher that wrote nothing would be reporting on nothing.
-    fetchImpl: async ({ accountDir, posts }) => {
+    fetch: async ({ accountDir, posts }) => {
       for (const post of posts) {
         await writePost(postDir(accountDir, post), buildPost({ id: post.tweetId }));
       }
       return { fetched: { posts: posts.length, files: posts.length }, failed: 0, stopped: null };
     },
-    onPathImpl: async () => true,
-    cookiesImpl: async () => '/tmp/cookies.txt',
-    ensureEnvImpl: async () => {},
+    onPath: async () => true,
+    session: async () => '/tmp/cookies.txt',
+    ensureEnv: async () => {},
     ...over,
     // Wrapped last, so a test's own listing still goes through the account
     // callback. That callback is what settles the folder and reads the archive,
     // so a listing that never fired it would exercise none of doPlan's real work.
-    collectImpl: async (args) => {
+    collect: async (args) => {
       const result = await listing(args);
       if (result.account && args.onAccount) await args.onAccount(result.account);
       return result;
@@ -183,12 +183,12 @@ test('a run never approves a post it will not then fetch', async () => {
 
   // One post fully landed by a first run, one that has never been seen.
   await run(['https://x.com/jack', '--archives', dir, '--yes'], {
-    collectImpl: async () => collected({ rows: [row('1')] }),
+    collect: async () => collected({ rows: [row('1')] }),
   });
 
   const { document } = await run(['https://x.com/jack', '--archives', dir, '--yes'], {
-    collectImpl: async () => collected({ rows: [row('1'), row('2')] }),
-    fetchImpl: async ({ accountDir, posts }) => {
+    collect: async () => collected({ rows: [row('1'), row('2')] }),
+    fetch: async ({ accountDir, posts }) => {
       handed = posts.map((post) => post.tweetId);
       for (const post of posts) {
         await writePost(postDir(accountDir, post), buildPost({ id: post.tweetId }));
@@ -227,7 +227,7 @@ test('a rate limit and a rejected session are distinct codes', async () => {
   const dir = await archivesRoot();
   for (const [failure, exit] of [['rate-limited', EXIT.FAILED], ['session-rejected', EXIT.UNAUTHORIZED]]) {
     const { document } = await run(['https://x.com/jack', '--archives', dir, '--plan'], {
-      collectImpl: async () => collected({ failure, rows: [], account: null }),
+      collect: async () => collected({ failure, rows: [], account: null }),
     });
     assert.equal(document.error.code, failure);
     assert.equal(document.exit, exit);
@@ -238,7 +238,7 @@ test('protected, suspended and no-such-account are three codes, and none is "up 
   const dir = await archivesRoot();
   for (const failure of ['protected', 'suspended', 'no-such-account']) {
     const { document } = await run(['https://x.com/jack', '--archives', dir, '--plan'], {
-      collectImpl: async () => collected({ failure, rows: [], account: null }),
+      collect: async () => collected({ failure, rows: [], account: null }),
     });
     assert.equal(document.error.code, failure);
     assert.equal(document.ok, false);
@@ -248,7 +248,7 @@ test('protected, suspended and no-such-account are three codes, and none is "up 
 test('an unrecognised listing failure keeps gallery-dl’s last words', async () => {
   const dir = await archivesRoot();
   const { document } = await run(['https://x.com/jack', '--archives', dir, '--plan'], {
-    collectImpl: async () =>
+    collect: async () =>
       collected({ failure: 'collect-failed', rows: [], account: null, stderr: 'something went wrong\n' }),
   });
 
@@ -260,7 +260,7 @@ test('an account with no media is EMPTY, never "up to date"', async () => {
   // An account you are not allowed to read produces exactly the same silence.
   const dir = await archivesRoot();
   const { document } = await run(['https://x.com/jack', '--archives', dir, '--plan'], {
-    collectImpl: async () => collected({ rows: [] }),
+    collect: async () => collected({ rows: [] }),
   });
 
   assert.equal(document.error.code, 'empty');
@@ -270,7 +270,7 @@ test('an account with no media is EMPTY, never "up to date"', async () => {
 test('a timeline that never named the account has its own code', async () => {
   const dir = await archivesRoot();
   const { document } = await run(['https://x.com/jack', '--archives', dir, '--plan'], {
-    collectImpl: async () => collected({ account: null }),
+    collect: async () => collected({ account: null }),
   });
 
   assert.equal(document.error.code, 'unidentified-account');
@@ -279,7 +279,7 @@ test('a timeline that never named the account has its own code', async () => {
 test('an account id this skill will not use as a folder name is refused, and quoted back', async () => {
   const dir = await archivesRoot();
   const { document } = await run(['https://x.com/jack', '--archives', dir, '--plan'], {
-    collectImpl: async () => collected({ account: { id: '../etc', handle: 'jack' } }),
+    collect: async () => collected({ account: { id: '../etc', handle: 'jack' } }),
   });
 
   assert.equal(document.error.code, 'bad-account-id');
@@ -290,7 +290,7 @@ test('a run that stopped partway carries both what landed and why it stopped', a
   // Neither reported as finished, nor thrown away.
   const dir = await archivesRoot();
   const { document } = await run(['https://x.com/jack', '--archives', dir, '--yes'], {
-    fetchImpl: async () => ({ fetched: { posts: 1, files: 1 }, failed: 0, stopped: 'rate-limited' }),
+    fetch: async () => ({ fetched: { posts: 1, files: 1 }, failed: 0, stopped: 'rate-limited' }),
   });
 
   assert.equal(document.ok, false);
@@ -305,7 +305,7 @@ test('a run that stopped partway carries both what landed and why it stopped', a
 test('no session and no browser to read one from names the browsers it accepts', async () => {
   const dir = await archivesRoot();
   const { document } = await run(['https://x.com/jack', '--archives', dir, '--plan'], {
-    cookiesImpl: async () => {
+    session: async () => {
       throw new Refusal('no-session-source', 'no saved X session yet', {
         details: { browsers: ['chrome', 'firefox'] },
       });
@@ -405,13 +405,13 @@ test('the environment is built before the session is read out of a browser', asy
   // closed. Paying that for a run that cannot proceed is the wrong order.
   let readCookies = false;
   const { document } = await run(['https://x.com/jack', '--plan'], {
-    ensureEnvImpl: async () => {
+    ensureEnv: async () => {
       throw new Refusal('env-build-failed', 'no network', {
         details: { boxes: ['tools'], dir: '/cache', output: '' },
         remedy: { message: 'try again', run_by: 'user' },
       });
     },
-    cookiesImpl: async () => {
+    session: async () => {
       readCookies = true;
       return '/tmp/cookies.txt';
     },
@@ -424,7 +424,7 @@ test('the environment is built before the session is read out of a browser', asy
 
 test('the first run asks before downloading anything', async () => {
   const { document } = await run(['https://x.com/jack', '--plan'], {
-    ensureEnvImpl: async (boxes, { platform }) => {
+    ensureEnv: async (boxes, { platform }) => {
       assert.deepEqual(boxes, ['runtime', 'tools'], 'X never downloads a browser');
       assert.equal(platform, 'x');
       throw new Refusal('env-consent', 'nothing built yet', {
@@ -445,7 +445,7 @@ test('under the escape hatch a missing downloader still names itself', async () 
   // be reproduced from here — so the refusal is the entire diagnostic and stays.
   process.env.ARCHIVER_SYSTEM_TOOLS = '1';
   try {
-    const { document } = await run(['https://x.com/jack', '--plan'], { onPathImpl: async () => false });
+    const { document } = await run(['https://x.com/jack', '--plan'], { onPath: async () => false });
 
     assert.equal(document.exit, EXIT.FAILED);
     assert.equal(document.error.code, 'tool-missing');
@@ -497,7 +497,7 @@ async function go(root, { collected: seen, pending, counts } = {}) {
     // The real fetcher against a downloader that succeeds and writes nothing,
     // because what is being asserted is which folders it makes. The pacing
     // between posts is real and is asserted in fetch.test.mjs; here it is off.
-    fetchImpl: (args) => fetchPosts({ ...args, bin: '/usr/bin/true', intervalMs: 0 }),
+    fetch: (args) => fetchPosts({ ...args, bin: '/usr/bin/true', intervalMs: 0 }),
   });
 
   return { accountDir, document };
@@ -676,16 +676,16 @@ test('an interrupted download plus an expired plan is not reported as up to date
   // exists in their composition and only a replay through main() can catch it.
   const root = await archivesRoot();
   const timeline = Array.from({ length: DEFAULT_ABORT + 20 }, (_, i) => String(1000 - i));
-  const collectImpl = streaming(timeline);
+  const collect = streaming(timeline);
 
   // A first sweep over a fresh archive: nothing to recognise, so all of it.
-  const first = await run(['https://x.com/jack', '--archives', root, '--plan'], { collectImpl });
+  const first = await run(['https://x.com/jack', '--archives', root, '--plan'], { collect });
   assert.equal(first.document.result.counts.to_fetch, timeline.length);
 
   // The download lands the newest DEFAULT_ABORT and is rate-limited. The plan
   // stays parked, which is what would let a retry fetch just the remainder.
   const stopped = await run(['https://x.com/jack', '--archives', root, '--go'], {
-    fetchImpl: async ({ accountDir, posts }) => {
+    fetch: async ({ accountDir, posts }) => {
       const got = posts.slice(0, DEFAULT_ABORT);
       for (const post of got) await writePost(postDir(accountDir, post), buildPost({ id: post.tweetId }));
       return { fetched: { posts: got.length, files: got.length }, failed: 0, stopped: 'rate-limited' };
@@ -701,7 +701,7 @@ test('an interrupted download plus an expired plan is not reported as up to date
   sync.plan.created_at = new Date(Date.now() - 30 * 3600 * 1000).toISOString();
   await writeFile(syncFile, JSON.stringify(sync));
 
-  const again = await run(['https://x.com/jack', '--archives', root, '--plan'], { collectImpl });
+  const again = await run(['https://x.com/jack', '--archives', root, '--plan'], { collect });
 
   assert.equal(noteWith(again.document, 'sweep').mode, 'full');
   assert.equal(again.document.result.counts.to_fetch, 20, 'the remainder is offered, not written off');
