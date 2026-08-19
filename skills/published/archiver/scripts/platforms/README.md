@@ -39,9 +39,9 @@ behaviour this platform does its own way:
 | `ensureEnv` | Building them. |
 | `preflight` | Whether the downloader is reachable. |
 | `session` | What the listing and the fetch run signed in as. |
-| `collect` | The listing pass, given the target, the run's account callback and its stopping rule as a factory. The callback is what settles the account folder, so a platform whose URL already names the account fires it before opening anything. |
+| `collect` | The listing pass, given the target, the adapter, the run's account callback and its stopping rule as a factory. The callback is what settles the account folder, so a platform whose URL already names the account fires it before opening anything. |
 | `collectRefusal` | What a listing that did not answer means, given the whole result rather than its stderr. |
-| `fetch` | Downloading the posts the plan approved. Anything only this downloader knows comes back under `platform`, which the run carries to `runNotes` without reading. |
+| `fetch` | Downloading the posts the plan approved, given the adapter. Anything only this downloader knows comes back under `platform`, which the run carries to `runNotes` without reading. |
 | `commands` | Any command this platform answers that the others do not. |
 | `parseTarget` | What a URL of this platform's names. |
 | `groupFiles`, `diff` | Rows into posts, and posts against the archive. |
@@ -69,9 +69,11 @@ URL, so its `collect` fires the run's account callback before opening a browser
 — which is what that callback always meant. This is recorded as
 [ADR-0001](../../../../../docs/adr/0001-a-platform-brings-hooks-not-stages.md).
 
-A member that wraps something of this platform's own is a member in its own
-right underneath — Douyin's `collect` and `fetch` wrap `list` and `download` —
-so a test drives the real thing and the wrapping still runs.
+`collect` and `fetch` are handed the adapter, as `session` and `preflight` are,
+so a hook can reach the platform's own members. A member that wraps something of
+this platform's own is a member in its own right underneath — Douyin's `collect`
+and `fetch` wrap `list` and `download` — so a test drives the real thing and the
+wrapping still runs.
 
 A command a platform declares in `commands` is dispatched by name, so the run
 never learns what it is called — `--login` is Douyin's, and the other two carry

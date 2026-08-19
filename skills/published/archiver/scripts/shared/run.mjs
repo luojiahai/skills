@@ -10,8 +10,7 @@
  * through both. What differs between them — when the account's id is known, what
  * a listing pass yields, which failures end a run — arrives as hooks the adapter
  * brings. A platform never replaces a stage: a stage replaced is a stage whose
- * order, writes and refusals are that platform's to get right again, and the
- * three of them got it right differently.
+ * order, writes and refusals are that platform's to get right again.
  *
  * A refusal's envelope is not here: it goes through `output.mjs`, which owns
  * the document every command answers in.
@@ -419,8 +418,6 @@ async function doPlan({ adapter, root, alias, unalias, session, target, full }) 
     // what the URL was parsed into — Douyin reads the account's id out of it.
     target,
     session,
-    // The adapter itself, as `session` and `preflight` are given it, so a
-    // platform's listing half can reach its own substitutable members.
     adapter,
     threshold: adapter.threshold,
     // The stopping rule as a factory, called once per listing pass. A platform
@@ -594,8 +591,6 @@ async function doGo({ adapter, root, dir, alias, unalias, url, target, session, 
     posts: todo,
     plan,
     session,
-    // The adapter itself, as `session` and `preflight` are given it, so a
-    // platform's download half can reach its own substitutable members.
     adapter,
     // A long run takes hours. Without a line per post it is silent on stderr
     // for all of them, which is indistinguishable from a hang.
@@ -614,7 +609,11 @@ async function doGo({ adapter, root, dir, alias, unalias, url, target, session, 
   // count of what it fetched would have this document report posts landing in a
   // folder that never received them.
   const total = landedCount(landed);
-  const downloaded = total - before;
+  // Never below zero. The archive only grows during a run — nothing here fetches
+  // a post it already holds — but this is the number the document promises as a
+  // count, and a count that went negative would be refused by the schema rather
+  // than reported.
+  const downloaded = Math.max(0, total - before);
 
   // One id in two folders leaves one of them answering for nothing, and its
   // media counted by nothing.
