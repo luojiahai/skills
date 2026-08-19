@@ -203,15 +203,25 @@ against a rate limiter and a decade-old account is thousands of posts, so
 re-collecting all of it every time somebody checks their status would make the
 confirm step cost more than the download.
 
-So a re-run stops after **100 consecutive** already-complete posts. Generous on
-purpose: X pins a post to the top of a timeline regardless of age, and a
-stop-at-the-first-thing-you-recognise rule would halt immediately and forever.
+So a re-run stops after **20 consecutive** already-complete posts. The number's
+only job is to outlast how far X can reorder its own timeline: it pins exactly
+one post to the top regardless of age — Premium buys a Highlights tab, not a
+second pin, and that tab is not this timeline — so the block to clear is single
+digits, which 20 clears several times over. Everything below the cut is strictly
+older, so a longer streak buys reassurance rather than posts and pays for it in
+paginated calls against a rate limiter; and a number above an account's own post
+count never fires at all.
+
 A first run has nothing to recognise and sweeps the lot; `--full` forces a
 complete pass; and every run that *collects* carries a `sweep` note naming which
 mode ran and whether it stopped early, so `to_fetch: 0` can never be confused
 with "gave up before reaching anything new". A bare `--go` collects nothing and
 repeats the note its plan recorded, which is up to a day old; a refusal carries
 none.
+
+Instagram has a threshold of its own. Should the two ever read the same, that is
+two claims about two platforms landing on one number rather than a constant
+wanting to move to `shared/`.
 
 The rule needs the archive to be an unbroken run of the newest posts, and one
 thing punches a hole in it: a `--go` that stopped partway leaves the posts below

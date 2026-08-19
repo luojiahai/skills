@@ -227,7 +227,7 @@ The `--go` document is the run's whole result. Report it and stop.
 | `unattributed-posts` | Douyin. `count` cards on the page that no profile-feed response named, and so were not collected — a recommendation rail, or a run that missed those responses. |
 | `undated-posts` | Douyin. `count` posts filed under `undated_<id>`, because nothing would say when they were published. |
 | `duplicate-posts` | Any platform. `count` post ids found in two folders each. One answers for the post; the other's media is counted by nothing, so every figure beside it is short by that much. |
-| `sweep` | X and Instagram. `mode: "incremental"` with `stopped_early: true` means it stopped after `threshold` known posts rather than reaching the end — so "nothing new" is not proven. Say so. A `--go` repeats the note its plan recorded, which may be up to a day old. **Instagram carries one of these per feed**, each with a `category` of `posts` or `reels`: say which feed was cut short, because "your posts are complete but I stopped partway through your reels" is the whole point of there being two. |
+| `sweep` | X and Instagram. `mode: "incremental"` with `stopped_early: true` is what a re-run against an up-to-date archive normally looks like: it stopped after `threshold` known posts rather than walking to the end. Report it plainly rather than as a warning — an unfinished download is not what this is, because that case sweeps `full` instead. `--full` is there for anyone who wants the whole feed walked anyway. A `--go` repeats the note its plan recorded, which may be up to a day old. **Instagram carries one of these per feed**, each with a `category` of `posts` or `reels`. `mode` is the same on both; `stopped_early` need not be, and one feed that ran to the end beside one that stopped early is worth naming. |
 | `moving-to` | `--alias` will rename the folder to `dir` on the download step. Say it before they say yes; nothing has moved yet. |
 | `root-changed` | The last run archived into `previous`. Say it — otherwise an `on_disk` of zero reads as an archive that lost its files. |
 
@@ -417,14 +417,16 @@ posts are the headline number, files are what is actually downloaded.
 
 Every run carries a `sweep` note. `mode: "incremental"` with
 `stopped_early: true` means the collection stopped after `threshold` consecutive
-posts it already had, rather than reaching the end of the timeline — so
-`to_fetch: 0` there means "nothing new before the cut", not "nothing new at all".
-Say which.
+posts it already had, rather than reaching the end of the timeline. That is the
+ordinary shape of a re-run against an archive that is up to date, rather than a
+warning to pass on: the threshold clears what X can reorder several times over.
+`--full` walks the whole timeline for someone who wants it walked anyway.
 
-A re-run after a download that stopped partway sweeps the whole timeline instead,
-because the archive then has holes below its newest posts. It is slower and it
-arrives with the unfetched remainder beside it, so a `mode: "full"` on an account
-that already has posts on disk is that catching up rather than anything wrong.
+The case that does leave posts under the cut sweeps full of its own accord. A
+re-run after a download that stopped partway has holes below its newest posts,
+so it walks the whole timeline: slower, and it arrives with the unfetched
+remainder beside it, so a `mode: "full"` on an account that already has posts on
+disk is that catching up rather than anything wrong.
 
 Its distinct hard stops, each its own code: `rate-limited` stops cleanly and
 carries a `result` with what landed — report that, tell the user to come back

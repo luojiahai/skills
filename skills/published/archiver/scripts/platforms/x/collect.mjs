@@ -22,11 +22,23 @@ import { TOOL, classifyFailure, parseRow } from './gallerydl.mjs';
 import { listArgs } from '../../shared/gallerydl.mjs';
 
 /**
- * Generous on purpose. X pins a post to the top of a timeline regardless of its
- * age, and a handful of recent posts can be edited or reordered, so a small
- * threshold is a stop-at-the-first-thing-you-recognise rule wearing a number.
+ * How far a re-run keeps going after it starts recognising posts. Its only job
+ * is to outlast how far X can reorder its own timeline, so the number is a claim
+ * about X and nothing else.
+ *
+ * X pins exactly **one** post to the top of a timeline regardless of its age,
+ * and Premium buys a Highlights tab rather than a second pin — a tab this sweep
+ * does not walk. Add the handful of recent posts an edit can move and the block
+ * to clear is single digits, which 20 clears several times over. Everything
+ * below it is strictly older, so a longer streak buys reassurance rather than
+ * posts and pays for it in paginated calls against a rate limiter. A number
+ * above an account's own post count never fires at all.
+ *
+ * Instagram has its own constant. Should the two ever read the same, that is
+ * two claims about two platforms landing on one number rather than a constant
+ * wanting to move to `shared/` — either is free to change without the other.
  */
-export const DEFAULT_ABORT = 100;
+export const DEFAULT_ABORT = 20;
 
 /**
  * Runs gallery-dl and returns `{ rows, account, stoppedEarly, failure }`.

@@ -175,11 +175,24 @@ plan, which nobody approved.
 
 ## The sweep stops early, like X's
 
-A re-run stops after **100 consecutive** already-complete posts *per feed*.
-Generous on purpose: Instagram pins up to three posts to the top of a profile
-regardless of age, so a stop-at-the-first-thing-you-recognise rule would halt
-immediately and forever. A first run has nothing to recognise and sweeps the
-lot; `--full` forces a complete pass.
+A re-run stops after **20 consecutive** already-complete posts *per feed*. The
+number's only job is to outlast how far Instagram can reorder its own feeds: it
+pins up to three posts to the top of the profile grid regardless of age, and the
+reels tab is chronological with no pinning of its own, so three is the largest
+block either feed can put in front of a sweep and 20 clears it several times
+over. Everything below the cut is strictly older, and here a longer streak is
+paid for twice — once per feed, at six to twelve seconds a request; and a number
+above a feed's own length never fires at all, which most reels feeds are short
+enough to run into.
+
+**One number for both feeds.** A second would defend the same claim about the
+same platform's reordering, and the overlap cuts the other way anyway: a reel
+already landed from the `posts` sweep counts toward the `reels` streak, so the
+second feed retires sooner than its length suggests. X has a threshold of its
+own, defending X's pinning rather than this one.
+
+A first run has nothing to recognise and sweeps the lot; `--full` forces a
+complete pass.
 
 So does a re-run that finds a plan still parked with un-landed posts in it. That
 is a download that never finished, which means the archive may have holes below

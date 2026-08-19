@@ -27,11 +27,29 @@ import { listArgs } from '../../shared/gallerydl.mjs';
 import { feedUrl } from './target.mjs';
 
 /**
- * Generous on purpose. Instagram pins up to three posts to the top of a profile
- * regardless of their age, so a small threshold is a
- * stop-at-the-first-thing-you-recognise rule wearing a number.
+ * How far a re-run keeps going after it starts recognising posts. Its only job
+ * is to outlast how far Instagram can reorder its own feeds, so the number is a
+ * claim about Instagram and nothing else.
+ *
+ * Instagram pins up to **three** posts to the top of the profile grid regardless
+ * of their age, and that is the largest block either feed puts in front of a
+ * sweep — the reels tab has no pinning of its own, it is chronological. Add the
+ * recent posts an edit can move and 20 clears the block several times over.
+ * Everything below it is strictly older, so a longer streak buys reassurance
+ * rather than posts, and here it is paid for twice: once per feed, at six to
+ * twelve seconds a request. A number above a feed's own length never fires at
+ * all, and reels feeds are short.
+ *
+ * **One number for both feeds.** A second would defend the same claim about the
+ * same platform's reordering, and the overlap cuts the other way anyway — a reel
+ * already landed from the `posts` sweep counts toward the `reels` streak, so the
+ * second feed retires sooner than its length suggests.
+ *
+ * X has its own constant. Should the two ever read the same, that is two claims
+ * about two platforms landing on one number rather than a constant wanting to
+ * move to `shared/` — either is free to change without the other.
  */
-export const DEFAULT_ABORT = 100;
+export const DEFAULT_ABORT = 20;
 
 /** The feeds a run enumerates, in the order it enumerates them. */
 export const CATEGORIES = ['posts', 'reels'];
