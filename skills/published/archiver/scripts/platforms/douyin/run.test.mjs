@@ -224,6 +224,24 @@ test('a plan says where --alias would move an existing folder, and moves nothing
   assert.ok(!existsSync(path.join(dir, 'douyin', '小明')));
 });
 
+test('an alias asked for with nothing left to fetch still moves the folder', async () => {
+  // A run that finds nothing new is still a run that was asked to rename. Told
+  // the folder moved and left where it was, the next run announces the same
+  // move again and the archive never gets the name the user asked for.
+  const dir = await root();
+  await run([URL_MS4W, '--archives', dir, '--yes'], {
+    fetch: async ({ posts }) => ({ fetched: posts.length, failed: 0 }),
+  });
+
+  const { document } = await run([URL_MS4W, '--archives', dir, '--alias', '小明', '--yes'], {
+    collect: async () => listing({ posts: [] }),
+  });
+
+  assert.equal(document.result.counts.to_fetch, 0, 'nothing was left to fetch');
+  assert.ok(existsSync(path.join(dir, 'douyin', '小明')), 'and the folder still moved');
+  assert.ok(!existsSync(path.join(dir, 'douyin', 'MS4wSEC')));
+});
+
 test('an archive whose root has moved says where the last run put it', async () => {
   // Left unsaid, a run against a different root starts a second archive in
   // silence, and its on_disk of zero reads as an account that has lost its files.

@@ -51,9 +51,9 @@ import {
   aliasTarget,
   applyAlias,
   checkAlias,
-  clearAlias,
   findAccountDir,
   isSafeAlias,
+  moveToAlias,
   readAccount,
   recordIdentity,
   resolveAccountDir,
@@ -351,6 +351,13 @@ export async function main(argv, overrides = {}) {
   }
 
   if (planned.plan.counts.to_fetch === 0) {
+    // Nothing to download, but this run was still approved, so the rename it
+    // asked for happens here rather than waiting for a run that fetches.
+    try {
+      await moveToAlias(ACCOUNT, root, planned.accountDir, { id: target.secUid, alias, unalias });
+    } catch (error) {
+      return refuseHere(refusalFields(error));
+    }
     return answer({
       command,
       platform: PLATFORM,
@@ -576,7 +583,7 @@ async function doGo({
   // its final home. A rename between --plan and --go invalidates nothing,
   // because a plan records the archives root and the account, never the folder.
   try {
-    accountDir = await moveIfAsked({ root, alias, unalias, secUid: target.secUid, accountDir });
+    accountDir = await moveToAlias(ACCOUNT, root, accountDir, { id: target.secUid, alias, unalias });
   } catch (error) {
     return refuseHere(refusalFields(error));
   }
@@ -743,12 +750,6 @@ const FAILURES = {
     },
   },
 };
-
-async function moveIfAsked({ root, alias, unalias, secUid, accountDir }) {
-  if (unalias) return (await clearAlias(ACCOUNT, root, { id: secUid })) ?? accountDir;
-  if (alias) return (await applyAlias(ACCOUNT, root, { id: secUid, alias })) ?? accountDir;
-  return accountDir;
-}
 
 if (isMainModule(import.meta.url)) {
   process.exitCode = await main(process.argv.slice(2));

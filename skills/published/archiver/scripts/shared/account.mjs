@@ -587,3 +587,23 @@ export function aliasTarget(descriptor, root, { id, alias, unalias }) {
     return null;
   }
 }
+
+/**
+ * The rename a run was asked for, performed.
+ *
+ * Returns where the account folder is afterwards — the folder it was already in
+ * when nothing was asked for, and when the account has no id to rename against.
+ *
+ * Every run that was approved goes through here, including one that found
+ * nothing new to fetch. An alias is a thing the user asked of the archive, not
+ * a reward for having downloaded something: announcing the move and skipping it
+ * leaves the folder under its id and the next run announcing the same move
+ * again.
+ */
+export async function moveToAlias(descriptor, root, accountDir, { id, alias, unalias }) {
+  if (!id || !(alias || unalias)) return accountDir;
+  const moved = unalias
+    ? await clearAlias(descriptor, root, { id })
+    : await applyAlias(descriptor, root, { id, alias });
+  return moved ?? accountDir;
+}

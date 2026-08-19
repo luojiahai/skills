@@ -33,12 +33,11 @@ import {
   aliasDirFor,
   aliasTarget,
   aliasShapeRefusal,
-  applyAlias,
   checkAlias,
-  clearAlias,
   findAccountDir,
   isSafeAlias,
   isSafeId,
+  moveToAlias,
   readAccount,
   recordIdentity,
   resolveAccountDir,
@@ -325,14 +324,10 @@ async function doGo({
 
   // The rename lands here rather than on --plan, and before the download rather
   // than after, so what is fetched goes straight into its final home.
-  if (account?.id && (alias || unalias)) {
-    try {
-      accountDir = unalias
-        ? await clearAlias(ACCOUNT, root, { id: account.id })
-        : await applyAlias(ACCOUNT, root, { id: account.id, alias });
-    } catch (error) {
-      return { refusal: error };
-    }
+  try {
+    accountDir = await moveToAlias(ACCOUNT, root, accountDir, { id: account?.id, alias, unalias });
+  } catch (error) {
+    return { refusal: error };
   }
 
   const plan = await loadPlan(accountDir);
@@ -583,6 +578,15 @@ export async function main(argv, overrides = {}) {
   }
 
   if (planned.plan.counts.to_fetch === 0) {
+    // Nothing to download, but this run was still approved, so the rename it
+    // asked for happens here rather than waiting for a run that fetches.
+    try {
+      await moveToAlias(ACCOUNT, root, planned.accountDir, {
+        id: planned.plan.account?.id, alias, unalias,
+      });
+    } catch (error) {
+      return refuseHere(refusalFields(error));
+    }
     return answer({
       command,
       platform: PLATFORM,
