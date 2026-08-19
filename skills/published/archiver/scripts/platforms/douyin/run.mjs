@@ -136,13 +136,13 @@ const ADAPTER = {
    */
   collect: async ({ target, session, onAccount, stopper, adapter }) => {
     const { chromium, profileDir } = session;
-    const rule = await onAccount({ id: target.secUid });
+    const rule = await onAccount({ id: target.id });
     const stop = rule.stopNow ? () => true : stopper(rule);
 
     progress('[douyin] collecting post IDs…');
     const listing = await adapter.list({
       url: target.url,
-      secUid: target.secUid,
+      secUid: target.id,
       profileDir,
       headless: true,
       launch: chromium,

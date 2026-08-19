@@ -276,7 +276,7 @@ export async function runAccount(base, argv, overrides = {}) {
   // Everything an alias can be refused for except "it is already yours" needs
   // only the archives root, so it is decided before the session and the first
   // request. The id is whatever can be worked out without a fetch, and null for
-  // an account never seen, which cannot collide with itself either way. doPlan
+  // an account never seen, which cannot collide with itself either way. makePlan
   // asks again once the real id is in hand.
   if (alias) {
     const existing = await findAccountDir(descriptor, root, {
@@ -305,7 +305,7 @@ export async function runAccount(base, argv, overrides = {}) {
   // should have been handed the code and its remedy.
   if (command === 'go') {
     try {
-      return await runGo({ ...shared });
+      return await downloadAndReport({ ...shared });
     } catch (error) {
       return refuseHere(refusalFields(error));
     }
@@ -313,7 +313,7 @@ export async function runAccount(base, argv, overrides = {}) {
 
   let planned;
   try {
-    planned = await doPlan({ ...shared, full: opts.full === true });
+    planned = await makePlan({ ...shared, full: opts.full === true });
   } catch (error) {
     const fields = refusalFields(error);
     // The remedy text says the cached session has been thrown away, and leaving
@@ -378,15 +378,15 @@ export async function runAccount(base, argv, overrides = {}) {
   }
 
   try {
-    return await runGo({ ...shared, dir: planned.accountDir, notes, plan: planned.plan });
+    return await downloadAndReport({ ...shared, dir: planned.accountDir, notes, plan: planned.plan });
   } catch (error) {
     return refuseHere(refusalFields(error));
   }
 }
 
 /** The download half, and the document it answers with. */
-async function runGo(args) {
-  return await reportRun(args, args.command, await doGo(args), {
+async function downloadAndReport(args) {
+  return await reportRun(args, args.command, await download(args), {
     url: args.url,
     notes: args.notes ?? null,
     plan: args.plan ?? null,
@@ -400,7 +400,7 @@ async function runGo(args) {
  * Throws its refusals rather than composing documents. `runAccount` owns the
  * envelope, so a `--yes` emits exactly one.
  */
-async function doPlan({ adapter, root, alias, unalias, session, target, full }) {
+async function makePlan({ adapter, root, alias, unalias, session, target, full }) {
   const descriptor = adapter.account;
   const postIdKey = adapter.postIdKey;
 
@@ -537,7 +537,7 @@ async function doPlan({ adapter, root, alias, unalias, session, target, full }) 
  * Returns `{ refusal }` for a plan it will not run, and otherwise everything
  * the finished run has to report. It composes no document itself.
  */
-async function doGo({ adapter, root, dir, alias, unalias, url, target, session, planCommand }) {
+async function download({ adapter, root, dir, alias, unalias, url, target, session, planCommand }) {
   const descriptor = adapter.account;
   const postIdKey = adapter.postIdKey;
 

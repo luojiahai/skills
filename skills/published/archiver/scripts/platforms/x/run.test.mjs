@@ -89,7 +89,7 @@ function overrides(over = {}) {
     ...over,
     // Wrapped last, so a test's own listing still goes through the account
     // callback. That callback is what settles the folder and reads the archive,
-    // so a listing that never fired it would exercise none of doPlan's real work.
+    // so a listing that never fired it would exercise none of the listing half's real work.
     collect: async (args) => {
       const result = await listing(args);
       if (result.account && args.onAccount) await args.onAccount(result.account);
@@ -476,7 +476,7 @@ const tweet = (tweetId) => ({ tweetId, date: '2024-03-11T09:22:19Z', content: ''
  * so the folders that appear are the posts it was handed.
  *
  * Driven through `main` like every other test here, so the answer is the
- * validated document rather than an intermediate `doGo` returns on its way to
+ * validated document rather than an intermediate the download half returns on its way to
  * composing one.
  */
 async function go(root, { collected: seen, pending, counts } = {}) {
