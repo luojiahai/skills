@@ -539,11 +539,18 @@ async function doGo({ adapter, root, dir, alias, unalias, url, target, session, 
     dir ?? (await findAccountDir(descriptor, root, { url, alias, handle: target?.handle }));
   if (!accountDir) return { refusal: noArchiveRefusal(root, planCommand) };
 
-  // Read before the move, because the move is what makes the path stale. This
-  // is also the id validatePlan checks the plan against — an identity check
-  // that holds even when the plan's URL names something other than the account.
+  // The id validatePlan checks the plan against — an identity check that holds
+  // even when the plan's URL names something other than the account.
   const identity = await readAccount(accountDir);
   const account = identity?.account;
+
+  // Read and approved before the folder moves. A plan this run will not act on
+  // downloads nothing, so there is no final home to prepare, and a refusal that
+  // renamed the archive on its way out would leave the user hunting for a folder
+  // this run moved while telling them it did nothing.
+  const plan = await loadPlan(accountDir);
+  const valid = validatePlan(plan, { root, accountId: account?.id ?? target?.id });
+  if (!valid.ok) return { refusal: withPlanRemedy(planRefusal(valid), planCommand) };
 
   // The rename lands here rather than on --plan, and before the download rather
   // than after, so what is fetched goes straight into its final home.
@@ -554,10 +561,6 @@ async function doGo({ adapter, root, dir, alias, unalias, url, target, session, 
   } catch (error) {
     return { refusal: error };
   }
-
-  const plan = await loadPlan(accountDir);
-  const valid = validatePlan(plan, { root, accountId: account?.id ?? target?.id });
-  if (!valid.ok) return { refusal: withPlanRemedy(planRefusal(valid), planCommand) };
 
   const archive = await readArchive(accountDir);
   const todo = outstanding(approved(plan), archive, postIdKey);

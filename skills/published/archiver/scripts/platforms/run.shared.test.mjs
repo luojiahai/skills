@@ -396,6 +396,41 @@ for (const bench of GALLERYDL) {
     assert.equal(cache.accounts[bench.name][bench.id], 'mine', 'archiver.json followed');
   });
 
+  test(at('a --go that refuses the plan renames nothing'), async () => {
+    // The rename happens before the download so what is fetched lands in its
+    // final home. A plan that will not run downloads nothing, so there is no
+    // home to prepare — and a refusal that renamed the folder anyway leaves the
+    // user looking for an archive this run moved while telling them it did not
+    // act.
+    const root = await archivesRoot();
+    const accountDir = accountDirIn(root, bench);
+    await mkdir(accountDir, { recursive: true });
+    await recordIdentity(descriptorFor(bench.name), root, accountDir, {
+      account: bench.identity,
+      url: bench.url,
+    });
+
+    const stale = new Date(Date.now() - 48 * 60 * 60 * 1000);
+    const posts = bench.ids.slice(0, 2).map(bench.post);
+    await savePlan(
+      accountDir,
+      buildPlan({
+        account: bench.identity,
+        root,
+        collected: posts,
+        pending: posts,
+        counts: archiveCounts({ found: 2, onDisk: 0, toFetch: 2 }),
+        now: stale,
+      }),
+    );
+
+    const { document } = await run(bench, [bench.url, '--archives', root, '--alias', 'mine', '--go']);
+
+    assert.equal(document.error.code, 'plan-stale');
+    assert.equal(existsSync(accountDirIn(root, bench, 'mine')), false, 'nothing was renamed');
+    assert.equal(existsSync(accountDir), true, 'the folder is where it was found');
+  });
+
   test(at('one post id in two folders is reported'), async () => {
     const root = await archivesRoot();
     const id = bench.ids[0];
