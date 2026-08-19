@@ -509,15 +509,15 @@ async function makePlan({ adapter, root, alias, aliasChecked, unalias, session, 
   // list of posts and nothing naming the account they belong to. It is also
   // what --go finds the folder by when all it has is the URL, the alias or the
   // handle.
-  const identity = await recordIdentity(descriptor, root, folder.dir, { account, url: target.url });
+  const recorded = await recordIdentity(descriptor, root, folder.dir, { account, url: target.url });
 
   await savePlan(folder.dir, plan);
 
   return {
     plan,
-    // Carrying what the write above put there, so a --go handed this folder
-    // needs no second read to learn whose it is.
-    folder: { ...folder, id: String(identity.account?.id ?? '') || null, account: identity.account, url: identity.url },
+    // The folder as the write above left it, so a --go handed this one needs no
+    // second read to learn whose it is.
+    folder: recorded,
     previousRoot: lastRoot,
     movingTo,
   };
@@ -530,7 +530,7 @@ async function makePlan({ adapter, root, alias, aliasChecked, unalias, session, 
  * Returns `{ refusal }` for a plan it will not run, and otherwise everything
  * the finished run has to report. It composes no document itself.
  */
-async function download({ adapter, root, folder: settled, alias, unalias, url, target, session, planCommand }) {
+async function download({ adapter, root, folder: fromPlan, alias, unalias, url, target, session, planCommand }) {
   const descriptor = adapter.account;
   const postIdKey = adapter.postIdKey;
 
@@ -538,21 +538,21 @@ async function download({ adapter, root, folder: settled, alias, unalias, url, t
   // it passes it in. A bare --go enumerates nothing — so it goes on the id where
   // the platform reads one out of the URL, and otherwise on the alias the user
   // gave it, the URL the plan was written from, and the handle.
-  const folder =
-    settled ??
+  const found =
+    fromPlan ??
     (await findFolder(descriptor, root, { id: target?.id, url, alias, handle: target?.handle }));
-  if (!folder) return { refusal: noArchiveRefusal(root, planCommand) };
+  if (!found) return { refusal: noArchiveRefusal(root, planCommand) };
 
   // The id validatePlan checks the plan against — an identity check that holds
   // even when the plan's URL names something other than the account. The folder
   // read it on its way to answering, so nothing opens account.json again here.
-  const account = folder.account;
+  const account = found.account;
 
   // Read and approved before the folder moves. A plan this run will not act on
   // downloads nothing, so there is no final home to prepare, and a refusal that
   // renamed the archive on its way out would leave the user hunting for a folder
   // this run moved while telling them it did nothing.
-  const plan = await loadPlan(folder.dir);
+  const plan = await loadPlan(found.dir);
   const valid = validatePlan(plan, { root, accountId: account?.id ?? target?.id });
   if (!valid.ok) return { refusal: withPlanRemedy(planRefusal(valid), planCommand) };
 
@@ -561,7 +561,7 @@ async function download({ adapter, root, folder: settled, alias, unalias, url, t
   // whose it is for the whole of a download that may not finish.
   let filed;
   try {
-    filed = await fileAccount(descriptor, root, folder, {
+    filed = await fileAccount(descriptor, root, found, {
       id: account?.id ?? target?.id,
       account: plan.account,
       url,

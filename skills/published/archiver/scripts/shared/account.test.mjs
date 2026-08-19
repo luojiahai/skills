@@ -36,7 +36,7 @@ const {
   mergeAccount,
   platformDir,
   readAccount,
-  resolveAccountDir,
+  resolveFolder,
   writeAccount,
 } = internals;
 import { readAliases, writeAlias } from './archiver.mjs';
@@ -226,17 +226,17 @@ test('finding a folder with nothing to go on matches nothing', async () => {
   assert.equal(dirOf(await findFolder(ACCOUNT, dir, {})), null);
 });
 
-test('resolveAccountDir goes straight to the mapped folder', async () => {
+test('resolving goes straight to the mapped folder', async () => {
   const dir = await root();
   const folder = await seed(dir, 'jia', { account: { id: '55', handle: 'someone', alias: 'jia' } });
   await writeAlias(dir, PLATFORM, '55', 'jia');
-  assert.equal(await resolveAccountDir(ACCOUNT, dir, { id: '55' }), folder);
+  assert.equal(dirOf(await resolveFolder(ACCOUNT, dir, { id: '55' })), folder);
 });
 
-test('resolveAccountDir finds an un-aliased account at its id', async () => {
+test('resolving finds an un-aliased account at its id', async () => {
   const dir = await root();
   const folder = await seed(dir, '55', { account: { id: '55', handle: 'someone' } });
-  assert.equal(await resolveAccountDir(ACCOUNT, dir, { id: '55' }), folder);
+  assert.equal(dirOf(await resolveFolder(ACCOUNT, dir, { id: '55' })), folder);
 });
 
 test('a mapping entry pointing at nothing is a stale cache line, not a lost archive', async () => {
@@ -245,17 +245,17 @@ test('a mapping entry pointing at nothing is a stale cache line, not a lost arch
   const dir = await root();
   const folder = await seed(dir, 'jiahai', { account: { id: '55', handle: 'someone', alias: 'jia' } });
   await writeAlias(dir, PLATFORM, '55', 'jia');
-  assert.equal(await resolveAccountDir(ACCOUNT, dir, { id: '55' }), folder);
+  assert.equal(dirOf(await resolveFolder(ACCOUNT, dir, { id: '55' })), folder);
 });
 
 test('a folder sitting at another accountid does not answer for that id', async () => {
   const dir = await root();
   await seed(dir, '55', { account: { id: '99', handle: 'someone' } });
-  assert.equal(await resolveAccountDir(ACCOUNT, dir, { id: '55' }), null);
+  assert.equal(dirOf(await resolveFolder(ACCOUNT, dir, { id: '55' })), null);
 });
 
-test('resolveAccountDir is null for an account nothing has archived', async () => {
-  assert.equal(await resolveAccountDir(ACCOUNT, await root(), { id: '55' }), null);
+test('resolving is null for an account nothing has archived', async () => {
+  assert.equal(dirOf(await resolveFolder(ACCOUNT, await root(), { id: '55' })), null);
 });
 
 test('the ids on a platform are the mapping keys plus the folders that are not aliases', async () => {
@@ -563,7 +563,6 @@ test('settling refuses an id that could not be a folder name, and does not throw
   for (const bad of ['..', '.', '', 'a/b', '../../etc', 'x'.repeat(129)]) {
     const settled = await settleFolder(ACCOUNT, dir, { id: bad });
     assert.equal(settled.ok, false, `expected ${JSON.stringify(bad)} to be refused`);
-    assert.equal(settled.reason, 'unsafe-id');
     assert.equal(settled.id, bad);
   }
 });
