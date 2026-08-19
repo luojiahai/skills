@@ -505,12 +505,14 @@ async function defaultPlan({ adapter, root, alias, unalias, session, target, ful
   // below will replace it.
   const lastRoot = await previousRoot(accountDir);
 
-  await savePlan(accountDir, plan);
-
-  // Written now rather than after the download, so a folder that exists always
-  // says whose it is. It is also what --go finds the folder by when all it has
-  // is the URL, the alias or the handle.
+  // Written before the plan, and before anything is downloaded, so a folder
+  // that exists always says whose it is — there is no moment where one holds a
+  // list of posts and nothing naming the account they belong to. It is also
+  // what --go finds the folder by when all it has is the URL, the alias or the
+  // handle.
   await recordIdentity(descriptor, root, accountDir, { account, url: target.url });
+
+  await savePlan(accountDir, plan);
 
   return {
     plan,
