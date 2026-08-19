@@ -22,6 +22,7 @@ import { main as xMain } from './x/run.mjs';
 import { fetchPosts as xFetch, postDir as xPostDir } from './x/fetch.mjs';
 import { main as igMain } from './instagram/run.mjs';
 import { fetchPosts as igFetch, postDir as igPostDir } from './instagram/fetch.mjs';
+import { main as douyinMain } from './douyin/run.mjs';
 
 import { recordIdentity } from '../shared/account.mjs';
 import { descriptorFor } from '../shared/platforms.mjs';
@@ -100,7 +101,46 @@ const INSTAGRAM = {
   post: (shortcode) => ({ shortcode, date: '2024-03-11 07:22:19', content: '', files: [] }),
 };
 
-const BENCHES = [X, INSTAGRAM];
+/**
+ * Douyin shares the run around the listing rather than the listing itself: it
+ * resolves its folder before the browser opens, counts against the profile
+ * header and drives yt-dlp, so it brings its own plan and go. What it does
+ * share is everything outside them, which is what the outer cases below assert
+ * of all three.
+ */
+const DOUYIN = {
+  name: 'douyin',
+  main: douyinMain,
+  url: 'https://www.douyin.com/user/MS4wSEC',
+  handle: undefined,
+  id: 'MS4wSEC',
+  boxes: ['runtime', 'tools', 'browser'],
+  extra: () => ({
+    collect: async () => ({
+      posts: [{ id: '7111', text: '', createTime: 1710144139 }],
+      account: { id: 'MS4wSEC', douyin_id: 'abc123', nickname: '小明' },
+      reported: 284,
+      skippedImagePosts: 0,
+      hitRoundLimit: false,
+      stoppedEarly: false,
+      described: 1,
+    }),
+    fetch: async ({ posts }) => ({ fetched: posts.length, failed: 0, undated: 0 }),
+    playwright: async () => ({ chromium: {} }),
+    login: async () => ({ ok: true }),
+    hasSession: async () => true,
+    mint: async () => '/tmp/cookies.txt',
+    freshCookies: async () => false,
+    discardCookies: async () => {},
+    discardDerivedState: async () => {},
+  }),
+};
+
+/** Every platform, for the run they all share. */
+const BENCHES = [X, INSTAGRAM, DOUYIN];
+
+/** The two whose listing and download halves are the shared ones. */
+const GALLERYDL = [X, INSTAGRAM];
 
 // ---- the harness ------------------------------------------------------------
 
@@ -118,7 +158,8 @@ const collected = (bench, over = {}) => ({
 });
 
 function overrides(bench, over = {}) {
-  const listing = over.collect ?? (async () => collected(bench));
+  const extra = bench.extra?.() ?? {};
+  const listing = over.collect ?? extra.collect ?? (async () => collected(bench));
   return {
     // Lands each post the way the real fetcher does — post.json written, media
     // listed and present — because the run reports its total by asking the
@@ -132,6 +173,7 @@ function overrides(bench, over = {}) {
     onPath: async () => true,
     session: async () => '/tmp/cookies.txt',
     ensureEnv: async () => {},
+    ...extra,
     ...over,
     // Wrapped last, so a test's own listing still goes through the account
     // callback. That callback is what settles the folder and reads the archive,
@@ -194,7 +236,9 @@ async function go(bench, root, plan = {}, over = {}) {
 
 // ---- the cases --------------------------------------------------------------
 
-for (const bench of BENCHES) {
+// ---- the listing and download halves the gallery-dl platforms share ---------
+
+for (const bench of GALLERYDL) {
   const at = (title) => `[${bench.name}] ${title}`;
 
   // ---- what --go may act on -------------------------------------------------
@@ -395,7 +439,20 @@ for (const bench of BENCHES) {
     assert.equal(document.result.counts.to_fetch, 2, 'the unfetched posts are still outstanding');
   });
 
-  // ---- the order things are reached in --------------------------------------
+}
+
+// ---- what every platform's run does the same, listing halves aside ----------
+
+for (const bench of BENCHES) {
+  const at = (title) => `[${bench.name}] ${title}`;
+
+  test(at('the account folder is the immutable id, not a name that can change'), async () => {
+    const root = await archivesRoot();
+    await run(bench, [bench.url, '--archives', root, '--plan']);
+
+    assert.equal(existsSync(accountDirIn(root, bench)), true);
+  });
+
 
   test(at('the environment is built before the session is read out of a browser'), async () => {
     // Reading a browser profile prompts for Keychain access and wants the

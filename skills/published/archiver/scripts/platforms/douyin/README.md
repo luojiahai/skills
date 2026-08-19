@@ -62,7 +62,7 @@ what stops it finishing.
 
 ## Files
 
-**This platform archives; the tool it drives downloads.** `run.mjs` owns the
+**This platform archives; the tool it drives downloads.** The run owns the
 account — which folder it lives in, what is already on disk, what is missing, and
 whether the user has said yes — and knows nothing about how bytes arrive.
 `fetch.mjs` owns everything said to yt-dlp and knows nothing about accounts.
@@ -71,7 +71,7 @@ account, which is the whole reason this layer sits above it.
 
 | File | Role |
 | --- | --- |
-| `run.mjs` | The whole run: parses the command line, refuses what it must, and drives plan and go. Everything else is called by it. |
+| `run.mjs` | Douyin's adapter to the run in `shared/run.mjs`, and — because its listing is a shape the gallery-dl platforms do not share — its own plan and go. |
 | `target.mjs` | What the user pointed at, and a post's permalink. A profile URL, or a refusal by name — a `/video/` or `/note/` URL is refused as one post, and a `v.douyin.com` share link with the one instruction that works. |
 | `collect.mjs` | Drives Playwright, scrolls the profile, and returns the account's posts. The DOM finds them; the profile-feed responses passing underneath say which are this account's and what each one is. |
 | `fetch.mjs` | Everything said to yt-dlp, and the download loop. One invocation per post, into a folder this side chose. |
@@ -139,7 +139,7 @@ counted in exactly one place (`landed.mjs`'s `onDiskIds`). Do not hand-assemble
 a second copy of either: counting one way here and another way there is all it
 takes for a run to contradict the number the user approved.
 
-`loadPlan` returns the parked plan and nothing more; `run.mjs` re-checks it
+`loadPlan` returns the parked plan and nothing more; the run re-checks it
 against disk with `outstanding` before fetching. Without that re-check a `--go`
 resumed after a partial run would pay a metadata request per post just to
 discover it was already there — this way the resume is fast, and there is still

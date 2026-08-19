@@ -223,7 +223,7 @@ export async function runAccount(adapter, argv, overrides = {}) {
   // cookies out of a browser is a real cost to pay for a run that cannot
   // proceed anyway. A platform names only the boxes it needs.
   try {
-    await a.ensureEnv(a.boxes(command), { platform });
+    await a.ensureEnv(a.boxes(command), { platform, adapter: a });
   } catch (error) {
     return refuseHere(refusalFields(error));
   }
@@ -294,17 +294,31 @@ export async function runAccount(adapter, argv, overrides = {}) {
   }
 
   const planCommand = commandFor(argv, 'plan');
-  const shared = { a, root, alias, unalias, session, planCommand };
+  const shared = { a, root, alias, unalias, session, planCommand, command, opts, target, url: target.url };
 
+  // The listing and the download are the platform's where it needs them to be.
+  // Douyin resolves its folder before the browser opens, counts against the
+  // profile header and drives yt-dlp; the two gallery-dl platforms share the
+  // implementations below, which is what makes them the default rather than the
+  // only shape.
+  const plan = a.plan ?? defaultPlan;
+  const go = a.go ?? defaultGo;
+
+  // Guarded like the listing half below. A platform's download half can raise
+  // a Refusal of its own — Douyin's cookie mint does — and an unguarded throw
+  // reaches the dispatcher as `internal-error` with a stack, where the user
+  // should have been handed the code and its remedy.
   if (command === 'go') {
-    return await reportRun(shared, command, await doGo({ ...shared, url: target.url, target }), {
-      url: target.url,
-    });
+    try {
+      return await go({ ...shared });
+    } catch (error) {
+      return refuseHere(refusalFields(error));
+    }
   }
 
   let planned;
   try {
-    planned = await doPlan({ ...shared, target, full: opts.full === true });
+    planned = await plan({ ...shared, full: opts.full === true });
   } catch (error) {
     const fields = refusalFields(error);
     // The remedy text says the cached session has been thrown away, and leaving
@@ -361,12 +375,20 @@ export async function runAccount(adapter, argv, overrides = {}) {
     });
   }
 
-  return await reportRun(
-    shared,
-    command,
-    await doGo({ ...shared, dir: planned.accountDir, url: target.url, target }),
-    { url: target.url, notes, plan: planned.plan },
-  );
+  try {
+    return await go({ ...shared, dir: planned.accountDir, notes, plan: planned.plan });
+  } catch (error) {
+    return refuseHere(refusalFields(error));
+  }
+}
+
+/** The default download half, and the document it answers with. */
+async function defaultGo(args) {
+  return await reportRun(args, args.command, await doGo(args), {
+    url: args.url,
+    notes: args.notes ?? null,
+    plan: args.plan ?? null,
+  });
 }
 
 /**
@@ -376,7 +398,7 @@ export async function runAccount(adapter, argv, overrides = {}) {
  * Throws its refusals rather than composing documents. `runAccount` owns the
  * envelope, so a `--yes` emits exactly one.
  */
-async function doPlan({ a, root, alias, unalias, session, target, full }) {
+async function defaultPlan({ a, root, alias, unalias, session, target, full }) {
   const descriptor = a.account;
   const postIdKey = a.postIdKey;
 

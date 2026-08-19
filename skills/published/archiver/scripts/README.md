@@ -11,7 +11,8 @@ archive.sh          the entry point — find a node, then dispatch.mjs
 dispatch.mjs        resolve the platform from the URL, call its main(argv)
 testing.mjs         the seam every run-level test goes through — not a test
 shared/             what more than one platform needs — README.md beside it
-platforms/          one folder per platform — README.md beside them
+  run.mjs           the run itself, for whichever platform asked
+platforms/          one folder per platform, each an adapter to that run
 ```
 
 The tools these scripts run — yt-dlp, gallery-dl, Playwright, Chromium, and the
@@ -129,7 +130,7 @@ rule are specified in [`shared/README.md`](./shared/README.md), and the schema i
 
 ## Tests assert what a command returns
 
-`testing.mjs` runs a command's `main(argv, deps)` in-process, takes the one
+`testing.mjs` runs a command's `main(argv, overrides)` in-process, takes the one
 document off stdout, and validates it against that schema before handing it back.
 Every run-level test goes through it, so schema conformance is asserted on every
 document every test produces — there is no separate conformance test, and no way

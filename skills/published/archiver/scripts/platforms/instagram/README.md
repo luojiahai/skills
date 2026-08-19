@@ -145,13 +145,13 @@ and this one has none.
 
 ## Files
 
-**This skill archives; gallery-dl downloads.** `archive.sh` and `run.mjs` own the
+**This skill archives; gallery-dl downloads.** `archive.sh` and the run own the
 account — folder, plan, what is already on disk — and `gallerydl.mjs` owns what
 is said to the tool and how its output is read back.
 
 | File | Role |
 | --- | --- |
-| `run.mjs` | The whole run: flags, target, session, root, folder, plan, go, and the one document it answers with. |
+| `run.mjs` | Instagram's adapter to the run in `shared/run.mjs`: the usage prose, the flags, the boxes, the preflight, the session, the two listing passes and the fetch. |
 | `target.mjs` | The account a URL names, a post's permalink, and each feed's URL. Everything else on instagram.com — a single post, a story, the tagged tab — is refused rather than read as an account. |
 | `collect.mjs` | The two listing passes: drives gallery-dl, reads rows as they arrive, decides when enough of each feed has been seen, and folds per-file rows into posts. |
 | `fetch.mjs` | Downloads a list of posts, one gallery-dl invocation each, writing each post's `post.json` before its media. |
