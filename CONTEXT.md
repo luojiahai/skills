@@ -49,6 +49,16 @@ _Avoid_: synced, complete
 A site the skill can archive, and the code that archives it.
 _Avoid_: provider, source, site
 
+**Adapter**:
+What one platform brings to a run — the data that names it and the handful of
+things it does its own way. Never a stage of the run itself.
+_Avoid_: driver, plugin, backend, implementation
+
+**Descriptor**:
+The per-platform data a shared module is parameterised by, rather than branching
+on.
+_Avoid_: config, options, spec
+
 **Handle**:
 A platform's own readable name for an account, which the account may change.
 _Avoid_: alias, name
