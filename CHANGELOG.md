@@ -1,5 +1,15 @@
 # luojiahai-skills
 
+## 0.1.39
+
+### Patch Changes
+
+- [#107](https://github.com/luojiahai/skills/pull/107) [`5e5dadc`](https://github.com/luojiahai/skills/commit/5e5dadcfeef5e4b5eb1429ccab601587d6d763a2) Thanks [@luojiahai](https://github.com/luojiahai)! - archiver: an alias asked for on a run with nothing left to fetch is now applied, not just announced. `--alias NAME --yes` against an up-to-date archive reported the folder as moving and left it under its id, so the next run announced the same move again and the archive never took the name. All three platforms.
+
+- [#107](https://github.com/luojiahai/skills/pull/107) [`277d64c`](https://github.com/luojiahai/skills/commit/277d64c9f28d6702d12863658f52f679b9181822) Thanks [@luojiahai](https://github.com/luojiahai)! - archiver: a rename on a run with nothing left to fetch now completes all three writes — the folder, `account.json` inside it, and `archiver.json`. Moving the folder alone left the archive naming the folder it had just left.
+
+- [#107](https://github.com/luojiahai/skills/pull/107) [`3376674`](https://github.com/luojiahai/skills/commit/3376674252e00328616e8ddbcf9a70c872b1d218) Thanks [@luojiahai](https://github.com/luojiahai)! - archiver: the three platform runs are one run behind a platform adapter. Internal — the document every command answers with is unchanged.
+
 ## 0.1.38
 
 ### Patch Changes
