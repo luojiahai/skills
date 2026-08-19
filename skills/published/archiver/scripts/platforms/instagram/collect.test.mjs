@@ -78,11 +78,28 @@ test('a post on disk but incomplete does not count as known', () => {
   assert.equal(stop({ shortcode: 'B' }), false);
 });
 
-test('the default threshold is generous enough to survive pinned posts', () => {
-  // Instagram pins up to three posts to the top of a profile regardless of age,
-  // so a small threshold would be a stop-at-the-first-thing-you-recognise rule
-  // with a number painted on it.
-  assert.ok(DEFAULT_ABORT >= 50);
+/** Posts Instagram can put at the top of a feed regardless of their age. */
+const PIN_BLOCK = 3;
+
+test('the default threshold outlasts Instagram\'s pin block five times over', () => {
+  // Instagram pins up to three posts to the top of the profile grid, and three
+  // is the largest block either feed puts in front of a sweep: the reels tab
+  // has no pinning of its own, it is chronological. Five times it leaves room
+  // for the recent posts an edit can reorder. A threshold near the block itself
+  // is a stop-at-the-first-thing-you-recognise rule with a number painted on
+  // it.
+  assert.ok(DEFAULT_ABORT >= PIN_BLOCK * 5);
+});
+
+test('the stopper fires inside a reels feed of forty', () => {
+  // The threshold has to sit under the length of a real feed, and reels feeds
+  // are short. Above a feed's own length it never fires, so a 40-reel account
+  // re-enumerates the whole feed on every run at six to twelve seconds a
+  // request.
+  const feed = Array.from({ length: 40 }, (_, i) => `R${i}`);
+  const stop = makeStopper({ archive: archiveOf(feed), threshold: DEFAULT_ABORT, enabled: true });
+  const stopped = feed.some((shortcode) => stop({ shortcode }));
+  assert.ok(stopped, 'a 40-reel feed retires rather than re-sweeping forever');
 });
 
 // ---- folding ---------------------------------------------------------------

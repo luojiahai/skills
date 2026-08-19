@@ -181,7 +181,7 @@ longer on the profile. That last one is parked in the plan and read back at
 The fetch list stays correct throughout, which is precisely the problem: the
 archive quietly gets smaller while the run reports success.
 
-The X side does stop early, after 100 consecutive known posts, and can hold that
+The X side does stop early, after a run of consecutive known posts, and can hold that
 rule to account because `makeStopper` is a pure function with tests of its own.
 The equivalent here would live inside the browser loop, and the precondition it
 would need is already shared: `sweepIsIncremental` in `shared/run.mjs` is the

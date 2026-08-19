@@ -77,10 +77,29 @@ test('a post whose folder has no post.json does not count as known', () => {
   assert.equal(stop({ tweetId: '1', count: 1 }), false);
 });
 
-test('the default threshold is generous enough to survive pinned posts', () => {
-  // X pins a post to the top regardless of age; a small threshold would be a
-  // stop-at-the-first-thing-you-recognise rule with a number painted on it.
-  assert.ok(DEFAULT_ABORT >= 50);
+/** Posts X can put at the top of a timeline regardless of their age. */
+const PIN_BLOCK = 1;
+
+test('the default threshold outlasts X\'s pin block ten times over', () => {
+  // X pins exactly one post, and that one is the whole block a re-run walks
+  // past: Premium buys a Highlights tab rather than a second pin, and that tab
+  // is not the timeline this sweep walks. Ten times it leaves room for the
+  // handful of recent posts an edit can reorder. A threshold near the block
+  // itself is a stop-at-the-first-thing-you-recognise rule with a number
+  // painted on it.
+  assert.ok(DEFAULT_ABORT >= PIN_BLOCK * 10);
+});
+
+test('the stopper fires inside a timeline of forty posts', () => {
+  // The threshold has to sit under the length of a real timeline. Above an
+  // account's own post count it never fires, so every re-run enumerates the
+  // whole thing no matter how much of it is already on disk.
+  const timeline = Array.from({ length: 40 }, (_, i) => String(1000 - i));
+  const stop = makeStopper({
+    archive: archiveOf(timeline), threshold: DEFAULT_ABORT, enabled: true,
+  });
+  const stopped = timeline.some((id) => stop({ tweetId: id, count: 1 }));
+  assert.ok(stopped, 'a 40-post timeline retires rather than re-sweeping forever');
 });
 
 async function fakeGalleryDl(script) {
