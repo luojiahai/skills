@@ -45,7 +45,7 @@ behaviour this platform does its own way:
 | `commands` | Any command this platform answers that the others do not. |
 | `parseTarget` | What a URL of this platform's names. |
 | `groupFiles`, `diff` | Rows into posts, and posts against the archive. |
-| `platformCounts`, `planNotes` | What only this platform can count, or has to say. `planNotes` is given the counts and the account folder as well as the listing. |
+| `platformCounts`, `planNotes` | What only this platform can count, or has to say. `planNotes` is given the counts as well as the listing. |
 | `runNotes` | Rewriting the notes a finished run carries, for a platform with one that describes the folder rather than the listing pass — dropping the stale one as well as adding the fresh one. |
 | `progressLabel` | The line a long download writes per post. |
 | `afterFetch` | Anything refreshed on every approved run — X's avatar and banner. Not simply the tail of `fetch`, because a run with nothing to fetch still passes here. |

@@ -495,13 +495,7 @@ async function doPlan({ adapter, root, alias, unalias, session, target, full }) 
       platform: adapter.platformCounts(counts, result),
     }),
     notes: [
-      ...(await adapter.planNotes({
-        incremental,
-        result,
-        threshold: adapter.threshold,
-        counts,
-        accountDir,
-      })),
+      ...(await adapter.planNotes({ incremental, result, threshold: adapter.threshold, counts })),
       // Counted here as well as on the download, because --plan is the run whose
       // whole job is to say what the archive holds before anything is committed
       // to. One id in two folders read only on --go is one a user who plans and
@@ -586,7 +580,7 @@ async function doGo({ adapter, root, dir, alias, unalias, url, target, session, 
   // reported as a difference rather than as whatever the downloader said it did.
   const before = landedCount(archive);
 
-  const { fetched, failed, stopped, platform } = await adapter.fetch({
+  const { failed, stopped, platform } = await adapter.fetch({
     accountDir,
     posts: todo,
     plan,
@@ -633,7 +627,7 @@ async function doGo({ adapter, root, dir, alias, unalias, url, target, session, 
   if (remaining === 0) await clearPlan(accountDir);
 
   return {
-    plan, accountDir, fetched, downloaded, failed, stopped, remaining, total, duplicates,
+    plan, accountDir, downloaded, failed, stopped, remaining, total, duplicates,
     // What the archive holds now, and whatever only this platform's
     // downloader knew. Both are read by `runNotes` and by nothing here.
     landed, platform,
