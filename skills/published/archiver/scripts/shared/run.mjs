@@ -422,7 +422,13 @@ async function defaultPlan({ adapter, root, alias, unalias, session, target, ful
 
   const result = await adapter.collect({
     url: target.url,
+    // The whole target as well as its URL, for a platform whose listing needs
+    // what the URL was parsed into — Douyin reads the account's id out of it.
+    target,
     session,
+    // The adapter itself, as `session` and `preflight` are given it, so a
+    // platform's listing half can reach its own substitutable members.
+    adapter,
     threshold: adapter.threshold,
     // The stopping rule as a factory, called once per listing pass. A platform
     // sweeping one feed calls it once; Instagram calls it per feed, because the
@@ -578,6 +584,9 @@ async function doGo({ adapter, root, dir, alias, unalias, url, target, session, 
     posts: todo,
     plan,
     session,
+    // The adapter itself, as `session` and `preflight` are given it, so a
+    // platform's download half can reach its own substitutable members.
+    adapter,
     // A long run takes hours. Without a line per post it is silent on stderr
     // for all of them, which is indistinguishable from a hang.
     onPost: ({ post, ok }, done) =>

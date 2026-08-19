@@ -108,40 +108,38 @@ https://github.com/luojiahai/skills/issues/48`;
 
 /** Collect the account, diff it against disk, park the plan. */
 async function doPlan({ adapter, root, target, alias, unalias, session, full }) {
-  const { collect } = adapter;
-  const { chromium, profileDir } = session;
-  // Settled before the browser opens, which it can be here and cannot on the
-  // other platforms: the sec_uid is in the URL, so whose account this is does
-  // not have to wait for the listing to name it.
-  //
-  // Resolved through the alias map first: an account already archived under an
-  // alias has a folder that is not named after its sec_uid, and going straight
-  // to the id would quietly start a second, empty archive beside the real one
-  // on every aliased account. Nothing resolves for an account never archived,
-  // and that is where the folder gets invented.
-  const accountDir =
-    (await resolveAccountDir(ACCOUNT, root, { id: target.secUid })) ??
-    (alias ? aliasDirFor(ACCOUNT, root, alias) : accountDirFor(ACCOUNT, root, target.secUid));
+  // All settled the moment the listing names the account — which for Douyin is
+  // before it opens anything, because the sec_uid is in the URL.
+  let accountDir = null;
+  let archive = new Map();
+  let incremental = false;
 
-  const archive = await readArchive(accountDir);
-  const incremental = await sweepIsIncremental({
-    accountDir,
-    accountId: target.secUid,
-    archive,
-    full,
-    postIdKey: POST_ID_KEY,
-    root,
-  });
-
-  progress('[douyin] collecting post IDs…');
-  const listing = await collect({
+  const listing = await adapter.collect({
     url: target.url,
-    secUid: target.secUid,
-    profileDir,
-    headless: true,
-    launch: chromium,
-    log: progress,
-    shouldStop: makeStopper({ archive, threshold: DEFAULT_ABORT, enabled: incremental }),
+    target,
+    session,
+    adapter,
+    threshold: adapter.threshold,
+    stopper: ({ archive: seen, incremental: on }) =>
+      makeStopper({ archive: seen, threshold: adapter.threshold, enabled: on }),
+    onAccount: async (account) => {
+      // Resolved, never computed. The folder may be named for an alias, and
+      // going straight to the id would quietly start a second, empty archive
+      // beside the real one on every aliased account.
+      accountDir =
+        (await resolveAccountDir(ACCOUNT, root, { id: account.id })) ??
+        (alias ? aliasDirFor(ACCOUNT, root, alias) : accountDirFor(ACCOUNT, root, account.id));
+      archive = await readArchive(accountDir);
+      incremental = await sweepIsIncremental({
+        accountDir,
+        accountId: account.id,
+        archive,
+        full,
+        postIdKey: POST_ID_KEY,
+        root,
+      });
+      return { archive, incremental };
+    },
   });
 
   if (listing.failure === 'empty-grid') {
@@ -320,34 +318,16 @@ async function doGo({
   // of those would otherwise cost a request to discover it was already there.
   const pending = outstanding(approved(plan), archive);
 
-  let fetched = 0;
-  let failed = 0;
-  let undated = 0;
-  let stopped = null;
-  let sessionStale = false;
-  if (!pending.length) {
-    progress('[douyin] every post in the plan is already downloaded');
-  } else {
-    progress(`[douyin] downloading ${pending.length} post(s) to ${path.join(accountDir, 'posts')}…`);
-    // The cached file where it is still live, and a browser only where it is
-    // not. Minting reads the Playwright profile, which means launching
-    // Chromium — the slowest thing in the skill — so minting on every --go is
-    // paying the whole cost of having no cache at all.
-    const cookies = (await freshCookies(COOKIE_FILE))
-      ? COOKIE_FILE
-      : await mint(profileDir, COOKIE_FILE, { launch: chromium });
-    ({ fetched, failed, undated, stopped, sessionStale } = await fetch({
-      accountDir,
-      posts: pending,
-      cookies,
-      refreshCookies: () => mint(profileDir, COOKIE_FILE, { launch: chromium }),
-      log: progress,
-    }));
-  }
+  const outcome = await fetch({ accountDir, posts: pending, plan, session, adapter });
+  const fetched = outcome.fetched.posts;
+  const { failed, stopped } = outcome;
+  const undated = outcome.platform?.undated ?? 0;
 
   // A session even the re-mint could not rescue is thrown away rather than read
-  // back next run, which would fail in exactly the same way forever.
-  if (sessionStale || stopped === 'session-rejected') await discardCookies(COOKIE_FILE);
+  // back next run, which would fail in exactly the same way forever. The fetch
+  // discards one the downloader itself gave up on; this is the other way it
+  // ends, where every remaining post would have met the same refusal.
+  if (stopped === 'session-rejected') await discardCookies(COOKIE_FILE);
 
   const landed = await onDiskIds(accountDir);
   const total = landed.size;
@@ -488,9 +468,88 @@ const ADAPTER = {
   threshold: DEFAULT_ABORT,
 
   parseTarget,
-  collect,
-  fetch: fetchPosts,
+
+  /**
+   * The listing pass, in the run's own terms.
+   *
+   * The account is known before anything opens — the sec_uid is in the URL — so
+   * the run's account callback fires here, first, and the folder is settled and
+   * the archive read before Chromium starts. That is the whole of what makes
+   * this platform's listing half different, and the callback already expresses
+   * it: the folder is settled the moment the account is known, which for Douyin
+   * is straight away.
+   *
+   * Everything the profile grid reported beyond the posts rides back on the
+   * result, where the counts and the notes read it.
+   */
+  collect: async ({ target, session, onAccount, stopper, adapter }) => {
+    const { chromium, profileDir } = session;
+    const rule = await onAccount({ id: target.secUid });
+    const stop = rule.stopNow ? () => true : stopper(rule);
+
+    progress('[douyin] collecting post IDs…');
+    const listing = await adapter.list({
+      url: target.url,
+      secUid: target.secUid,
+      profileDir,
+      headless: true,
+      launch: chromium,
+      log: progress,
+      shouldStop: stop,
+    });
+
+    return { ...listing, rows: listing.posts ?? [] };
+  },
+
+  /**
+   * The download half, in the run's own terms.
+   *
+   * The cookies are minted here rather than with the session, and only where the
+   * cached file has gone stale: minting reads the Playwright profile, which
+   * means launching Chromium — the slowest thing in the skill — so a --go that
+   * minted eagerly would pay the whole cost of having no cache at all.
+   *
+   * A session even the re-mint could not rescue is thrown away on the way out,
+   * rather than read back next run to fail in exactly the same way forever.
+   */
+  fetch: async ({ accountDir, posts, session, adapter }) => {
+    // Nothing to fetch means nothing to sign in for. Minting launches Chromium,
+    // and doing it to download an empty list is the whole cost of the session
+    // paid for no reason.
+    if (!posts.length) {
+      progress('[douyin] every post in the plan is already downloaded');
+      return { fetched: { posts: 0, files: 0 }, failed: 0, stopped: null, platform: { undated: 0 } };
+    }
+
+    const { chromium, profileDir } = session;
+    const cookies = (await adapter.freshCookies(COOKIE_FILE))
+      ? COOKIE_FILE
+      : await adapter.mint(profileDir, COOKIE_FILE, { launch: chromium });
+
+    progress(`[douyin] downloading ${posts.length} post(s) to ${path.join(accountDir, 'posts')}…`);
+    const result = await adapter.download({
+      accountDir,
+      posts,
+      cookies,
+      refreshCookies: () => adapter.mint(profileDir, COOKIE_FILE, { launch: chromium }),
+      log: progress,
+    });
+
+    if (result.sessionStale) await adapter.discardCookies(COOKIE_FILE);
+
+    return {
+      fetched: { posts: result.fetched, files: result.fetched },
+      failed: result.failed,
+      stopped: result.stopped,
+      // What only this downloader knows. The run carries it to `runNotes`
+      // without reading it.
+      platform: { undated: result.undated },
+    };
+  },
+
   login,
+  list: collect,
+  download: fetchPosts,
   playwright: loadPlaywright,
   hasSession: profileHasSession,
   mint: mintCookies,

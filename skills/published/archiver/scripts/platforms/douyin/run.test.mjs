@@ -53,8 +53,12 @@ const listing = (over = {}) => ({
 
 function overrides(over = {}) {
   return {
-    collect: async () => listing(),
-    fetch: async () => ({ fetched: 0, failed: 0, undescribed: 0 }),
+    // The listing pass and the downloader themselves, rather than the adapter
+    // members that wrap them: the wrapping is where the folder gets settled, the
+    // cookies get minted and the progress lines get written, and a test that
+    // substituted it would assert against a run missing all three.
+    list: async () => listing(),
+    download: async () => ({ fetched: 0, failed: 0 }),
     login: async () => ({ ok: true }),
     playwright: async () => ({ chromium: {} }),
     hasSession: async () => true,
@@ -107,7 +111,7 @@ test('the account arrives as fields rather than a rendered headline', async () =
 test('counts are raw integers, and the platform ones sit beside them', async () => {
   const dir = await root();
   const { document } = await run([URL_MS4W, '--archives', dir, '--plan'], {
-    collect: async () => listing({ reported: 284, skippedImagePosts: 3 }),
+    list: async () => listing({ reported: 284, skippedImagePosts: 3 }),
   });
 
   assert.deepEqual(document.result.counts, {
@@ -143,7 +147,7 @@ test('a plan with work to do hands over the exact next command, flags and all', 
 test('nothing to fetch is a count of zero and no next step', async () => {
   const dir = await root();
   const { document } = await run([URL_MS4W, '--archives', dir, '--plan'], {
-    collect: async () => listing({ posts: [] }),
+    list: async () => listing({ posts: [] }),
   });
 
   assert.equal(document.result.counts.to_fetch, 0);
@@ -165,7 +169,7 @@ test('the in-place counter is suppressed when nothing is a terminal', async () =
   // the reader's context with a counter.
   const dir = await root();
   const { stderr } = await run([URL_MS4W, '--archives', dir, '--plan'], {
-    collect: async ({ log }) => {
+    list: async ({ log }) => {
       log('[douyin] 40 posts…', { progress: true });
       log('[douyin] opening profile…');
       return listing();
@@ -197,7 +201,7 @@ test('a plan downloads nothing', async () => {
   const dir = await root();
   let fetched = false;
   await run([URL_MS4W, '--archives', dir, '--plan'], {
-    fetch: async () => ((fetched = true), { fetched: 0, failed: 0 }),
+    download: async () => ((fetched = true), { fetched: 0, failed: 0 }),
   });
   assert.equal(fetched, false);
 });
@@ -230,11 +234,11 @@ test('an alias asked for with nothing left to fetch still moves the folder', asy
   // move again and the archive never gets the name the user asked for.
   const dir = await root();
   await run([URL_MS4W, '--archives', dir, '--yes'], {
-    fetch: async ({ posts }) => ({ fetched: posts.length, failed: 0 }),
+    download: async ({ posts }) => ({ fetched: posts.length, failed: 0 }),
   });
 
   const { document } = await run([URL_MS4W, '--archives', dir, '--alias', '小明', '--yes'], {
-    collect: async () => listing({ posts: [] }),
+    list: async () => listing({ posts: [] }),
   });
 
   assert.equal(document.result.counts.to_fetch, 0, 'nothing was left to fetch');
@@ -253,7 +257,7 @@ test('an archive whose root has moved says where the last run put it', async () 
   const first = await root();
   const second = await root();
   await run([URL_MS4W, '--archives', first, '--yes'], {
-    fetch: async ({ posts }) => ({ fetched: posts.length, failed: 0 }),
+    download: async ({ posts }) => ({ fetched: posts.length, failed: 0 }),
   });
   await cp(path.join(first, 'douyin'), path.join(second, 'douyin'), { recursive: true });
 
@@ -262,7 +266,7 @@ test('an archive whose root has moved says where the last run put it', async () 
 
   // The note is about the last run, and only a run that downloads records one.
   await run([URL_MS4W, '--archives', second, '--go'], {
-    fetch: async ({ posts }) => ({ fetched: posts.length, failed: 0 }),
+    download: async ({ posts }) => ({ fetched: posts.length, failed: 0 }),
   });
   const again = await run([URL_MS4W, '--archives', second, '--plan']);
   assert.equal(noteWith(again.document, 'root-changed'), undefined, 'a root that has not moved says nothing');
@@ -275,7 +279,7 @@ test('--go performs the move the plan announced, before downloading', async () =
 
   let fetchedInto = null;
   await run([URL_MS4W, '--archives', dir, '--alias', '小明', '--go'], {
-    fetch: async ({ accountDir }) => ((fetchedInto = accountDir), { fetched: 2, failed: 0 }),
+    download: async ({ accountDir }) => ((fetchedInto = accountDir), { fetched: 2, failed: 0 }),
   });
 
   assert.equal(fetchedInto, path.join(dir, 'douyin', '小明'));
@@ -298,7 +302,7 @@ test('an account keeps its own alias when archiver.json is gone', async () => {
   const dir = await root();
   await run([URL_MS4W, '--archives', dir, '--alias', '小明', '--plan']);
   await run([URL_MS4W, '--archives', dir, '--alias', '小明', '--go'], {
-    fetch: async ({ posts }) => ({ fetched: posts.length, failed: 0 }),
+    download: async ({ posts }) => ({ fetched: posts.length, failed: 0 }),
   });
 
   await rm(path.join(dir, 'archiver.json'));
@@ -337,7 +341,7 @@ test('a plan with nothing pending replaces the last one, and --go says so by nam
   // code for one situation.
   const dir = await root();
   const { document } = await run([URL_MS4W, '--archives', dir, '--plan'], {
-    collect: async () => listing({ posts: [] }),
+    list: async () => listing({ posts: [] }),
   });
 
   assert.equal(document.result.counts.to_fetch, 0);
@@ -400,7 +404,7 @@ test('--go hands the fetcher exactly the posts the plan listed', async () => {
 
   let handed = null;
   await run([URL_MS4W, '--archives', dir, '--go'], {
-    fetch: async ({ posts }) => ((handed = posts), { fetched: posts.length, failed: 0 }),
+    download: async ({ posts }) => ((handed = posts), { fetched: posts.length, failed: 0 }),
   });
 
   assert.deepEqual(handed.map((p) => p.id), ['7111', '7222']);
@@ -423,7 +427,7 @@ test('--go fetches what the plan counted, not everything the listing saw', async
 
   let handed = null;
   await run([URL_MS4W, '--archives', dir, '--go'], {
-    fetch: async ({ posts }) => ((handed = posts), { fetched: posts.length, failed: 0 }),
+    download: async ({ posts }) => ((handed = posts), { fetched: posts.length, failed: 0 }),
   });
 
   assert.deepEqual(handed.map((p) => p.id), ['7222']);
@@ -434,7 +438,7 @@ test('a finished run reports what landed and what is left', async () => {
   await run([URL_MS4W, '--archives', dir, '--plan']);
 
   const { document } = await run([URL_MS4W, '--archives', dir, '--go'], {
-    fetch: async ({ accountDir, posts }) => {
+    download: async ({ accountDir, posts }) => {
       for (const p of posts) await land(accountDir, p);
       return { fetched: posts.length, failed: 0 };
     },
@@ -451,7 +455,7 @@ test('a run that lost posts says how many, and still says what landed', async ()
   await run([URL_MS4W, '--archives', dir, '--plan']);
 
   const { document } = await run([URL_MS4W, '--archives', dir, '--go'], {
-    fetch: async ({ accountDir, posts }) => {
+    download: async ({ accountDir, posts }) => {
       await land(accountDir, posts[0]);
       return { fetched: 1, failed: 1 };
     },
@@ -471,7 +475,7 @@ test('a plan is retired by what is on disk, not by the fetcher’s own report', 
   await run([URL_MS4W, '--archives', dir, '--plan']);
 
   await run([URL_MS4W, '--archives', dir, '--go'], {
-    fetch: async ({ posts }) => ({ fetched: posts.length, failed: 0 }),
+    download: async ({ posts }) => ({ fetched: posts.length, failed: 0 }),
   });
 
   const sync = await syncJson(path.join(dir, 'douyin', 'MS4wSEC'));
@@ -483,7 +487,7 @@ test('a plan is retired once every post in it has landed', async () => {
   await run([URL_MS4W, '--archives', dir, '--plan']);
 
   await run([URL_MS4W, '--archives', dir, '--go'], {
-    fetch: async ({ accountDir, posts }) => {
+    download: async ({ accountDir, posts }) => {
       for (const p of posts) await land(accountDir, p);
       return { fetched: posts.length, failed: 0 };
     },
@@ -499,7 +503,7 @@ test('--go never collects again', async () => {
 
   let collected = false;
   await run([URL_MS4W, '--archives', dir, '--go'], {
-    collect: async () => ((collected = true), listing()),
+    list: async () => ((collected = true), listing()),
   });
   assert.equal(collected, false);
 });
@@ -511,12 +515,12 @@ test('--yes still says a rename is happening, and which root the last run used',
   const first = await root();
   const second = await root();
   await run([URL_MS4W, '--archives', first, '--yes'], {
-    fetch: async ({ posts }) => ({ fetched: posts.length, failed: 0 }),
+    download: async ({ posts }) => ({ fetched: posts.length, failed: 0 }),
   });
   await cp(path.join(first, 'douyin'), path.join(second, 'douyin'), { recursive: true });
 
   const { document } = await run([URL_MS4W, '--archives', second, '--alias', '小明', '--yes'], {
-    fetch: async ({ posts }) => ({ fetched: posts.length, failed: 0 }),
+    download: async ({ posts }) => ({ fetched: posts.length, failed: 0 }),
   });
 
   assert.equal(noteWith(document, 'moving-to').dir, path.join(second, 'douyin', '小明'));
@@ -528,7 +532,7 @@ test('--go carries no plan window, because it is acting on a list already approv
   await run([URL_MS4W, '--archives', dir, '--plan']);
 
   const { document } = await run([URL_MS4W, '--archives', dir, '--go'], {
-    fetch: async ({ posts }) => ({ fetched: posts.length, failed: 0 }),
+    download: async ({ posts }) => ({ fetched: posts.length, failed: 0 }),
   });
 
   assert.equal(document.result.plan, undefined);
@@ -539,7 +543,7 @@ test('--yes plans and fetches in one run, and emits exactly one document', async
   const dir = await root();
   let fetched = false;
   const { document, stdout } = await run([URL_MS4W, '--archives', dir, '--yes'], {
-    fetch: async ({ posts }) => ((fetched = true), { fetched: posts.length, failed: 0 }),
+    download: async ({ posts }) => ((fetched = true), { fetched: posts.length, failed: 0 }),
   });
 
   assert.equal(document.command, 'yes');
@@ -552,7 +556,7 @@ test('--yes plans and fetches in one run, and emits exactly one document', async
 test('--yes against an account with nothing new still answers once', async () => {
   const dir = await root();
   const { document, stdout } = await run([URL_MS4W, '--archives', dir, '--yes'], {
-    collect: async () => listing({ posts: [] }),
+    list: async () => listing({ posts: [] }),
   });
 
   assert.equal(document.result.counts.to_fetch, 0);
@@ -566,7 +570,7 @@ test('--yes outranks a --plan the skill appended after it', async () => {
   const dir = await root();
   let fetched = false;
   await run([URL_MS4W, '--archives', dir, '--yes', '--plan'], {
-    fetch: async () => ((fetched = true), { fetched: 1, failed: 0 }),
+    download: async () => ((fetched = true), { fetched: 1, failed: 0 }),
   });
   assert.equal(fetched, true);
 });
@@ -580,7 +584,7 @@ test('a run with no session refuses before opening anything', async () => {
   let collected = false;
   const { document } = await run([URL_MS4W, '--archives', dir, '--plan'], {
     hasSession: async () => false,
-    collect: async () => ((collected = true), listing()),
+    list: async () => ((collected = true), listing()),
   });
 
   assert.equal(document.exit, EXIT.UNAUTHORIZED);
@@ -595,7 +599,7 @@ test('--login returns a document, so "wait for the user" has a machine answer', 
   const dir = await root();
   let collected = false;
   const { document } = await run([URL_MS4W, '--archives', dir, '--login'], {
-    collect: async () => ((collected = true), listing()),
+    list: async () => ((collected = true), listing()),
   });
 
   assert.equal(document.command, 'login');
@@ -636,7 +640,7 @@ test('an empty grid with a post count reads as an expired session', async () => 
   // rendering is the session, not the account.
   const dir = await root();
   const { document } = await run([URL_MS4W, '--archives', dir, '--plan'], {
-    collect: async () => ({ failure: 'empty-grid', reported: 284, account: null }),
+    list: async () => ({ failure: 'empty-grid', reported: 284, account: null }),
   });
 
   assert.equal(document.exit, EXIT.UNAUTHORIZED);
@@ -650,7 +654,7 @@ test('an empty grid with no post count is a different code', async () => {
   // user is only right when the session is what is wrong.
   const dir = await root();
   const { document } = await run([URL_MS4W, '--archives', dir, '--plan'], {
-    collect: async () => ({ failure: 'empty-grid', reported: null, account: null }),
+    list: async () => ({ failure: 'empty-grid', reported: null, account: null }),
   });
 
   assert.equal(document.exit, EXIT.EMPTY);
@@ -685,7 +689,7 @@ test('an unusable alias is refused before the browser opens', async () => {
   const dir = await root();
   let collected = false;
   const { document } = await run([URL_MS4W, '--archives', dir, '--alias', 'has space'], {
-    collect: async () => ((collected = true), listing()),
+    list: async () => ((collected = true), listing()),
   });
 
   assert.equal(document.exit, EXIT.USAGE);
@@ -731,7 +735,7 @@ test('the first run asks before downloading anything', async () => {
   const dir = await root();
   let collected = false;
   const { document } = await run([URL_MS4W, '--archives', dir, '--plan'], {
-    collect: async () => {
+    list: async () => {
       collected = true;
       return listing();
     },
@@ -758,7 +762,7 @@ test('the skipped image-post count is a number, and the ticket rides with it', a
   // number rather than off a sentence.
   const dir = await root();
   const { document } = await run([URL_MS4W, '--archives', dir, '--plan'], {
-    collect: async () => listing({ skippedImagePosts: 3 }),
+    list: async () => listing({ skippedImagePosts: 3 }),
   });
 
   const note = noteWith(document, 'image-posts-skipped');
@@ -770,11 +774,11 @@ test('the skipped image-post count is a number, and the ticket rides with it', a
 test('a finished run repeats the notes the plan carried', async () => {
   const dir = await root();
   await run([URL_MS4W, '--archives', dir, '--plan'], {
-    collect: async () => listing({ skippedImagePosts: 3 }),
+    list: async () => listing({ skippedImagePosts: 3 }),
   });
 
   const { document } = await run([URL_MS4W, '--archives', dir, '--go'], {
-    fetch: async ({ posts }) => ({ fetched: posts.length, failed: 0 }),
+    download: async ({ posts }) => ({ fetched: posts.length, failed: 0 }),
   });
 
   assert.equal(noteWith(document, 'image-posts-skipped').count, 3);
@@ -793,7 +797,7 @@ test('a cached session still works, and costs no browser launch', async () => {
     freshCookies: async () => true,
     hasSession: async () => (launches++, true),
     mint: async () => (launches++, '/tmp/cookies.txt'),
-    fetch: async ({ posts, cookies }) => {
+    download: async ({ posts, cookies }) => {
       assert.match(cookies, /cookies\.txt$/, 'the cached file is what yt-dlp is handed');
       return { fetched: posts.length, failed: 0 };
     },
@@ -811,7 +815,7 @@ test('a session the re-mint could not rescue is thrown away, so the next run min
   await run([URL_MS4W, '--archives', dir, '--go'], {
     freshCookies: async () => true,
     discardCookies: async () => discarded++,
-    fetch: async ({ posts }) => ({ fetched: 0, failed: posts.length, sessionStale: true }),
+    download: async ({ posts }) => ({ fetched: 0, failed: posts.length, sessionStale: true }),
   });
 
   assert.equal(discarded, 1);
@@ -825,7 +829,7 @@ test('a rate limit stops the run rather than hammering the limiter', async () =>
   await run([URL_MS4W, '--archives', dir, '--plan']);
 
   const { document } = await run([URL_MS4W, '--archives', dir, '--go'], {
-    fetch: async () => ({ fetched: 0, failed: 0, stopped: 'rate-limited' }),
+    download: async () => ({ fetched: 0, failed: 0, stopped: 'rate-limited' }),
   });
 
   assert.equal(document.ok, false);
@@ -857,7 +861,7 @@ test('a listing that hit the round limit says so in the document', async () => {
   // below the cut.
   const dir = await root();
   const { document } = await run([URL_MS4W, '--archives', dir, '--plan'], {
-    collect: async () => listing({ hitRoundLimit: true }),
+    list: async () => listing({ hitRoundLimit: true }),
   });
 
   assert.ok(noteWith(document, 'listing-truncated'), 'the caveat every other count is read under');
@@ -866,7 +870,7 @@ test('a listing that hit the round limit says so in the document', async () => {
 test('an abbreviated profile count explains no gap', async () => {
   const dir = await root();
   const { document } = await run([URL_MS4W, '--archives', dir, '--plan'], {
-    collect: async () => listing({ reported: 12000, reportedRounded: true }),
+    list: async () => listing({ reported: 12000, reportedRounded: true }),
   });
 
   assert.equal(noteWith(document, 'hidden-posts'), undefined);
@@ -875,7 +879,7 @@ test('an abbreviated profile count explains no gap', async () => {
 test('cards no feed response named are counted rather than collected', async () => {
   const dir = await root();
   const { document } = await run([URL_MS4W, '--archives', dir, '--plan'], {
-    collect: async () => listing({ unattributed: 2 }),
+    list: async () => listing({ unattributed: 2 }),
   });
 
   assert.equal(noteWith(document, 'unattributed-posts').count, 2);
@@ -889,7 +893,7 @@ test('posts that could not be dated reach the document, not just stderr', async 
   await run([URL_MS4W, '--archives', dir, '--plan']);
 
   const { document } = await run([URL_MS4W, '--archives', dir, '--go'], {
-    fetch: async ({ posts }) => ({ fetched: posts.length, failed: 0, undated: 2, undescribed: 2 }),
+    download: async ({ posts }) => ({ fetched: posts.length, failed: 0, undated: 2, undescribed: 2 }),
   });
 
   assert.equal(noteWith(document, 'undated-posts').count, 2);
@@ -898,11 +902,11 @@ test('posts that could not be dated reach the document, not just stderr', async 
 test('a --go repeats the listing’s own caveats, which it cannot recompute', async () => {
   const dir = await root();
   await run([URL_MS4W, '--archives', dir, '--plan'], {
-    collect: async () => listing({ hitRoundLimit: true, unattributed: 1 }),
+    list: async () => listing({ hitRoundLimit: true, unattributed: 1 }),
   });
 
   const { document } = await run([URL_MS4W, '--archives', dir, '--go'], {
-    fetch: async ({ posts }) => ({ fetched: posts.length, failed: 0 }),
+    download: async ({ posts }) => ({ fetched: posts.length, failed: 0 }),
   });
 
   assert.ok(noteWith(document, 'listing-truncated'));
@@ -922,7 +926,7 @@ const shortListing = (over = {}) =>
 async function upToDate(dir) {
   await run([URL_MS4W, '--archives', dir, '--plan']);
   await run([URL_MS4W, '--archives', dir, '--go'], {
-    fetch: async ({ accountDir, posts }) => {
+    download: async ({ accountDir, posts }) => {
       for (const p of posts) await land(accountDir, p);
       return { fetched: posts.length, failed: 0 };
     },
@@ -961,7 +965,7 @@ test('a re-run over an unfinished plan sweeps the whole profile', async () => {
   const dir = await root();
   await run([URL_MS4W, '--archives', dir, '--plan']);
   await run([URL_MS4W, '--archives', dir, '--go'], {
-    fetch: async ({ accountDir, posts }) => {
+    download: async ({ accountDir, posts }) => {
       await land(accountDir, posts[0]);
       return { fetched: 1, failed: 1 };
     },
@@ -991,7 +995,7 @@ test('a listing that stopped early withholds every count computed against its le
   await land(await upToDate(dir), post('9000'));
 
   const { document } = await run([URL_MS4W, '--archives', dir, '--plan'], {
-    collect: async () => shortListing(),
+    list: async () => shortListing(),
   });
 
   assert.equal(noteWith(document, 'sweep').stopped_early, true);
@@ -1008,7 +1012,7 @@ test('a sweep that reached the end still reports both', async () => {
   await land(await upToDate(dir), post('9000'));
 
   const { document } = await run([URL_MS4W, '--archives', dir, '--plan'], {
-    collect: async () => shortListing({ stoppedEarly: false }),
+    list: async () => shortListing({ stoppedEarly: false }),
   });
 
   assert.equal(document.result.counts.platform.reported, 405);
@@ -1024,10 +1028,10 @@ test('a finished run withholds them too, because it is running that same plan', 
   const dir = await root();
   await land(await upToDate(dir), post('9000'));
 
-  await run([URL_MS4W, '--archives', dir, '--plan'], { collect: async () => shortListing() });
+  await run([URL_MS4W, '--archives', dir, '--plan'], { list: async () => shortListing() });
 
   const { document } = await run([URL_MS4W, '--archives', dir, '--go'], {
-    fetch: async ({ posts }) => ({ fetched: posts.length, failed: 0 }),
+    download: async ({ posts }) => ({ fetched: posts.length, failed: 0 }),
   });
 
   assert.equal(document.result.counts.platform.reported, null);
@@ -1045,10 +1049,10 @@ test('a re-run against an up-to-date profile stops scrolling, without a stub bet
   const archived = ids(1, 25);
 
   await run([URL_MS4W, '--archives', dir, '--plan'], {
-    collect: async () => listing({ posts: archived.map((id) => post(id)) }),
+    list: async () => listing({ posts: archived.map((id) => post(id)) }),
   });
   await run([URL_MS4W, '--archives', dir, '--go'], {
-    fetch: async ({ accountDir, posts }) => {
+    download: async ({ accountDir, posts }) => {
       for (const p of posts) await land(accountDir, p);
       return { fetched: posts.length, failed: 0 };
     },
@@ -1059,7 +1063,7 @@ test('a re-run against an up-to-date profile stops scrolling, without a stub bet
     rounds: [{ videos: archived.slice(0, 10) }, { videos: archived.slice(10, 20) }, { videos: archived.slice(20) }],
   });
   const { document } = await run([URL_MS4W, '--archives', dir, '--plan'], {
-    collect: undefined,
+    list: undefined,
     playwright: async () => ({ chromium: launch }),
   });
 
