@@ -271,6 +271,49 @@ export async function* accounts(descriptor, root) {
 }
 
 /**
+ * An account folder, as everything a caller needs in order to act on it.
+ *
+ * The path is what the rest of the skill wants — the archive, the plan, the post
+ * folders and the document all take it — so this is a plain object rather than
+ * anything a caller has to unwrap. What it adds is the identity the lookup
+ * already read on its way to the folder, so nobody has to open account.json a
+ * second time to learn whose folder they were just handed.
+ *
+ * `account` and `url` are null where there was no file to read them from — a
+ * folder for an account nothing has archived yet. A caller that needs the
+ * identity as of *now* rather than as of the lookup reads it itself; what is
+ * here is what the folder said when it answered to being this account's.
+ */
+function folderOf(dir, json) {
+  return {
+    dir,
+    id: String(json?.account?.id ?? '') || null,
+    account: json?.account ?? null,
+    url: json?.url ?? null,
+  };
+}
+
+/**
+ * Where this account's folder is, now that its id is known.
+ *
+ * Resolved, never computed. The folder may be named for an alias, and going
+ * straight to the id would quietly start a second, empty archive beside the real
+ * one on every aliased account. Only an account nothing has archived yet gets a
+ * computed path — under the alias asked for if there is one, and under its id if
+ * not.
+ *
+ * The folder need not exist. This says where it goes, which is what a caller has
+ * to know before it can read the archive there or create it.
+ */
+export async function settleFolder(descriptor, root, { id, alias } = {}) {
+  const found = await resolveFolder(descriptor, root, { id });
+  if (found) return found;
+
+  const dir = alias ? aliasDirFor(descriptor, root, alias) : accountDirFor(descriptor, root, id);
+  return { dir, id: String(id), account: null, url: null };
+}
+
+/**
  * The folder holding this account, or null.
  *
  * Three steps, cheapest first, and every one of them verified against the
@@ -286,26 +329,32 @@ export async function* accounts(descriptor, root) {
  * of the next write rather than a side effect of the lookup — see
  * recordIdentity.
  */
-export async function resolveAccountDir(descriptor, root, { id } = {}) {
+async function resolveFolder(descriptor, root, { id } = {}) {
   const wanted = String(id ?? '');
   if (!wanted) return null;
 
   const mapped = (await readAliases(root, descriptor.platform))[wanted];
   if (mapped && isSafeAlias(mapped)) {
     const dir = aliasDirFor(descriptor, root, mapped);
-    if (String((await identityAt(dir))?.account?.id ?? '') === wanted) return dir;
+    const json = await identityAt(dir);
+    if (String(json?.account?.id ?? '') === wanted) return folderOf(dir, json);
   }
 
   if (isSafeId(wanted)) {
     const dir = accountDirFor(descriptor, root, wanted);
-    if (String((await identityAt(dir))?.account?.id ?? '') === wanted) return dir;
+    const json = await identityAt(dir);
+    if (String(json?.account?.id ?? '') === wanted) return folderOf(dir, json);
   }
 
   for await (const [dir, json] of accounts(descriptor, root)) {
-    if (String(json.account?.id ?? '') === wanted) return dir;
+    if (String(json.account?.id ?? '') === wanted) return folderOf(dir, json);
   }
 
   return null;
+}
+
+export async function resolveAccountDir(descriptor, root, { id } = {}) {
+  return (await resolveFolder(descriptor, root, { id }))?.dir ?? null;
 }
 
 /**
@@ -326,20 +375,20 @@ export async function resolveAccountDir(descriptor, root, { id } = {}) {
  * One pass rather than three, because the answer is wanted once and three passes
  * would each stop at a different folder.
  */
-export async function findAccountDir(descriptor, root, { id, url, alias, handle } = {}) {
-  // An id, where the caller has one, settles it outright: resolveAccountDir
-  // answers only once account.json there names this account, so a non-null
-  // answer is the identity check as well as the lookup. The keys below match on
-  // what a folder says about itself, which a folder belonging to somebody else
-  // can also say.
+export async function findFolder(descriptor, root, { id, url, alias, handle } = {}) {
+  // An id, where the caller has one, settles it outright: resolveFolder answers
+  // only once account.json there names this account, so a non-null answer is the
+  // identity check as well as the lookup. The keys below match on what a folder
+  // says about itself, which a folder belonging to somebody else can also say.
   if (id) {
-    const dir = await resolveAccountDir(descriptor, root, { id });
-    if (dir) return dir;
+    const folder = await resolveFolder(descriptor, root, { id });
+    if (folder) return folder;
   }
 
   if (alias && isSafeAlias(alias)) {
     const dir = aliasDirFor(descriptor, root, alias);
-    if (await identityAt(dir)) return dir;
+    const json = await identityAt(dir);
+    if (json) return folderOf(dir, json);
 
     for (const [id, name] of Object.entries(await readAliases(root, descriptor.platform))) {
       if (name !== alias || !isSafeId(id)) continue;
@@ -348,19 +397,24 @@ export async function findAccountDir(descriptor, root, { id, url, alias, handle 
       // is reached because the map turned out to be stale, and a map that is
       // wrong about where an account is can be wrong about whose folder it is
       // pointing at.
-      if (String((await identityAt(byId))?.account?.id ?? '') === id) return byId;
+      const mine = await identityAt(byId);
+      if (String(mine?.account?.id ?? '') === id) return folderOf(byId, mine);
     }
   }
 
   const found = { alias: null, handle: null };
 
   for await (const [dir, json] of accounts(descriptor, root)) {
-    if (url && json.url === url) return dir;
-    if (alias && json.account?.alias === alias) found.alias ??= dir;
-    if (handle && json.account?.[descriptor.handleKey] === handle) found.handle ??= dir;
+    if (url && json.url === url) return folderOf(dir, json);
+    if (alias && json.account?.alias === alias) found.alias ??= folderOf(dir, json);
+    if (handle && json.account?.[descriptor.handleKey] === handle) found.handle ??= folderOf(dir, json);
   }
 
   return found.alias ?? found.handle ?? null;
+}
+
+export async function findAccountDir(descriptor, root, keys = {}) {
+  return (await findFolder(descriptor, root, keys))?.dir ?? null;
 }
 
 /**

@@ -13,6 +13,7 @@ import {
   clearAlias,
   existingIds,
   findAccountDir,
+  findFolder,
   isSafeAlias,
   isSafeId,
   mergeAccount,
@@ -20,6 +21,7 @@ import {
   readAccount,
   recordIdentity,
   resolveAccountDir,
+  settleFolder,
   writeAccount,
 } from './account.mjs';
 import { readAliases, writeAlias } from './archiver.mjs';
@@ -478,4 +480,62 @@ test('a rename that fails refuses with a code rather than crashing the run', asy
   } finally {
     await chmod(platform, 0o700);
   }
+});
+
+// ---- the folder value ------------------------------------------------------
+
+test('settling resolves an aliased account rather than computing where it goes', async () => {
+  const dir = await root();
+  const folder = await seed(dir, 'jia', { account: { id: '55', handle: 'someone', alias: 'jia' } });
+  await writeAlias(dir, PLATFORM, '55', 'jia');
+
+  // Computing would name <root>/x/55 and quietly start a second, empty archive
+  // beside the real one on every aliased account.
+  const settled = await settleFolder(ACCOUNT, dir, { id: '55' });
+  assert.equal(settled.dir, folder);
+  assert.equal(settled.id, '55');
+});
+
+test('settling a folder nobody has archived names it for the alias asked for', async () => {
+  const dir = await root();
+  const settled = await settleFolder(ACCOUNT, dir, { id: '55', alias: 'jia' });
+  assert.equal(settled.dir, aliasDirFor(ACCOUNT, dir, 'jia'));
+  assert.equal(settled.id, '55');
+});
+
+test('settling with no alias asked for names the folder for the id', async () => {
+  const dir = await root();
+  assert.equal(
+    (await settleFolder(ACCOUNT, dir, { id: '55' })).dir,
+    accountDirFor(ACCOUNT, dir, '55'),
+  );
+});
+
+test('finding a folder hands back the identity it was verified by', async () => {
+  const dir = await root();
+  const folder = await seed(dir, '55', {
+    account: { id: '55', handle: 'someone' },
+    url: 'https://x.com/someone',
+  });
+
+  const found = await findFolder(ACCOUNT, dir, { url: 'https://x.com/someone' });
+  assert.equal(found.dir, folder);
+  assert.equal(found.id, '55');
+  assert.equal(found.account.handle, 'someone');
+  assert.equal(found.url, 'https://x.com/someone');
+});
+
+test('finding a folder by its id hands back its identity too', async () => {
+  const dir = await root();
+  await seed(dir, 'jia', { account: { id: '55', handle: 'someone', alias: 'jia' } });
+  await writeAlias(dir, PLATFORM, '55', 'jia');
+
+  const found = await findFolder(ACCOUNT, dir, { id: '55' });
+  assert.equal(found.id, '55');
+  assert.equal(found.account.alias, 'jia');
+});
+
+test('finding nothing is null, never a folder standing for nothing', async () => {
+  const dir = await root();
+  assert.equal(await findFolder(ACCOUNT, dir, { url: 'https://x.com/nobody' }), null);
 });
