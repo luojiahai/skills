@@ -109,13 +109,6 @@ progress goes to stderr.
 Image posts (图文) are counted and reported, but not yet downloaded:
 https://github.com/luojiahai/skills/issues/48`;
 
-/**
- * `deps` names everything this run reaches outside itself. Injected so the
- * orchestration — what is written, in what order, and what is refused before
- * anything is written at all — is testable without a browser, a network or
- * yt-dlp on the machine running the tests.
- */
-
 /** Collect the account, diff it against disk, park the plan. */
 async function doPlan({ a, root, target, alias, unalias, session, full }) {
   const { collect } = a;

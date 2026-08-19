@@ -51,7 +51,7 @@ const listing = (over = {}) => ({
   ...over,
 });
 
-function deps(over = {}) {
+function overrides(over = {}) {
   return {
     collect: async () => listing(),
     fetch: async () => ({ fetched: 0, failed: 0, undescribed: 0 }),
@@ -69,7 +69,7 @@ function deps(over = {}) {
   };
 }
 
-const run = (argv, over = {}) => emitted(main, argv, deps(over));
+const run = (argv, over = {}) => emitted(main, argv, overrides(over));
 
 const accountJson = async (folder) =>
   JSON.parse(await readFile(path.join(folder, 'account.json'), 'utf8'));

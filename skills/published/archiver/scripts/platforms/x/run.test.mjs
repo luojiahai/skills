@@ -1,10 +1,14 @@
 /**
- * Tests for run.mjs — the orchestration.
+ * Tests for X's adapter, through the run it plugs into.
+ *
+ * What every platform's run does the same is asserted of all of them in
+ * `../run.shared.test.mjs`. What is here is X's own: its counts, its
+ * refusal codes, the shape of its listing.
  *
  * `main()` is exercised in-process rather than through archive.sh, which is how
- * the dispatcher reaches it, with the collector, the fetcher, the tool preflight
- * and the session all injected — so these assert on the run's decisions rather
- * than on what happens to be installed.
+ * the dispatcher reaches it, with the listing pass, the fetch, the tool
+ * preflight and the session all substituted by name — so these assert on the
+ * run's decisions rather than on what happens to be installed.
  *
  * Every run goes through `emitted`, which takes the one document off stdout and
  * validates it against the output schema.
@@ -67,7 +71,7 @@ const collected = (over = {}) => ({
   ...over,
 });
 
-function deps(over = {}) {
+function overrides(over = {}) {
   const listing = over.collect ?? (async () => collected());
   return {
     // Lands each post the way the real fetcher does — post.json written, media
@@ -94,7 +98,7 @@ function deps(over = {}) {
   };
 }
 
-const run = (argv, over = {}) => emitted(main, argv, deps(over));
+const run = (argv, over = {}) => emitted(main, argv, overrides(over));
 
 const noteWith = (document, code) => document.result.notes.find((note) => note.code === code);
 

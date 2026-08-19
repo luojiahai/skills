@@ -3,7 +3,7 @@
  *
  * A good test here asserts what a command *returns*, not how it assembled it.
  * The document on stdout is the whole interface `SKILL.md` consumes, so tests
- * drive `main(argv, deps)` in-process, take the one document off stdout, and
+ * drive `main(argv, overrides)` in-process, take the one document off stdout, and
  * assert its fields.
  *
  * Validation against `shared/output.schema.json` happens *inside* this helper
@@ -119,8 +119,8 @@ export function validate(document, schema = OUTPUT_SCHEMA) {
  * being asserted as much as it is how the document is read. `--help` is the
  * documented exception and is asserted on `stdout` directly.
  */
-export async function emitted(main, argv, deps) {
-  const captured = await capture(() => (deps === undefined ? main(argv) : main(argv, deps)));
+export async function emitted(main, argv, overrides) {
+  const captured = await capture(() => (overrides === undefined ? main(argv) : main(argv, overrides)));
   const document = validate(JSON.parse(captured.stdout));
 
   assert.equal(document.exit, captured.code, 'the exit in the body must repeat the process exit code');
