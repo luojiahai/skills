@@ -1,5 +1,29 @@
 # luojiahai-skills
 
+## 0.1.40
+
+### Patch Changes
+
+- [#110](https://github.com/luojiahai/skills/pull/110) [`94ec36f`](https://github.com/luojiahai/skills/commit/94ec36fc2952673aba50d150e7d6eb5d157b196a) Thanks [@luojiahai](https://github.com/luojiahai)! - archiver: a Douyin run that finished but lost posts to the downloader now exits
+  0, as X and Instagram already did. A post the downloader cannot have is counted
+  and stepped over rather than treated as a stop, and the exit went non-zero for
+  one — which it would then have done on every run of that account from then on.
+  What was lost is in `run.failed`, and the plan is kept so the retry is cheap.
+
+- [#110](https://github.com/luojiahai/skills/pull/110) [`d814dc5`](https://github.com/luojiahai/skills/commit/d814dc5691ab34ed662dc41cc8afb790b26eb912) Thanks [@luojiahai](https://github.com/luojiahai)! - archiver: a finished run reports the posts that reached the account folder
+  rather than the number the downloader claimed. A downloader that exited clean
+  without writing its files produced a document saying posts had landed in an
+  archive that held none.
+
+- [#110](https://github.com/luojiahai/skills/pull/110) [`5dd5cc1`](https://github.com/luojiahai/skills/commit/5dd5cc19cc807da9bbb10b19514144573a0bdaae) Thanks [@luojiahai](https://github.com/luojiahai)! - archiver: `--plan` now reports one post id found in two folders, as `--go`
+  already did. It is the run whose job is to say what the archive holds before
+  anything is committed to, and a duplicate surfacing only on the download is one
+  a user who plans and reads never hears about.
+
+- [#110](https://github.com/luojiahai/skills/pull/110) [`7b9de0c`](https://github.com/luojiahai/skills/commit/7b9de0c1369d15a2f9f211cc6b14398e3c236fc2) Thanks [@luojiahai](https://github.com/luojiahai)! - archiver: a `--go` that refuses the plan no longer renames the account folder.
+  The rename happened before the plan was read, so `--alias NAME --go` against a
+  stale plan moved the archive and then reported it had done nothing.
+
 ## 0.1.39
 
 ### Patch Changes
