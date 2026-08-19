@@ -12,14 +12,18 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
+import { EventEmitter } from 'node:events';
 import { existsSync, realpathSync } from 'node:fs';
-import { mkdir, mkdtemp, readFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { Readable } from 'node:stream';
 import { promisify } from 'node:util';
 
 import { main } from './run.mjs';
+import { DEFAULT_ABORT, collect } from './collect.mjs';
+import { ROW_MARKER } from './gallerydl.mjs';
 import { fetchPosts, postDir } from './fetch.mjs';
 import { recordIdentity } from '../../shared/account.mjs';
 import { descriptorFor } from '../../shared/platforms.mjs';
@@ -582,4 +586,123 @@ test('one post id in two folders is reported, on X as on Douyin', async () => {
 
   const { document } = await go(root, { collected: [fresh], pending: [fresh] });
   assert.equal(noteWith(document, 'duplicate-posts').count, 1);
+});
+
+// ---- an interrupted download leaves an archive with holes in it -------------
+
+/**
+ * An account with `landed` already on disk and a plan parked over `pending`.
+ *
+ * The A/B pair below differs in nothing but that `pending` list: everything the
+ * stopper looks at — the folders on disk, the rows the listing yields — is the
+ * same in both halves.
+ */
+async function parked(root, { landed, pending }) {
+  const accountDir = path.join(root, 'x', '55');
+  await mkdir(accountDir, { recursive: true });
+  await recordIdentity(descriptorFor('x'), root, accountDir, {
+    account: { id: '55', handle: 'jack' },
+    url: 'https://x.com/jack',
+  });
+
+  for (const post of landed) await writePost(postDir(accountDir, post), buildPost({ id: post.tweetId }));
+
+  await savePlan(
+    accountDir,
+    buildPlan({
+      account: { id: '55', handle: 'jack' },
+      root,
+      collected: pending,
+      pending,
+      counts: archiveCounts({ found: pending.length, onDisk: 0, toFetch: pending.length }),
+      now: new Date(),
+    }),
+  );
+
+  return accountDir;
+}
+
+test('a re-run over an unfinished plan sweeps the whole timeline', async () => {
+  // The parked plan still lists a post that is not on disk, so the download it
+  // describes never finished — and the archive is not the unbroken run of newest
+  // posts the stopper assumes it is.
+  const root = await archivesRoot();
+  await parked(root, { landed: [tweet('1')], pending: [tweet('1'), tweet('2')] });
+
+  const { document } = await run(['https://x.com/jack', '--archives', root, '--plan']);
+
+  assert.equal(noteWith(document, 'sweep').mode, 'full');
+});
+
+test('a re-run over a finished plan still stops early', async () => {
+  // The other half of the pair, differing in nothing but whether the parked
+  // plan's posts have all landed. Asserting the `full` above on its own would
+  // pin a symptom several things produce — an archive that read as empty gives
+  // the same mode — so this is what pins the plan as the cause.
+  const root = await archivesRoot();
+  await parked(root, { landed: [tweet('1')], pending: [tweet('1')] });
+
+  const { document } = await run(['https://x.com/jack', '--archives', root, '--plan']);
+
+  assert.equal(noteWith(document, 'sweep').mode, 'incremental');
+});
+
+/** gallery-dl's own tab-separated row, which is what the real listing pass reads. */
+const streamRow = (tweetId) =>
+  [
+    ROW_MARKER, tweetId, 1, 'jpg',
+    `m${tweetId}`, 'photo', `https://pbs.twimg.com/${tweetId}.jpg`,
+    '2024-03-11 07:22:19', '55', 'jack', '"Jack"',
+    '', '',
+    '0', '""',
+  ].join('\t');
+
+/** A gallery-dl that prints these rows and exits, driven through the real collect. */
+function streaming(ids) {
+  const spawnImpl = () => {
+    const child = new EventEmitter();
+    child.stdout = Readable.from(ids.map((id) => `${streamRow(id)}\n`));
+    child.stderr = Readable.from([]);
+    setImmediate(() => child.emit('spawn'));
+    child.stdout.on('end', () => setImmediate(() => child.emit('exit', 0)));
+    return child;
+  };
+  return (args) => collect({ ...args, spawnImpl });
+}
+
+test('an interrupted download plus an expired plan is not reported as up to date forever', async () => {
+  // Every part of this behaves correctly on its own — the stopper counts right,
+  // clearPlan retires right, validatePlan expires right — so the trap only
+  // exists in their composition and only a replay through main() can catch it.
+  const root = await archivesRoot();
+  const timeline = Array.from({ length: DEFAULT_ABORT + 20 }, (_, i) => String(1000 - i));
+  const collectImpl = streaming(timeline);
+
+  // A first sweep over a fresh archive: nothing to recognise, so all of it.
+  const first = await run(['https://x.com/jack', '--archives', root, '--plan'], { collectImpl });
+  assert.equal(first.document.result.counts.to_fetch, timeline.length);
+
+  // The download lands the newest DEFAULT_ABORT and is rate-limited. The plan
+  // stays parked, which is what would let a retry fetch just the remainder.
+  const stopped = await run(['https://x.com/jack', '--archives', root, '--go'], {
+    fetchImpl: async ({ accountDir, posts }) => {
+      const got = posts.slice(0, DEFAULT_ABORT);
+      for (const post of got) await writePost(postDir(accountDir, post), buildPost({ id: post.tweetId }));
+      return { fetched: { posts: got.length, files: got.length }, failed: 0, stopped: 'rate-limited' };
+    },
+  });
+  assert.equal(stopped.document.result.run.remaining, 20);
+
+  // A day passes. --go now refuses the plan as stale and sends the user back to
+  // --plan, which is the step that has to offer the remainder again.
+  const accountDir = path.join(root, 'x', '55');
+  const syncFile = path.join(accountDir, 'sync.json');
+  const sync = JSON.parse(await readFile(syncFile, 'utf8'));
+  sync.plan.created_at = new Date(Date.now() - 30 * 3600 * 1000).toISOString();
+  await writeFile(syncFile, JSON.stringify(sync));
+
+  const again = await run(['https://x.com/jack', '--archives', root, '--plan'], { collectImpl });
+
+  assert.equal(noteWith(again.document, 'sweep').mode, 'full');
+  assert.equal(again.document.result.counts.to_fetch, 20, 'the remainder is offered, not written off');
 });

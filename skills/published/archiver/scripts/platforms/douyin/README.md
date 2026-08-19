@@ -183,7 +183,11 @@ archive quietly gets smaller while the run reports success.
 
 The X side does stop early, after 100 consecutive known posts, and can hold that
 rule to account because `makeStopper` is a pure function with tests of its own.
-The equivalent here would live inside the browser loop.
+The equivalent here would live inside the browser loop, and the precondition it
+would need is already shared: `sweepIsIncremental` in `shared/run.mjs` is the
+question "may this run stop early", and `planUnfinished` beneath it is what says
+the archive cannot be assumed to be an unbroken run of the newest posts. Nothing
+here calls either, because there is no stopper for them to gate.
 
 ## Counts will not match
 

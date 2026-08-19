@@ -26,7 +26,7 @@ platforms are threaded with a descriptor where they differ.
 | `session.mjs` | The browser session a gallery-dl platform runs on, as a cookies.txt: where it is cached, how it is minted, and when it is thrown away. Takes a descriptor, because the platform's name and its label in a refusal are the only things that vary. |
 | `tools.mjs` | Whether a downloader is on PATH, and the refusal when it is not. Reachable only through the `ARCHIVER_SYSTEM_TOOLS` escape hatch. |
 | `subprocess.mjs` | Running a downloader and reading what it said, so every platform answers "what did it exit with" the same way — including for a process that never started. |
-| `run.mjs` | Which mode a command line asked for, in one place, so `--yes` outranks a `--plan` appended after it on every platform. |
+| `run.mjs` | The decisions every platform's run makes identically: which mode a command line asked for, so `--yes` outranks a `--plan` appended after it, and whether a re-run may stop once it recognises enough posts. |
 
 ## The archive every platform writes
 

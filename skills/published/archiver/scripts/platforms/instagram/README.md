@@ -181,6 +181,12 @@ regardless of age, so a stop-at-the-first-thing-you-recognise rule would halt
 immediately and forever. A first run has nothing to recognise and sweeps the
 lot; `--full` forces a complete pass.
 
+So does a re-run that finds a plan still parked with un-landed posts in it. That
+is a download that never finished, which means the archive may have holes below
+the posts at the top of it and the streak the stopper counts proves nothing about
+what is under them. Both feeds ask the one shared rule, `sweepIsIncremental` in
+`shared/run.mjs`, which is also X's.
+
 ## Zero posts is never "up to date"
 
 A private account, and a session that has quietly expired, produce exactly the

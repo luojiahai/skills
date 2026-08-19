@@ -64,6 +64,11 @@ async function countPosts(accountDir) {
  * Null covers both "no usable plan" and "nothing left in it": a plan whose posts
  * have all landed since is one `--go` would finish without fetching anything,
  * and offering it would promise work that is already done.
+ *
+ * `planUnfinished` in `plan.mjs` asks nearly this same question of nearly the
+ * same plan and deliberately ignores the TTL, because it is reading the plan as
+ * evidence about the archive rather than offering it as work. The two look alike
+ * and must differ: a stale plan is worthless here and still telling there.
  */
 async function pendingCount(accountDir, { accountId, postIdKey, root, now }) {
   // An account.json with no id is the one place the two could still part: this
