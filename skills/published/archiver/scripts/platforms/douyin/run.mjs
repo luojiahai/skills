@@ -31,7 +31,7 @@ import { COMMON_BOOLEAN_FLAGS, COMMON_FLAGS, isMainModule, optString } from '../
 import { ensureEnv } from '../../shared/env.mjs';
 import { DEFAULT_ABORT, collect } from './collect.mjs';
 import { fetchPosts, outstanding } from './fetch.mjs';
-import { duplicateFolders, landedIds, unlistedIds } from '../../shared/landed.mjs';
+import { landedIds, unlistedIds } from '../../shared/landed.mjs';
 import { login } from './login.mjs';
 import { cookieFile, toolPath } from '../../shared/paths.mjs';
 import { PLATFORM, PROFILE_DIR, discardDerivedState, loadPlaywright } from './playwright.mjs';
@@ -249,7 +249,7 @@ const ADAPTER = {
     unlisted: result.stoppedEarly ? null : counts.unlisted,
   }),
 
-  planNotes: async ({ incremental, result, threshold, counts, accountDir }) => [
+  planNotes: ({ incremental, result, threshold, counts }) => [
     // First, because it is what says why the counts beside it are absent — and a
     // --go reads it back out of the plan to withhold them again.
     sweepNote({ incremental, stoppedEarly: result.stoppedEarly, threshold }),
@@ -262,7 +262,8 @@ const ADAPTER = {
       truncated: result.hitRoundLimit,
       stoppedEarly: result.stoppedEarly,
       unattributed: result.unattributed,
-      duplicates: await duplicateFolders(accountDir),
+      // Counted by the run itself, for every platform, and added after these.
+      duplicates: 0,
     }),
   ],
 

@@ -497,13 +497,20 @@ async function doPlan({ adapter, root, alias, unalias, session, target, full }) 
       toFetch: counts.fetchPosts,
       platform: adapter.platformCounts(counts, result),
     }),
-    notes: await adapter.planNotes({
-      incremental,
-      result,
-      threshold: adapter.threshold,
-      counts,
-      accountDir,
-    }),
+    notes: [
+      ...(await adapter.planNotes({
+        incremental,
+        result,
+        threshold: adapter.threshold,
+        counts,
+        accountDir,
+      })),
+      // Counted here as well as on the download, because --plan is the run whose
+      // whole job is to say what the archive holds before anything is committed
+      // to. One id in two folders read only on --go is one a user who plans and
+      // reads never hears about.
+      ...duplicateNote(await duplicateFolders(accountDir)),
+    ],
     now: new Date(),
   });
 
@@ -659,6 +666,10 @@ async function reportRun({ adapter }, command, outcome, { url = null, notes = nu
   // would carry two notes of the same code disagreeing with each other.
   const reported = (await adapter.runNotes?.({ notes: carried, outcome })) ?? carried;
 
+  // The plan counted these when it was made, and the download has since changed
+  // the folder. Its count is dropped rather than kept beside the fresh one below.
+  const withoutStaleDuplicates = reported.filter((note) => note.code !== 'duplicate-posts');
+
   const payload = archiveResult({
     account: accountFields(adapter.account, outcome.plan.account, url),
     dir: outcome.accountDir,
@@ -666,7 +677,7 @@ async function reportRun({ adapter }, command, outcome, { url = null, notes = nu
     counts: outcome.plan.counts,
     // The duplicate count is about the folder as it is now, so it is added by
     // the run rather than read back.
-    notes: [...reported, ...duplicateNote(outcome.duplicates)],
+    notes: [...withoutStaleDuplicates, ...duplicateNote(outcome.duplicates)],
     // Carried by the run that made the plan, and by that run only. A --go is
     // acting on a list already approved, and its window has done its work.
     plan: plan ? planWindow({ createdAt: plan.created_at, ttlHours: DEFAULT_TTL_HOURS }) : null,

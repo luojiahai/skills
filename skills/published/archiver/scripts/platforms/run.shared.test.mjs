@@ -512,6 +512,28 @@ for (const bench of BENCHES) {
     const fresh = bench.post(bench.ids[2]);
     const { document } = await go(bench, root, { collected: [fresh], pending: [fresh] });
 
+    const notes = document.result.notes.filter((one) => one.code === 'duplicate-posts');
+    assert.equal(notes.length, 1, 'said once — the plan carried one and the run counted afresh');
+    assert.equal(notes[0].count, 1);
+  });
+
+  test(at('one post id in two folders is reported by a plan, which downloads nothing'), async () => {
+    // --plan is the run whose whole job is to say what is in the archive before
+    // anything is committed to. A duplicate surfacing only on --go is one a user
+    // who plans and reads never hears about.
+    const root = await archivesRoot();
+    const id = bench.ids[0];
+    const accountDir = accountDirIn(root, bench);
+
+    await writePost(path.join(accountDir, 'posts', `undated_${id}`), buildPost({ id }));
+    await writePost(path.join(accountDir, 'posts', `2024-03-11_${id}`), buildPost({ id }));
+    await recordIdentity(descriptorFor(bench.name), root, accountDir, {
+      account: bench.identity,
+      url: bench.url,
+    });
+
+    const { document } = await run(bench, [bench.url, '--archives', root, '--plan']);
+
     const note = document.result.notes.find((one) => one.code === 'duplicate-posts');
     assert.equal(note?.count, 1);
   });
