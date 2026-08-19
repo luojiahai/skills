@@ -1,5 +1,11 @@
 # luojiahai-skills
 
+## 0.1.38
+
+### Patch Changes
+
+- [#103](https://github.com/luojiahai/skills/pull/103) [`4bd6668`](https://github.com/luojiahai/skills/commit/4bd6668508ec0b88d5b9c97b4d0f438e172e98da) Thanks [@luojiahai](https://github.com/luojiahai)! - archiver (Douyin): a re-run stops scrolling once it recognises 20 consecutive posts it already has, instead of scrolling the whole profile every time. `--full` collects the whole profile anyway, and a listing that stopped early withholds the counts that can only be worked out from a complete one.
+
 ## 0.1.37
 
 ### Patch Changes
