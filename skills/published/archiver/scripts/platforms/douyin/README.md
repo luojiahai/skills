@@ -79,6 +79,7 @@ account, which is the whole reason this layer sits above it.
 | `session.mjs` | Whether the profile holds a session, and minting it as a Netscape `cookies.txt` yt-dlp can read. |
 | `playwright.mjs` | Finding the browser this platform drives — the one dependency no other platform has. |
 | `notes.mjs` | The gaps between numbers that would otherwise look like an error, as codes with their counts beside them — and the rule that a number which cannot be trusted is withheld rather than reported. |
+| `testing.mjs` | A profile grid that grows under a scroll loop, without a browser. What both test files hand `collect()` in place of Chromium. |
 
 The archive itself — `account.json`, `post.json`, `sync.json`, `archiver.json`,
 the post folders and the envelope every command answers in — is
@@ -156,7 +157,7 @@ The symlink resolution is not fussiness: on macOS the default root comes back
 as `/private/tmp/...` while a hand-typed `--archives /tmp/...` would not, and
 a plan made one way would then be refused the other.
 
-## No early-stop
+## Early stop
 
 Collection scrolls until the feed stops yielding new ids — `STABLE_ROUNDS`
 consecutive rounds with nothing new — or until it hits `MAX_ROUNDS`, which is a
@@ -165,29 +166,84 @@ limit says so, as a `listing-truncated` note: the listing is then short by an
 unknown amount, which makes every count beside it a comparison against a partial
 list.
 
-What it must never do is stop at the first already-downloaded id. Douyin pins
-posts at the top of a profile regardless of age, so a stop-at-first-known rule
-halts immediately and collects nothing, forever, silently.
+A re-run stops before either of those. After **20 consecutive** already-complete
+posts, in enumeration order, it stops scrolling — everything below them is
+strictly older and already here. So a re-run against an up-to-date profile costs
+a page load and the settle rather than the full scroll, which on a 405-post
+account measures ~34 seconds.
 
-It would not buy much either. A stopper cannot go under the page load, the
-settle and the header polling, which are the floor of a run.
+**The unit is posts, not rounds.** A round that yields nothing new is a page
+that was still rendering, and says nothing about the posts on either side of it;
+counting rounds would be a different clock reading the same number. Posts are
+also the unit X and Instagram count in, which is what makes one threshold
+defensible across the three by the same kind of test rather than three numbers
+nobody can keep straight.
 
-Against that, every way it goes wrong is silent. Stopping short truncates
-`collected`, and three reported numbers are computed from it — `counts.found`
-against `counts.platform.reported`, the `hidden-posts` note, and the
-`unlisted-posts` note, which would count every archived post below the cut as no
-longer on the profile. That last one is parked in the plan and read back at
-`--go` time, so the false number outlives the run that made it.
-The fetch list stays correct throughout, which is precisely the problem: the
-archive quietly gets smaller while the run reports success.
+**The counter runs over video ids only.** 图文 can never land (issue #48), so
+feeding them to it would break the streak at every image post and no re-run
+could ever stop. They are still counted, as `image-posts-skipped`; they are just
+not this counter's unit.
 
-The X side does stop early, after a run of consecutive known posts, and can hold that
-rule to account because `makeStopper` is a pure function with tests of its own.
-The equivalent here would live inside the browser loop, and the precondition it
-would need is already shared: `sweepIsIncremental` in `shared/run.mjs` is the
-question "may this run stop early", and `planUnfinished` beneath it is what says
-the archive cannot be assumed to be an unbroken run of the newest posts. Nothing
-here calls either, because there is no stopper for them to gate.
+**A card no profile-feed response named never counts, and never breaks the
+streak.** Those are not this account's posts — that is the whole of what the
+feed cross-check above establishes — so one already on disk from another archive
+must not stand in for a post of theirs, and a profile rendering a recommendation
+rail must not be a profile that can never stop early.
+
+The threshold is **20**, the same number X and Instagram stop at. Its only job
+is to outlast how far Douyin can reorder its own profile: it pins up to three
+posts (置顶) regardless of age and reorders nothing else, so the block to clear
+is three cards, which 20 clears several times over. Everything below the cut is
+strictly older, so a longer streak buys reassurance rather than posts and pays
+for it in scroll rounds. Three platforms landing on one number is three claims
+about three platforms, each defended by its own test, rather than a constant
+wanting to move to `shared/`.
+
+A first run has nothing to recognise and sweeps the lot; `--full` forces a
+complete pass, and is the answer to the one hole the rule cannot see — a post
+folder deleted by hand from deep in the archive, which is how you ask for that
+post again. So does a re-run that finds a plan still parked with un-landed posts
+in it: that is a download that never finished, so the archive may have holes
+below the posts at the top of it and the streak proves nothing about what is
+under them. Both the question and the streak rule are `shared/run.mjs`'s
+`sweepIsIncremental` and `makeStopper`, which X and Instagram ask too; what stays
+here is the threshold, because it is a claim about Douyin's reordering.
+
+Every run that collects carries a `sweep` note naming which mode ran and whether
+it stopped early, so `to_fetch: 0` can never be confused with "gave up before
+reaching anything new". A bare `--go` collects nothing and repeats the note its
+plan recorded.
+
+`listing-truncated` is a different fact and stays its own code. One says "I
+stopped because I recognised everything below this"; the other says "I gave up
+and I do not know what I missed", and only the second casts doubt on the fetch
+list.
+
+### What a short listing must not claim
+
+A listing that stopped early is short **by design**, and three outputs would
+read it as short by accident:
+
+- `counts.platform.reported` beside `counts.found` renders a deliberate 20 of
+  405 as a catastrophically failed collection.
+- `hidden-posts` subtracts the collected count from the header's, so the whole
+  unread remainder of the profile is reported as posts the profile is hiding.
+- `unlisted-posts` counts archived posts the listing does not name, so every
+  post below where the scroll stopped is reported as no longer on the profile —
+  and that one is parked in the plan and read back at `--go` time, so the false
+  number would outlive the run that made it.
+
+So `reported` and `unlisted` go out as `null` and both notes are withheld,
+under `notes.mjs`'s standing rule: a number that cannot be trusted is withheld
+rather than made more careful. Computing them against the
+collected prefix instead is not available — where the profile's real tail is, is
+exactly what the run skipped.
+
+The plan carries the `sweep` note with `stopped_early` on it, and that is what
+tells `--go` to withhold the same two. What a short listing does *not* affect is
+`image-posts-skipped`, `unattributed-posts` and `duplicate-posts`: those count
+what the pass met rather than how far it went, so a short pass undercounts them
+rather than getting them wrong.
 
 ## Counts will not match
 

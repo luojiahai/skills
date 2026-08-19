@@ -173,7 +173,7 @@ approved post by permalink, which is the second reason for one invocation per
 post — re-walking the profile would also pull in anything published since the
 plan, which nobody approved.
 
-## The sweep stops early, like X's
+## The sweep stops early, as on X and Douyin
 
 A re-run stops after **20 consecutive** already-complete posts *per feed*. The
 number's only job is to outlast how far Instagram can reorder its own feeds: it
@@ -188,8 +188,8 @@ enough to run into.
 **One number for both feeds.** A second would defend the same claim about the
 same platform's reordering, and the overlap cuts the other way anyway: a reel
 already landed from the `posts` sweep counts toward the `reels` streak, so the
-second feed retires sooner than its length suggests. X has a threshold of its
-own, defending X's pinning rather than this one.
+second feed retires sooner than its length suggests. X and Douyin have
+thresholds of their own, defending their own reordering rather than this one.
 
 A first run has nothing to recognise and sweeps the lot; `--full` forces a
 complete pass.

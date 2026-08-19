@@ -20,7 +20,8 @@
 import { spawn } from 'node:child_process';
 import readline from 'node:readline';
 
-import { isLanded, outstanding } from '../../shared/landed.mjs';
+import { outstanding } from '../../shared/landed.mjs';
+import { makeStopper } from '../../shared/run.mjs';
 import { toolPath } from '../../shared/paths.mjs';
 import { TOOL, classifyFailure, parseRow } from './gallerydl.mjs';
 import { listArgs } from '../../shared/gallerydl.mjs';
@@ -240,7 +241,8 @@ export async function collectFeeds({
     // throwing, because a throw inside the row loop surfaces as an unexplained
     // stream failure rather than as the refusal it is.
     if (stopRule.stopNow) return () => true;
-    return makeStopper({ archive: stopRule.archive, threshold, enabled: stopRule.incremental });
+    const stop = makeStopper({ archive: stopRule.archive, threshold, enabled: stopRule.incremental });
+    return (row) => stop(row.shortcode);
   };
 
   for (const category of CATEGORIES) {
@@ -264,26 +266,6 @@ export async function collectFeeds({
   }
 
   return { rows, account, sweeps, failure: null, stderr: '', code: 0 };
-}
-
-/**
- * The stopping rule: N consecutive posts, in enumeration order, already complete.
- *
- * "Complete" is landed.mjs's one definition, so a post whose media is half here
- * breaks the streak rather than counting toward it — which is what stops a sweep
- * retiring early over posts it would then have had to fetch anyway.
- */
-export function makeStopper({ archive, threshold, enabled }) {
-  let consecutive = 0;
-  return (row) => {
-    if (!enabled) return false;
-    if (isLanded(archive.get(row.shortcode))) {
-      consecutive += 1;
-      return consecutive >= threshold;
-    }
-    consecutive = 0;
-    return false;
-  };
 }
 
 // ---- rows into posts -------------------------------------------------------

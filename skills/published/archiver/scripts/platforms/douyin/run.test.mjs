@@ -19,6 +19,7 @@ import path from 'node:path';
 
 import { main } from './run.mjs';
 import { postDir } from './fetch.mjs';
+import { fakeProfile } from './testing.mjs';
 import { EXIT } from '../../shared/exit.mjs';
 import { Refusal } from '../../shared/errors.mjs';
 import { buildPost, writePost } from '../../shared/post.mjs';
@@ -32,6 +33,9 @@ const URL_MS4W = 'https://www.douyin.com/user/MS4wSEC';
 
 const post = (id, over = {}) => ({ id, text: '', createTime: 1710144139, ...over });
 
+/** `count` post ids from `from`, as the grid, the feed and the folders all spell them. */
+const ids = (from, count) => Array.from({ length: count }, (_, i) => String(from + i));
+
 /** One post on disk and complete — a post.json listing no media lists nothing missing. */
 const land = (accountDir, p) => writePost(postDir(accountDir, p), buildPost({ id: p.id }));
 
@@ -42,6 +46,7 @@ const listing = (over = {}) => ({
   reported: 284,
   skippedImagePosts: 0,
   hitRoundLimit: false,
+  stoppedEarly: false,
   described: 2,
   ...over,
 });
@@ -879,4 +884,172 @@ test('a --go repeats the listing’s own caveats, which it cannot recompute', as
 
   assert.ok(noteWith(document, 'listing-truncated'));
   assert.equal(noteWith(document, 'unattributed-posts').count, 1);
+});
+
+// ---- the sweep --------------------------------------------------------------
+// A re-run stops once it recognises enough of the newest posts, rather than
+// scrolling the whole profile again. What it must never do is report the
+// figures a full listing would have earned.
+
+/** A listing that stopped early, with everything a full one would have said. */
+const shortListing = (over = {}) =>
+  listing({ posts: [post('7111'), post('7333')], reported: 405, stoppedEarly: true, ...over });
+
+/** An account whose plan ran to completion: every post it listed is on disk. */
+async function upToDate(dir) {
+  await run([URL_MS4W, '--archives', dir, '--plan']);
+  await run([URL_MS4W, '--archives', dir, '--go'], {
+    fetchImpl: async ({ accountDir, posts }) => {
+      for (const p of posts) await land(accountDir, p);
+      return { fetched: posts.length, failed: 0 };
+    },
+  });
+  return path.join(dir, 'douyin', 'MS4wSEC');
+}
+
+test('a first run sweeps the whole profile and says so', async () => {
+  const dir = await root();
+  const { document } = await run([URL_MS4W, '--archives', dir, '--plan']);
+
+  assert.deepEqual(noteWith(document, 'sweep'), {
+    code: 'sweep',
+    mode: 'full',
+    stopped_early: false,
+    threshold: null,
+  });
+});
+
+test('a re-run over a finished plan may stop early', async () => {
+  const dir = await root();
+  await upToDate(dir);
+
+  const { document } = await run([URL_MS4W, '--archives', dir, '--plan']);
+  const note = noteWith(document, 'sweep');
+
+  assert.equal(note.mode, 'incremental');
+  assert.equal(note.threshold, 20, 'the same number X and Instagram stop at');
+});
+
+test('a re-run over an unfinished plan sweeps the whole profile', async () => {
+  // The parked plan still lists a post that is not on disk, so the download it
+  // describes never finished — and the archive is not the unbroken run of
+  // newest posts the stopper assumes it is. Its pair is the test above, which
+  // differs in nothing but whether the plan's posts all landed.
+  const dir = await root();
+  await run([URL_MS4W, '--archives', dir, '--plan']);
+  await run([URL_MS4W, '--archives', dir, '--go'], {
+    fetchImpl: async ({ accountDir, posts }) => {
+      await land(accountDir, posts[0]);
+      return { fetched: 1, failed: 1 };
+    },
+  });
+
+  const { document } = await run([URL_MS4W, '--archives', dir, '--plan']);
+
+  assert.equal(noteWith(document, 'sweep').mode, 'full');
+});
+
+test('--full sweeps the whole profile whatever is on disk', async () => {
+  // The one hole the plan guard does not close: a post folder deleted by hand
+  // from deep in the archive, which is how you ask for that post again.
+  const dir = await root();
+  await upToDate(dir);
+
+  const { document } = await run([URL_MS4W, '--archives', dir, '--plan', '--full']);
+
+  assert.equal(noteWith(document, 'sweep').mode, 'full');
+});
+
+test('a listing that stopped early withholds every count computed against its length', async () => {
+  // A deliberately short listing makes `reported` read as a catastrophically
+  // failed collection, and every archived post below the cut read as one the
+  // profile no longer lists. Both are withheld rather than made more careful.
+  const dir = await root();
+  await land(await upToDate(dir), post('9000'));
+
+  const { document } = await run([URL_MS4W, '--archives', dir, '--plan'], {
+    collectImpl: async () => shortListing(),
+  });
+
+  assert.equal(noteWith(document, 'sweep').stopped_early, true);
+  assert.equal(document.result.counts.platform.reported, null, 'unknown, rather than 405 against 1');
+  assert.equal(document.result.counts.platform.unlisted, null);
+  assert.equal(noteWith(document, 'hidden-posts'), undefined);
+  assert.equal(noteWith(document, 'unlisted-posts'), undefined);
+});
+
+test('a sweep that reached the end still reports both', async () => {
+  // The pair to the test above: the same numbers, from a listing that read the
+  // whole profile.
+  const dir = await root();
+  await land(await upToDate(dir), post('9000'));
+
+  const { document } = await run([URL_MS4W, '--archives', dir, '--plan'], {
+    collectImpl: async () => shortListing({ stoppedEarly: false }),
+  });
+
+  assert.equal(document.result.counts.platform.reported, 405);
+  assert.equal(document.result.counts.platform.unlisted, 2);
+  assert.equal(noteWith(document, 'hidden-posts').count, 403);
+  assert.equal(noteWith(document, 'unlisted-posts').count, 2);
+});
+
+test('a finished run withholds them too, because it is running that same plan', async () => {
+  // The plan is what a --go describes, and it was made by a pass that stopped
+  // early. Recomputing the unlisted count here against a listing that is short
+  // by design is how a false number outlives the run that made it.
+  const dir = await root();
+  await land(await upToDate(dir), post('9000'));
+
+  await run([URL_MS4W, '--archives', dir, '--plan'], { collectImpl: async () => shortListing() });
+
+  const { document } = await run([URL_MS4W, '--archives', dir, '--go'], {
+    fetchImpl: async ({ posts }) => ({ fetched: posts.length, failed: 0 }),
+  });
+
+  assert.equal(document.result.counts.platform.reported, null);
+  assert.equal(document.result.counts.platform.unlisted, null);
+  assert.equal(noteWith(document, 'unlisted-posts'), undefined);
+  assert.equal(noteWith(document, 'sweep').stopped_early, true, 'the plan says why the counts are absent');
+});
+
+test('a re-run against an up-to-date profile stops scrolling, without a stub between', async () => {
+  // The one test that runs the real collection pass, against a fake browser
+  // rather than a fake listing: everything else here hands `main` a listing it
+  // wrote itself, so nothing else would notice if the run stopped handing the
+  // pass its stopping rule at all.
+  const dir = await root();
+  const archived = ids(1, 25);
+
+  await run([URL_MS4W, '--archives', dir, '--plan'], {
+    collectImpl: async () => listing({ posts: archived.map((id) => post(id)) }),
+  });
+  await run([URL_MS4W, '--archives', dir, '--go'], {
+    fetchImpl: async ({ accountDir, posts }) => {
+      for (const p of posts) await land(accountDir, p);
+      return { fetched: posts.length, failed: 0 };
+    },
+  });
+
+  // Ten cards a scroll, every one of them already downloaded.
+  const { launch, state } = fakeProfile({
+    rounds: [{ videos: archived.slice(0, 10) }, { videos: archived.slice(10, 20) }, { videos: archived.slice(20) }],
+  });
+  const { document } = await run([URL_MS4W, '--archives', dir, '--plan'], {
+    collectImpl: undefined,
+    playwrightImpl: async () => ({ chromium: launch }),
+  });
+
+  assert.equal(document.ok, true, document.error?.message);
+  assert.equal(state.scrolls, 1, 'the twentieth known post ends it, one scroll in');
+  assert.deepEqual(noteWith(document, 'sweep'), {
+    code: 'sweep',
+    mode: 'incremental',
+    stopped_early: true,
+    threshold: 20,
+  });
+  assert.equal(document.result.counts.found, 20);
+  assert.equal(document.result.counts.to_fetch, 0);
+  assert.equal(document.result.counts.platform.reported, null);
+  assert.equal(document.result.counts.platform.unlisted, null);
 });

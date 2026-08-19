@@ -14,11 +14,11 @@ import {
   collectFeeds,
   diff,
   groupFiles,
-  makeStopper,
 } from './collect.mjs';
 import { ROW_MARKER } from './gallerydl.mjs';
 import { buildPost } from '../../shared/post.mjs';
 import { outstanding } from '../../shared/landed.mjs';
+import { makeStopper } from '../../shared/run.mjs';
 
 const row = (shortcode, num = 1) =>
   [
@@ -48,36 +48,6 @@ function archiveOf(ids, { listed = ['1.jpg'], present = listed } = {}) {
   ]));
 }
 
-test('the stopper does nothing on a first run', () => {
-  const stop = makeStopper({ archive: archiveOf(['A', 'B']), threshold: 2, enabled: false });
-  assert.equal(stop({ shortcode: 'A' }), false);
-  assert.equal(stop({ shortcode: 'B' }), false);
-});
-
-test('the stopper fires after N consecutive posts already on disk', () => {
-  const stop = makeStopper({ archive: archiveOf(['A', 'B', 'C']), threshold: 3, enabled: true });
-  assert.equal(stop({ shortcode: 'A' }), false);
-  assert.equal(stop({ shortcode: 'B' }), false);
-  assert.equal(stop({ shortcode: 'C' }), true);
-});
-
-test('one unseen post resets the run of known ones', () => {
-  const stop = makeStopper({ archive: archiveOf(['A', 'B', 'D', 'E']), threshold: 3, enabled: true });
-  stop({ shortcode: 'A' });
-  stop({ shortcode: 'B' });
-  assert.equal(stop({ shortcode: 'C' }), false); // not on disk — resets
-  assert.equal(stop({ shortcode: 'D' }), false);
-  assert.equal(stop({ shortcode: 'E' }), false);
-});
-
-test('a post on disk but incomplete does not count as known', () => {
-  // Otherwise a sweep retires early over posts it would then have to fetch.
-  const archive = archiveOf(['A', 'B'], { listed: ['1.jpg', '2.jpg'], present: ['1.jpg'] });
-  const stop = makeStopper({ archive, threshold: 2, enabled: true });
-  assert.equal(stop({ shortcode: 'A' }), false);
-  assert.equal(stop({ shortcode: 'B' }), false);
-});
-
 /** Posts Instagram can put at the top of a feed regardless of their age. */
 const PIN_BLOCK = 3;
 
@@ -98,7 +68,7 @@ test('the stopper fires inside a reels feed of forty', () => {
   // request.
   const feed = Array.from({ length: 40 }, (_, i) => `R${i}`);
   const stop = makeStopper({ archive: archiveOf(feed), threshold: DEFAULT_ABORT, enabled: true });
-  const stopped = feed.some((shortcode) => stop({ shortcode }));
+  const stopped = feed.some((shortcode) => stop(shortcode));
   assert.ok(stopped, 'a 40-reel feed retires rather than re-sweeping forever');
 });
 

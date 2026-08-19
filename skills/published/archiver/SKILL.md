@@ -227,7 +227,7 @@ The `--go` document is the run's whole result. Report it and stop.
 | `unattributed-posts` | Douyin. `count` cards on the page that no profile-feed response named, and so were not collected — a recommendation rail, or a run that missed those responses. |
 | `undated-posts` | Douyin. `count` posts filed under `undated_<id>`, because nothing would say when they were published. |
 | `duplicate-posts` | Any platform. `count` post ids found in two folders each. One answers for the post; the other's media is counted by nothing, so every figure beside it is short by that much. |
-| `sweep` | X and Instagram. `mode: "incremental"` with `stopped_early: true` is what a re-run against an up-to-date archive normally looks like: it stopped after `threshold` known posts rather than walking to the end. Report it plainly rather than as a warning — an unfinished download is not what this is, because that case sweeps `full` instead. `--full` is there for anyone who wants the whole feed walked anyway. A `--go` repeats the note its plan recorded, which may be up to a day old. **Instagram carries one of these per feed**, each with a `category` of `posts` or `reels`. `mode` is the same on both; `stopped_early` need not be, and one feed that ran to the end beside one that stopped early is worth naming. |
+| `sweep` | Any platform. `mode: "incremental"` with `stopped_early: true` is what a re-run against an up-to-date archive normally looks like: it stopped after `threshold` known posts rather than walking to the end. Report it plainly rather than as a warning — an unfinished download is not what this is, because that case sweeps `full` instead. `--full` is there for anyone who wants the whole feed walked anyway. A `--go` repeats the note its plan recorded, which may be up to a day old. **On Douyin it also says why figures are missing**: `stopped_early: true` is why `counts.platform.reported` and `counts.platform.unlisted` are `null` and why neither `hidden-posts` nor `unlisted-posts` is there — the listing is short on purpose, so those numbers would be wrong rather than merely unknown. **Instagram carries one of these per feed**, each with a `category` of `posts` or `reels`. `mode` is the same on both; `stopped_early` need not be, and one feed that ran to the end beside one that stopped early is worth naming. |
 | `moving-to` | `--alias` will rename the folder to `dir` on the download step. Say it before they say yes; nothing has moved yet. |
 | `root-changed` | The last run archived into `previous`. Say it — otherwise an `on_disk` of zero reads as an archive that lost its files. |
 
@@ -371,6 +371,14 @@ Tracked in [issue #48](https://github.com/luojiahai/skills/issues/48).
 Douyin's `counts.platform` is `reported` (what the profile header claims),
 `skipped_image_posts` and `unlisted`. `reported` may be `null` when the header
 never rendered — that is unknown, not zero.
+
+`--full` collects the whole profile even when a re-run could stop early. Every
+run that collects carries a `sweep` note; a re-run that stopped early sends both
+`reported` and `unlisted` as `null` and carries neither `hidden-posts` nor
+`unlisted-posts`, because a listing that is short on purpose cannot be compared
+against the profile's own count or against the folder. **Never read those nulls
+as zero, and never compare `counts.found` against `reported` when it is one** —
+that comparison is exactly what the withheld figure exists to stop.
 
 The one failure that needs a human is an expired session: `session-expired-grid`,
 which means the grid rendered nothing while the header still counted posts. That

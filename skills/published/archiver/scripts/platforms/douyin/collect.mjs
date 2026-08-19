@@ -33,6 +33,15 @@
  */
 import { loadPlaywright } from './playwright.mjs';
 
+/**
+ * Consecutive posts already on disk before a re-run stops scrolling.
+ *
+ * The same number as X and Instagram, so nobody has to remember which platform
+ * uses which — and comfortably clear of what Douyin can put in front of a
+ * re-run, which is up to three 置顶 pins and nothing else reordered.
+ */
+export const DEFAULT_ABORT = 20;
+
 const SCROLL_DELAY_MS = 1200;
 const STABLE_ROUNDS = 6; // consecutive no-new-ID rounds before we call it done
 const MAX_ROUNDS = 1000; // hard stop, so a broken page cannot spin forever
@@ -215,9 +224,14 @@ function scrollInPage() {
  * Everything the account listing knows.
  *
  * Returns `{ posts, account, reported, reportedRounded, skippedImagePosts,
- * unattributed, hitRoundLimit }`, or `{ failure }` for a grid that rendered
- * nothing — which on this site means a login wall far more often than it means
- * an empty account.
+ * unattributed, hitRoundLimit, stoppedEarly }`, or `{ failure }` for a grid that
+ * rendered nothing — which on this site means a login wall far more often than
+ * it means an empty account.
+ *
+ * `shouldStop` is `shared/run.mjs`'s `makeStopper`, or nothing on a run that
+ * must sweep the whole profile. Whether a run may stop at all is settled before
+ * the browser opens; all this loop does is feed it — video ids only, because
+ * 图文 can never land (issue #48) and would break the streak at every one.
  */
 export async function collect({
   url,
@@ -226,6 +240,7 @@ export async function collect({
   headless = true,
   log = () => {},
   launch,
+  shouldStop = () => false,
 }) {
   const chromium = launch ?? (await loadPlaywright()).chromium;
 
@@ -287,10 +302,41 @@ export async function collect({
     let stable = 0;
     let rounds = 0;
 
+    let stoppedEarly = false;
+
+    // The ids this round added, in the order the page holds them:
+    // `harvestInPage` walks `document.querySelectorAll('a[href]')`, which is
+    // document order, so a batch arrives in grid order already.
     const harvest = async () => {
       const { videos, notes } = await page.evaluate(harvestInPage);
       for (const id of notes) noteIds.add(id);
-      for (const id of videos) ids.add(id);
+      const fresh = [];
+      for (const id of videos) {
+        if (ids.has(id)) continue;
+        ids.add(id);
+        fresh.push(id);
+      }
+      return fresh;
+    };
+
+    // The whole batch is kept whatever the answer: these cards are already in
+    // hand, and dropping the tail of the round the streak completed in would
+    // cost a fetch for nothing. What stopping saves is the next scroll.
+    const recognised = (fresh) => {
+      for (const id of fresh) {
+        // A card no profile-feed response named is not this account's post, so
+        // it is not part of what is being counted — it neither counts toward
+        // the streak nor breaks it. Counting one would let another archive's
+        // post stand in for theirs; breaking on one would let a profile with a
+        // recommendation rail sweep in full forever.
+        //
+        // A response whose body is still being read reads as unattributed here
+        // and costs a scroll round rather than a wrong stop. Which of them the
+        // *listing* keeps is settled below, once every response has landed.
+        if (!metadata.has(id)) continue;
+        if (shouldStop(id)) return true;
+      }
+      return false;
     };
 
     // Harvest before each scroll: the feed is virtualised, so cards scrolled
@@ -302,7 +348,10 @@ export async function collect({
       // posts.
       const before = ids.size + noteIds.size;
 
-      await harvest();
+      if (recognised(await harvest())) {
+        stoppedEarly = true;
+        break;
+      }
 
       await page.evaluate(scrollInPage);
       await page.waitForTimeout(SCROLL_DELAY_MS);
@@ -315,7 +364,7 @@ export async function collect({
         log(`[douyin] ${ids.size} posts…`, { progress: true });
       }
     }
-    await harvest();
+    if (!stoppedEarly) await harvest();
 
     // Notes found but no videos is not a login wall — it is an account whose
     // posts are all 图文. The grid rendered; there is simply nothing here that
@@ -344,6 +393,7 @@ export async function collect({
       skippedImagePosts: noteIds.size,
       unattributed,
       hitRoundLimit: rounds >= MAX_ROUNDS,
+      stoppedEarly,
     };
   } finally {
     await context.close();

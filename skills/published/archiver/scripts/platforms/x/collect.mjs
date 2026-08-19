@@ -16,7 +16,7 @@
 import { spawn } from 'node:child_process';
 import readline from 'node:readline';
 
-import { isLanded, outstanding } from '../../shared/landed.mjs';
+import { outstanding } from '../../shared/landed.mjs';
 import { toolPath } from '../../shared/paths.mjs';
 import { TOOL, classifyFailure, parseRow } from './gallerydl.mjs';
 import { listArgs } from '../../shared/gallerydl.mjs';
@@ -186,26 +186,6 @@ export async function collect({
   // A non-zero exit we caused by killing it is not a failure.
   const failure = stoppedEarly ? null : code === 0 ? null : (classifyFailure(stderr) ?? 'collect-failed');
   return { rows, account, stoppedEarly, failure, stderr, code };
-}
-
-/**
- * The stopping rule: N consecutive posts, in enumeration order, already complete.
- *
- * "Complete" is landed.mjs's one definition, so a post whose media is half here
- * breaks the streak rather than counting toward it — which is what stops a sweep
- * retiring early over posts it would then have had to fetch anyway.
- */
-export function makeStopper({ archive, threshold, enabled }) {
-  let consecutive = 0;
-  return (row) => {
-    if (!enabled) return false;
-    if (isLanded(archive.get(row.tweetId))) {
-      consecutive += 1;
-      return consecutive >= threshold;
-    }
-    consecutive = 0;
-    return false;
-  };
 }
 
 // ---- rows into posts -------------------------------------------------------

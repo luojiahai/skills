@@ -114,3 +114,37 @@ test('posts nothing could date, and ids in two folders, each say so', () => {
     { code: 'duplicate-posts', count: 1 },
   ]);
 });
+
+test('a listing that stopped early withholds every count computed against its length', () => {
+  // A deliberately short listing makes both of these lie: the header gap reads
+  // as posts the profile is hiding, and every archived post below the cut reads
+  // as one the profile no longer lists.
+  assert.deepEqual(
+    codes({ collected: 20, reported: 405, skipped: 0, unlisted: 385, stoppedEarly: true }),
+    [],
+  );
+
+  // The same numbers from a sweep that reached the end still explain both.
+  assert.deepEqual(codes({ collected: 20, reported: 405, skipped: 0, unlisted: 385 }), [
+    'hidden-posts',
+    'unlisted-posts',
+  ]);
+});
+
+test('a listing that stopped early still says what it saw on the way', () => {
+  // Skipped image posts, unattributed cards and duplicate folders are counts of
+  // what the pass actually met, not of how far it went, so a short pass
+  // undercounts them rather than getting them wrong.
+  assert.deepEqual(
+    codes({
+      collected: 20,
+      reported: 405,
+      skipped: 4,
+      unlisted: 385,
+      unattributed: 2,
+      duplicates: 1,
+      stoppedEarly: true,
+    }),
+    ['image-posts-skipped', 'unattributed-posts', 'duplicate-posts'],
+  );
+});

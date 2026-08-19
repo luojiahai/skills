@@ -9,6 +9,7 @@
  * A refusal is not here: it goes through `output.mjs`, which owns the envelope
  * every command answers in.
  */
+import { isLanded } from './landed.mjs';
 import { planUnfinished } from './plan.mjs';
 import { loadPlan } from './sync.mjs';
 
@@ -36,13 +37,61 @@ export function pickMode(opts) {
  * posts, and a streak of familiar ones at the top proves nothing about what is
  * under them. `planUnfinished` is where that last one is argued.
  *
- * Douyin does not call this, because Douyin never stops early; its README says
- * why, and the rule waiting here is what a stopper there would need first.
- *
  * The plan is read last and only when the answer still hangs on it, so a first
  * run and a `--full` cost no extra read.
  */
 export async function sweepIsIncremental({ accountDir, accountId, archive, full, postIdKey, root }) {
   if (archive.size === 0 || full) return false;
   return !planUnfinished(await loadPlan(accountDir), { accountId, root, archive, postIdKey });
+}
+
+/**
+ * The stopping rule: N consecutive posts, in enumeration order, already complete.
+ *
+ * "Complete" is landed.mjs's one definition, so a post whose media is half here
+ * breaks the streak rather than counting toward it — which is what stops a sweep
+ * retiring early over posts it would then have had to fetch anyway.
+ *
+ * Takes a post id, because that is the one thing the three platforms' listing
+ * passes hold in common: each spells it differently on its own rows, and each
+ * reads its own key on the way in. The threshold is the platform's, defended by
+ * its own test against its own reordering.
+ */
+export function makeStopper({ archive, threshold, enabled }) {
+  let consecutive = 0;
+  return (postId) => {
+    if (!enabled) return false;
+    if (isLanded(archive.get(postId))) {
+      consecutive += 1;
+      return consecutive >= threshold;
+    }
+    consecutive = 0;
+    return false;
+  };
+}
+
+/**
+ * How a run says which of the two it did, so `to_fetch: 0` can be told apart
+ * from "gave up before reaching anything new".
+ *
+ * `stopped_early` is only ever true of an incremental sweep: a full one has
+ * nothing to stop early against, and reporting one as having stopped would cast
+ * doubt on a listing that is complete.
+ *
+ * `category` names which listing pass the note is about, and is left off where a
+ * platform sweeps a single feed.
+ */
+export function sweepNote({ incremental, stoppedEarly, threshold, category }) {
+  return {
+    code: 'sweep',
+    mode: incremental ? 'incremental' : 'full',
+    stopped_early: Boolean(incremental && stoppedEarly),
+    threshold: incremental ? threshold : null,
+    ...(category === undefined ? {} : { category }),
+  };
+}
+
+/** Whether the sweep behind a parked plan stopped early, read back off its notes. */
+export function sweepStoppedEarly(notes) {
+  return (notes ?? []).some((note) => note.code === 'sweep' && note.stopped_early);
 }
