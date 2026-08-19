@@ -452,12 +452,17 @@ async function defaultPlan({ adapter, root, alias, unalias, session, target, ful
   });
 
   if (badId !== null) throw adapter.refusals.badId(badId);
-  if (result.failure) throw adapter.collectRefusal(result.failure, result.stderr);
+  if (result.failure) throw adapter.collectRefusal(result.failure, result);
 
   // Zero posts and no error is a real answer for an account that has posted
   // nothing. It is never reported as "up to date", because an account you are
-  // not allowed to read produces exactly the same silence.
-  if (!result.rows.length) throw adapter.refusals.empty();
+  // not allowed to read produces exactly the same silence — unless the platform
+  // recognises the silence as something it can describe, in which case it
+  // declines to refuse and the plan carries the explanation instead.
+  if (!result.rows.length) {
+    const empty = adapter.refusals.empty(result);
+    if (empty) throw empty;
+  }
 
   // Without an id there is no folder to write into. Naming it after the handle
   // instead is not an option: the handle changes, so that folder is one the
@@ -534,11 +539,12 @@ async function doGo({ adapter, root, dir, alias, unalias, url, target, session, 
   const postIdKey = adapter.postIdKey;
 
   // --yes has just enumerated and knows exactly which folder it wrote into, so
-  // it passes it in. A bare --go enumerates nothing, never learns the id, and
-  // cannot go straight to the folder — the alias the user gave it, the URL the
-  // plan was written from, and the handle are the keys that still work.
+  // it passes it in. A bare --go enumerates nothing — so it goes on the id where
+  // the platform reads one out of the URL, and otherwise on the alias the user
+  // gave it, the URL the plan was written from, and the handle.
   let accountDir =
-    dir ?? (await findAccountDir(descriptor, root, { url, alias, handle: target?.handle }));
+    dir ??
+    (await findAccountDir(descriptor, root, { id: target?.id, url, alias, handle: target?.handle }));
   if (!accountDir) return { refusal: noArchiveRefusal(root, planCommand) };
 
   // The id validatePlan checks the plan against — an identity check that holds
@@ -622,15 +628,25 @@ async function reportRun({ adapter }, command, outcome, { url = null, notes = nu
     return refuse({ command, platform, ...refusalFields(outcome.refusal) });
   }
 
+  // A --yes has just made this plan and knows what it announced; a bare --go
+  // has only what the plan recorded.
+  const carried = notes ?? outcome.plan.notes ?? [];
+
+  // Some of what a listing recorded describes the folder rather than the pass,
+  // and is worth less the moment the download changes the folder. A platform
+  // that has such a note hands back the whole list rewritten — dropping the
+  // stale one as well as adding the fresh one, because a document carrying both
+  // would carry two notes of the same code disagreeing with each other.
+  const reported = (await adapter.runNotes?.({ notes: carried, outcome })) ?? carried;
+
   const payload = archiveResult({
     account: accountFields(adapter.account, outcome.plan.account, url),
     dir: outcome.accountDir,
     root: outcome.plan.root,
     counts: outcome.plan.counts,
-    // A --yes has just made this plan and knows what it announced; a bare --go
-    // has only what the plan recorded. The duplicate count is about the folder
-    // as it is now, so it is added by the run rather than read back.
-    notes: [...(notes ?? outcome.plan.notes ?? []), ...duplicateNote(outcome.duplicates)],
+    // The duplicate count is about the folder as it is now, so it is added by
+    // the run rather than read back.
+    notes: [...reported, ...duplicateNote(outcome.duplicates)],
     // Carried by the run that made the plan, and by that run only. A --go is
     // acting on a list already approved, and its window has done its work.
     plan: plan ? planWindow({ createdAt: plan.created_at, ttlHours: DEFAULT_TTL_HOURS }) : null,

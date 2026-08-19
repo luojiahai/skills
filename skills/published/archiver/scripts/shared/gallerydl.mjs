@@ -120,6 +120,8 @@ export function galleryDlAdapter({ platform, failures }) {
         { install: 'uv tool install gallery-dl', docs: 'https://github.com/mikf/gallery-dl#installation' },
         adapter.onPath,
       ),
-    collectRefusal: (failure, stderr) => collectRefusal(failures, failure, stderr),
+    // The whole listing result rather than its stderr: a classifier may need
+    // what else the pass saw to tell two failures apart.
+    collectRefusal: (failure, result) => collectRefusal(failures, failure, result?.stderr),
   };
 }

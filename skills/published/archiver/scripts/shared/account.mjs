@@ -326,7 +326,17 @@ export async function resolveAccountDir(descriptor, root, { id } = {}) {
  * One pass rather than three, because the answer is wanted once and three passes
  * would each stop at a different folder.
  */
-export async function findAccountDir(descriptor, root, { url, alias, handle } = {}) {
+export async function findAccountDir(descriptor, root, { id, url, alias, handle } = {}) {
+  // An id, where the caller has one, settles it outright: resolveAccountDir
+  // answers only once account.json there names this account, so a non-null
+  // answer is the identity check as well as the lookup. The keys below match on
+  // what a folder says about itself, which a folder belonging to somebody else
+  // can also say.
+  if (id) {
+    const dir = await resolveAccountDir(descriptor, root, { id });
+    if (dir) return dir;
+  }
+
   if (alias && isSafeAlias(alias)) {
     const dir = aliasDirFor(descriptor, root, alias);
     if (await identityAt(dir)) return dir;
