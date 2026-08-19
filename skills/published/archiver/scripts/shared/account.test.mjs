@@ -492,21 +492,21 @@ test('settling resolves an aliased account rather than computing where it goes',
   // Computing would name <root>/x/55 and quietly start a second, empty archive
   // beside the real one on every aliased account.
   const settled = await settleFolder(ACCOUNT, dir, { id: '55' });
-  assert.equal(settled.dir, folder);
-  assert.equal(settled.id, '55');
+  assert.equal(settled.folder.dir, folder);
+  assert.equal(settled.folder.id, '55');
 });
 
 test('settling a folder nobody has archived names it for the alias asked for', async () => {
   const dir = await root();
   const settled = await settleFolder(ACCOUNT, dir, { id: '55', alias: 'jia' });
-  assert.equal(settled.dir, aliasDirFor(ACCOUNT, dir, 'jia'));
-  assert.equal(settled.id, '55');
+  assert.equal(settled.folder.dir, aliasDirFor(ACCOUNT, dir, 'jia'));
+  assert.equal(settled.folder.id, '55');
 });
 
 test('settling with no alias asked for names the folder for the id', async () => {
   const dir = await root();
   assert.equal(
-    (await settleFolder(ACCOUNT, dir, { id: '55' })).dir,
+    (await settleFolder(ACCOUNT, dir, { id: '55' })).folder.dir,
     accountDirFor(ACCOUNT, dir, '55'),
   );
 });
@@ -538,4 +538,23 @@ test('finding a folder by its id hands back its identity too', async () => {
 test('finding nothing is null, never a folder standing for nothing', async () => {
   const dir = await root();
   assert.equal(await findFolder(ACCOUNT, dir, { url: 'https://x.com/nobody' }), null);
+});
+
+test('settling refuses an id that could not be a folder name, and does not throw', async () => {
+  // The run settles inside its listing's row loop, where a throw surfaces as an
+  // unexplained stream failure rather than as the refusal the user is owed.
+  const dir = await root();
+  for (const bad of ['..', '.', '', 'a/b', '../../etc', 'x'.repeat(129)]) {
+    const settled = await settleFolder(ACCOUNT, dir, { id: bad });
+    assert.equal(settled.ok, false, `expected ${JSON.stringify(bad)} to be refused`);
+    assert.equal(settled.reason, 'unsafe-id');
+    assert.equal(settled.id, bad);
+  }
+});
+
+test('settling an id it will use says so, and hands over the folder', async () => {
+  const dir = await root();
+  const settled = await settleFolder(ACCOUNT, dir, { id: '55' });
+  assert.equal(settled.ok, true);
+  assert.equal(settled.folder.id, '55');
 });

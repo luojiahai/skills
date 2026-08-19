@@ -304,13 +304,21 @@ function folderOf(dir, json) {
  *
  * The folder need not exist. This says where it goes, which is what a caller has
  * to know before it can read the archive there or create it.
+ *
+ * An id this build will not put in a path is answered as `{ ok: false }` rather
+ * than thrown. A run settles the folder inside its listing's row loop, where a
+ * throw surfaces as an unexplained stream failure instead of the refusal the
+ * user is owed — and the wording of that refusal is the platform's, since only
+ * it can say what it reported an id for.
  */
 export async function settleFolder(descriptor, root, { id, alias } = {}) {
+  if (!isSafeId(id)) return { ok: false, reason: 'unsafe-id', id: String(id ?? '') };
+
   const found = await resolveFolder(descriptor, root, { id });
-  if (found) return found;
+  if (found) return { ok: true, folder: found };
 
   const dir = alias ? aliasDirFor(descriptor, root, alias) : accountDirFor(descriptor, root, id);
-  return { dir, id: String(id), account: null, url: null };
+  return { ok: true, folder: { dir, id: String(id), account: null, url: null } };
 }
 
 /**

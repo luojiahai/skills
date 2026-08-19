@@ -23,7 +23,6 @@ import {
   checkAlias,
   findFolder,
   isSafeAlias,
-  isSafeId,
   moveToAlias,
   recordIdentity,
   settleFolder,
@@ -423,14 +422,15 @@ async function makePlan({ adapter, root, alias, unalias, session, target, full }
     stopper: ({ archive: seen, incremental: on }) =>
       makeStopper({ archive: seen, threshold: adapter.threshold, enabled: on }),
     onAccount: async (account) => {
+      const settled = await settleFolder(descriptor, root, { id: account.id, alias });
       // Recorded and stopped rather than thrown: collect() reads this inside
       // its row loop, where a throw would surface as an unexplained stream
-      // failure.
-      if (!isSafeId(account.id)) {
-        badId = String(account.id ?? '');
+      // failure. What the refusal says is the platform's to word.
+      if (!settled.ok) {
+        badId = settled.id;
         return { archive: new Map(), incremental: false, stopNow: true };
       }
-      folder = await settleFolder(descriptor, root, { id: account.id, alias });
+      folder = settled.folder;
       archive = await readArchive(folder.dir);
       incremental = await sweepIsIncremental({
         accountDir: folder.dir, accountId: account.id, archive, full, postIdKey, root,
