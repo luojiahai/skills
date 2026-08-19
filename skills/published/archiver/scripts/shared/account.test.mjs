@@ -16,6 +16,7 @@ import {
   existingIds,
   fileAccount,
   findAccountDir,
+  folders,
   findFolder,
   isSafeAlias,
   isSafeId,
@@ -690,4 +691,32 @@ test('confirming against a verdict for a different alias is a mistake too', asyn
   const dir = await root();
   const provisional = await checkAlias(ACCOUNT, dir, { id: null, alias: 'jia' });
   await assert.rejects(() => confirmAlias(ACCOUNT, dir, provisional, { id: '55', alias: 'other' }));
+});
+
+test('every folder under a root is read once, with its identity and its name', async () => {
+  const dir = await root();
+  await seed(dir, 'jia', { account: { id: '55', nickname: 'Some One', alias: 'jia' } });
+  await seed(dir, '99', { account: { id: '99' }, url: 'https://x.com/other' });
+
+  const read = [];
+  for await (const folder of folders(ACCOUNT, dir)) read.push(folder);
+  read.sort((a, b) => a.name.localeCompare(b.name));
+
+  assert.deepEqual(read.map((f) => f.name), ['99', 'jia']);
+  assert.deepEqual(read.map((f) => f.id), ['99', '55']);
+  assert.equal(read[1].account.nickname, 'Some One');
+  assert.equal(read[0].url, 'https://x.com/other');
+});
+
+test('a folder a build cannot read is no archive at all', async () => {
+  const dir = await root();
+  await seed(dir, '55', { account: { id: '55' } });
+  await writeFile(
+    path.join(dir, PLATFORM, '55', 'account.json'),
+    JSON.stringify({ version: ACCOUNT_VERSION + 1, account: { id: '55' } }),
+  );
+
+  const read = [];
+  for await (const folder of folders(ACCOUNT, dir)) read.push(folder);
+  assert.deepEqual(read, []);
 });

@@ -254,7 +254,7 @@ async function exists(dir) {
  * no archive at all, which is the same answer as a folder nobody has archived
  * into.
  */
-export async function* accounts(descriptor, root) {
+async function* accounts(descriptor, root) {
   let entries;
   try {
     entries = await readdir(platformDir(descriptor, root), { withFileTypes: true });
@@ -268,6 +268,18 @@ export async function* accounts(descriptor, root) {
     const json = await identityAt(dir);
     if (json) yield [dir, json];
   }
+}
+
+/**
+ * Every account archived under this root, as folders.
+ *
+ * The one question here that is asked of the whole archive rather than of one
+ * account, and the only entry that reads without ever writing — a listing is how
+ * somebody decides what to do next, so the one thing it must not do is change
+ * what it is describing.
+ */
+export async function* folders(descriptor, root) {
+  for await (const [dir, json] of accounts(descriptor, root)) yield folderOf(dir, json);
 }
 
 /**
@@ -287,6 +299,9 @@ export async function* accounts(descriptor, root) {
 function folderOf(dir, json) {
   return {
     dir,
+    // What the folder is called, which is what the alias is derived from every
+    // time anything writes to it — so nobody has to take a basename apart again.
+    name: path.basename(dir),
     id: String(json?.account?.id ?? '') || null,
     account: json?.account ?? null,
     url: json?.url ?? null,
@@ -324,7 +339,7 @@ export async function settleFolder(descriptor, root, { id, alias, unalias } = {}
   if (found) return { ok: true, folder: found, movingTo };
 
   const dir = alias ? aliasDirFor(descriptor, root, alias) : accountDirFor(descriptor, root, id);
-  return { ok: true, folder: { dir, id: String(id), account: null, url: null }, movingTo };
+  return { ok: true, folder: { ...folderOf(dir, null), id: String(id) }, movingTo };
 }
 
 /**

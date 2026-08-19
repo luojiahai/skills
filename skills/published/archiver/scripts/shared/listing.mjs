@@ -30,7 +30,7 @@
 import { readdir } from 'node:fs/promises';
 import path from 'node:path';
 
-import { accounts } from './account.mjs';
+import { folders } from './account.mjs';
 import { checkRoot } from './archiver.mjs';
 import { POSTS_DIR, isLanded, postIdFromFolder, readArchive } from './landed.mjs';
 import { approved, validatePlan } from './plan.mjs';
@@ -99,17 +99,21 @@ export async function readAccounts(root, { now = Date.now() } = {}) {
 
   for (const platform of PLATFORMS) {
     const here = [];
-    for await (const [dir, json] of accounts(platform.account, root)) {
-      const accountId = json.account?.id ?? null;
+    for await (const folder of folders(platform.account, root)) {
       here.push({
         platform: platform.name,
-        folder: path.basename(dir),
-        dir,
-        nickname: json.account?.nickname ?? null,
-        url: json.url ?? null,
-        posts: await countPosts(dir),
-        last_run: (await readSync(dir))?.last_run?.at ?? null,
-        to_fetch: await pendingCount(dir, { accountId, postIdKey: platform.postIdKey, root, now }),
+        folder: folder.name,
+        dir: folder.dir,
+        nickname: folder.account?.nickname ?? null,
+        url: folder.url,
+        posts: await countPosts(folder.dir),
+        last_run: (await readSync(folder.dir))?.last_run?.at ?? null,
+        to_fetch: await pendingCount(folder.dir, {
+          accountId: folder.id,
+          postIdKey: platform.postIdKey,
+          root,
+          now,
+        }),
       });
     }
 
