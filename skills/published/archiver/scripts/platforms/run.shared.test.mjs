@@ -396,6 +396,31 @@ for (const bench of GALLERYDL) {
     assert.equal(cache.accounts[bench.name][bench.id], 'mine', 'archiver.json followed');
   });
 
+  test(at('a run reports what reached the folder, not what the downloader claimed'), async () => {
+    // A downloader that exits clean without writing the files has archived
+    // nothing. The total and what is left over are both asked of the folder, and
+    // a downloaded count taking the fetcher's word instead is how one document
+    // comes to say two posts landed in an archive holding none.
+    const root = await archivesRoot();
+    const posts = bench.ids.slice(0, 2).map(bench.post);
+    const accountDir = await parked(bench, root, { collected: posts, pending: posts });
+
+    const { document } = await run(bench, [bench.url, '--archives', root, '--go'], {
+      fetch: async ({ posts: todo }) => ({
+        fetched: { posts: todo.length, files: todo.length },
+        failed: 0,
+        stopped: null,
+      }),
+    });
+
+    assert.equal(document.result.run.downloaded, 0, 'nothing reached the folder');
+    assert.equal(document.result.run.total, 0);
+    assert.equal(document.result.run.remaining, 2, 'and all of it is still to do');
+
+    const sync = await syncJson(accountDir);
+    assert.equal(sync.last_run.landed, 0, 'the record agrees with the folder');
+  });
+
   test(at('a --go that refuses the plan renames nothing'), async () => {
     // The rename happens before the download so what is fetched lands in its
     // final home. A plan that will not run downloads nothing, so there is no

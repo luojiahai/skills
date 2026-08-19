@@ -172,6 +172,13 @@ export async function duplicateFolders(accountDir) {
  * holding only its post.json, and that has to read as still-missing or a run cut
  * short would report itself complete.
  */
+/** How many of an archive's posts are landed — the archive's own size, honestly counted. */
+export function landedCount(archive) {
+  let count = 0;
+  for (const [, entry] of archive) if (isLanded(entry)) count += 1;
+  return count;
+}
+
 export async function onDiskIds(accountDir) {
   const ids = new Set();
   for (const [id, entry] of await readArchive(accountDir)) {

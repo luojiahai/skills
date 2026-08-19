@@ -35,7 +35,7 @@ import { checkRoot, stampRoot } from './archiver.mjs';
 import { missingValueRefusal, optString, parseCommandLine } from './cli.mjs';
 import { Refusal, refusalFields } from './errors.mjs';
 import { EXIT } from './exit.mjs';
-import { duplicateFolders, isLanded, outstanding, readArchive } from './landed.mjs';
+import { duplicateFolders, isLanded, landedCount, outstanding, readArchive } from './landed.mjs';
 import {
   accountFields,
   answer,
@@ -579,6 +579,10 @@ async function doGo({ adapter, root, dir, alias, unalias, url, target, session, 
   const archive = await readArchive(accountDir);
   const todo = outstanding(approved(plan), archive, postIdKey);
 
+  // What the folder held before the download, so what it holds afterwards can be
+  // reported as a difference rather than as whatever the downloader said it did.
+  const before = landedCount(archive);
+
   const { fetched, failed, stopped } = await adapter.fetch({
     accountDir,
     posts: todo,
@@ -599,9 +603,12 @@ async function doGo({ adapter, root, dir, alias, unalias, url, target, session, 
   const remaining = outstanding(approved(plan), landed, postIdKey).length;
 
   // Asked of the folder, so a resumed run reports the archive rather than its
-  // own increment.
-  let total = 0;
-  for (const [, entry] of landed) if (isLanded(entry)) total += 1;
+  // own increment — and so does what this run added to it. A downloader that
+  // exits clean without writing the files has archived nothing, and its own
+  // count of what it fetched would have this document report posts landing in a
+  // folder that never received them.
+  const total = landedCount(landed);
+  const downloaded = total - before;
 
   // One id in two folders leaves one of them answering for nothing, and its
   // media counted by nothing.
@@ -612,7 +619,7 @@ async function doGo({ adapter, root, dir, alias, unalias, url, target, session, 
   await recordRun(accountDir, {
     root,
     found: plan.counts?.found ?? null,
-    landed: fetched.posts,
+    landed: downloaded,
     failed,
   });
 
@@ -620,7 +627,7 @@ async function doGo({ adapter, root, dir, alias, unalias, url, target, session, 
   // partway, which is what makes the retry fetch only what is missing.
   if (remaining === 0) await clearPlan(accountDir);
 
-  return { plan, accountDir, fetched, failed, stopped, remaining, total, duplicates };
+  return { plan, accountDir, fetched, downloaded, failed, stopped, remaining, total, duplicates };
 }
 
 /**
@@ -660,7 +667,7 @@ async function reportRun({ adapter }, command, outcome, { url = null, notes = nu
     // acting on a list already approved, and its window has done its work.
     plan: plan ? planWindow({ createdAt: plan.created_at, ttlHours: DEFAULT_TTL_HOURS }) : null,
     run: runCounts({
-      downloaded: outcome.fetched.posts,
+      downloaded: outcome.downloaded,
       // Asked of the folder rather than added to the plan's `on_disk`, which
       // was frozen when the plan was made. A --go that fetched 40 of 100 and
       // was rate-limited leaves the next one reporting 60 for an archive
