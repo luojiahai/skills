@@ -36,11 +36,14 @@ description was written still reads as incomplete — which it is.
 A post listing *no* files is complete, because there is nothing to wait for. That
 cannot arise from a collection pass, which only ever yields posts carrying files,
 and treating it as incomplete would put such a post into an unending retry loop.
-What it does mean is that a listing cut off mid-post — a rate limit landing
-between two of one post's rows — would write a short list and then be satisfied
-by it forever. That is why `diff` treats a post whose extractor count exceeds the
-rows it saw as missing, and reports the count as an `under-described-posts`
-note.
+
+**One question, asked in one place.** What is still missing is `landed.mjs`'s
+`outstanding`, and `diff` and the fetch loop both call it rather than each holding
+a rule. Nothing may be OR-ed in beside it here: a plan built on a wider predicate
+than the fetch's offers posts the fetch then skips, and the run reports zero
+downloaded against everything the user approved. A pass cut off mid-post cannot
+reach a plan to be caught anyway — a listing that ended early exited non-zero, and
+that refuses the whole plan rather than writing a short one.
 
 **gallery-dl's skip-and-abort does not run in a collection pass.** `skip:
 "abort:N"` lives in `DownloadJob.handle_url`, and `SimulationJob` overrides that

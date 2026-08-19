@@ -72,11 +72,15 @@ beside the metadata rather than inside it, so the media URL is asked for as
 `{video_url|display_url|''}` — the two keys the extractor does set, a video
 carrying both and an image only the second.
 
-**`count` is what makes a truncated listing detectable.** The extractor sets it
-to the number of files it found for the post. A rate limit landing between two
-of one carousel's rows writes a short list that nothing can lengthen
-afterwards, so `diff` treats a post whose `count` exceeds the rows it saw as
-missing and reports it as `under-described-posts`.
+**`count` is not asked for, and must not be added.** It looks like the field that
+would make a truncated listing detectable, and it is not: the extractor sets it to
+every file it *found* for the post, a reel's soundtrack included, while
+`extractor.instagram.audio` being false means it prints no row for that soundtrack
+and writes no file for it. So `count` exceeds the rows for every reel with music,
+and a diff comparing the two marks a complete post as missing — then hands `--go` a
+list whose every entry is already on disk, so the block promises a hundred posts and
+the run downloads none. The rows are the record. They come from the same policy the
+fetch runs under, so they are exactly the files a `--go` will write.
 
 **Free text must be `!j`-encoded.** A caption containing a newline or a tab
 would otherwise be indistinguishable from several rows of a tab-separated

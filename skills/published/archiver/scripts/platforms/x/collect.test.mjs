@@ -10,9 +10,9 @@ import { DEFAULT_ABORT, collect, makeStopper } from './collect.mjs';
 import { ROW_MARKER } from './gallerydl.mjs';
 import { buildPost } from '../../shared/post.mjs';
 
-const row = (id, num = 1, count = 1) =>
+const row = (id, num = 1) =>
   [
-    ROW_MARKER, id, num, count, 'jpg',
+    ROW_MARKER, id, num, 'jpg',
     'TOKEN', 'photo', 'https://pbs.twimg.com/media/TOKEN.jpg',
     '2024-03-11 07:22:19', '55', 'someone', '"Some One"',
     'https://pbs.twimg.com/profile_images/9/a.jpg', '',

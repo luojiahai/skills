@@ -234,10 +234,7 @@ async function doPlan({
         reels: counts.reels,
       },
     }),
-    notes: [
-      ...sweepNotes({ incremental, sweeps: result.sweeps, threshold }),
-      ...underDescribedNote(counts.underDescribed),
-    ],
+    notes: sweepNotes({ incremental, sweeps: result.sweeps, threshold }),
     now: new Date(),
   });
 
@@ -651,17 +648,6 @@ async function report(command, outcome, { url = null, notes = null, plan = null 
  */
 function duplicateNote(count) {
   return count ? [{ code: 'duplicate-posts', count }] : [];
-}
-
-/**
- * Posts the extractor said carry more files than these passes saw rows for.
- *
- * They are refetched, so the files land — but the plan's own list was written
- * short, and nothing can lengthen it after the fact. The count is what keeps
- * that visible instead of leaving the archive quietly under-describing a post.
- */
-function underDescribedNote(count) {
-  return count ? [{ code: 'under-described-posts', count }] : [];
 }
 
 /**

@@ -118,7 +118,6 @@ const row = (over = {}) => {
   const fields = {
     shortcode: 'C3xY-_9Ab',
     num: '1',
-    count: '2',
     ext: 'jpg',
     mediaId: '3298471',
     typename: 'GraphImage',
@@ -137,7 +136,6 @@ test('parseRow reads a printed row', () => {
   const parsed = parseRow(row());
   assert.equal(parsed.shortcode, 'C3xY-_9Ab');
   assert.equal(parsed.num, 1);
-  assert.equal(parsed.count, 2);
   assert.equal(parsed.ext, 'jpg');
   assert.equal(parsed.mediaId, '3298471');
   assert.equal(parsed.content, 'hello');

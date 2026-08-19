@@ -8,11 +8,12 @@ import test from 'node:test';
 
 import { classify, diff, groupFiles } from './collect.mjs';
 import { buildPost } from '../../shared/post.mjs';
+import { outstanding } from '../../shared/landed.mjs';
 
 const rows = [
-  { tweetId: '1', num: 1, count: 2, ext: 'jpg', date: '2024-03-11 07:22:19', content: 'a' },
-  { tweetId: '1', num: 2, count: 2, ext: 'jpg', date: '2024-03-11 07:22:19', content: 'a' },
-  { tweetId: '2', num: 1, count: 1, ext: 'mp4', date: '2024-03-10 07:22:19', content: 'b' },
+  { tweetId: '1', num: 1, ext: 'jpg', date: '2024-03-11 07:22:19', content: 'a' },
+  { tweetId: '1', num: 2, ext: 'jpg', date: '2024-03-11 07:22:19', content: 'a' },
+  { tweetId: '2', num: 1, ext: 'mp4', date: '2024-03-10 07:22:19', content: 'b' },
 ];
 
 /**
@@ -32,7 +33,6 @@ test('groupFiles folds file rows into posts', () => {
   assert.equal(posts.length, 2);
   assert.equal(posts[0].tweetId, '1');
   assert.equal(posts[0].files.length, 2);
-  assert.equal(posts[0].count, 2);
 });
 
 test('groupFiles preserves enumeration order, newest first', () => {
@@ -41,7 +41,7 @@ test('groupFiles preserves enumeration order, newest first', () => {
 
 test('groupFiles carries what post.json needs off the first row', () => {
   const [post] = groupFiles([
-    { tweetId: '9', num: 1, count: 1, ext: 'jpg', date: '2024-01-01 00:00:00', content: 'hi', replyId: '42', user: { name: 'someone' } },
+    { tweetId: '9', num: 1, ext: 'jpg', date: '2024-01-01 00:00:00', content: 'hi', replyId: '42', user: { name: 'someone' } },
   ]);
   assert.equal(post.replyId, '42');
   assert.equal(post.handle, 'someone');
@@ -57,20 +57,6 @@ test('a file record is already in the shape post.json wants', () => {
   assert.deepEqual(post.files, [
     { num: 1, ext: 'jpg', url: 'https://pbs.twimg.com/media/ABC.jpg', type: 'photo', id: 'ABC' },
   ]);
-});
-
-test('groupFiles trusts the extractor count over a truncated tally', () => {
-  const [post] = groupFiles([{ tweetId: '9', num: 1, count: 4, ext: 'jpg' }]);
-  assert.equal(post.count, 4);
-  assert.equal(post.files.length, 1);
-});
-
-test('groupFiles falls back to its own tally when no count is reported', () => {
-  const [post] = groupFiles([
-    { tweetId: '9', num: 1, ext: 'jpg' },
-    { tweetId: '9', num: 2, ext: 'jpg' },
-  ]);
-  assert.equal(post.count, 2);
 });
 
 test('classify splits images from videos', () => {
@@ -105,28 +91,18 @@ test('diff counts found files across every post, fetched or not', () => {
   assert.equal(result.counts.foundFiles, 3);
 });
 
-const goodPlan = {
-  createdAt: new Date(1_700_000_000_000).toISOString(),
-  account: { id: '55', handle: 'someone' },
-  root: '/data',
-  url: 'https://x.com/someone',
-};
-const now = 1_700_000_000_000 + 60_000;
+test('the diff offers exactly what the fetch will take, and never more', () => {
+  // The one rule. `--go` decides what to hand the fetcher by calling
+  // `outstanding`; a diff that answered this question its own way would offer
+  // posts the fetch then skips, and the run would report zero downloaded against
+  // everything the user approved.
+  // A landed post carrying two files and a landed post carrying one, so a stray
+  // predicate on either shape shows up here, plus one genuinely absent.
+  const archive = new Map([onDisk('1', ['1.jpg', '2.jpg']), onDisk('2', ['1.mp4'])]);
+  const posts = groupFiles([...rows, { tweetId: '3', num: 1, ext: 'jpg', date: '2024-03-09 07:22:19' }]);
+  const result = diff(posts, archive, 'tweetId');
 
-test('a post the extractor says has more files than were seen is fetched again', () => {
-  // Enumeration cut off between two of one post's rows — a rate limit landing
-  // mid-post. The plan would otherwise list two of the post's four images,
-  // gallery-dl would fetch all four, and the completeness check would be
-  // satisfied by the two that were listed, for good.
-  const post = { tweetId: '9', count: 4, files: [{ num: 1, ext: 'jpg' }, { num: 2, ext: 'jpg' }] };
-  const archive = new Map([onDisk('9', ['1.jpg', '2.jpg'])]);
-
-  const result = diff([post], archive, 'tweetId');
-  assert.deepEqual(result.toFetch.map((p) => p.tweetId), ['9']);
-  assert.equal(result.counts.underDescribed, 1);
-});
-
-test('a post whose file count matches what was seen is not counted as short', () => {
-  const post = { tweetId: '9', count: 2, files: [{ num: 1, ext: 'jpg' }, { num: 2, ext: 'jpg' }] };
-  assert.equal(diff([post], new Map(), 'tweetId').counts.underDescribed, 0);
+  assert.deepEqual(result.toFetch, outstanding(posts, archive, 'tweetId'));
+  assert.deepEqual(result.toFetch.map((p) => p.tweetId), ['3']);
+  assert.equal(result.counts.onDiskPosts, 2);
 });

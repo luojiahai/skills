@@ -82,11 +82,11 @@ test('a run always reads its session from a file, never the live browser', () =>
   }
 });
 
-const REPLY_ID = 14;
+const REPLY_ID = 13;
 
 const row = (content = '"hello"', { type = 'photo' } = {}) =>
   [
-    ROW_MARKER, '1767', '1', '2', 'jpg',
+    ROW_MARKER, '1767', '1', 'jpg',
     'F1a2B3c4D5eFgHi', type, 'https://pbs.twimg.com/media/F1a2B3c4D5eFgHi.jpg',
     '2024-03-11 07:22:19', '55', 'someone', '"Some One"',
     'https://pbs.twimg.com/profile_images/9/a.jpg', 'https://pbs.twimg.com/profile_banners/55/1699',
@@ -97,7 +97,6 @@ test('parseRow reads a printed row', () => {
   const parsed = parseRow(row());
   assert.equal(parsed.tweetId, '1767');
   assert.equal(parsed.num, 1);
-  assert.equal(parsed.count, 2);
   assert.equal(parsed.ext, 'jpg');
   assert.equal(parsed.url, 'https://pbs.twimg.com/media/F1a2B3c4D5eFgHi.jpg');
   assert.equal(parsed.user.name, 'someone');
@@ -207,15 +206,15 @@ test('a row whose reply field renders as None carries no reply', () => {
   // renders the four characters "None" — and a permalink built from those names
   // a post that does not exist.
   const fields = [
-    'xdl', '1767', '1', '1', 'jpg', 'abc', 'photo', 'https://pbs.twimg.com/abc.jpg',
+    'xdl', '1767', '1', 'jpg', 'abc', 'photo', 'https://pbs.twimg.com/abc.jpg',
     '2024-03-11 07:22:19', '55', 'jack', '"Jack"', '', '', 'None', '""',
   ];
   assert.equal(parseRow(fields.join('\t')).replyId, '');
 
-  fields[14] = '0';
+  fields[REPLY_ID] = '0';
   assert.equal(parseRow(fields.join('\t')).replyId, '');
 
-  fields[14] = '1766';
+  fields[REPLY_ID] = '1766';
   assert.equal(parseRow(fields.join('\t')).replyId, '1766');
 });
 
