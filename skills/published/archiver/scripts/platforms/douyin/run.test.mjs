@@ -240,6 +240,11 @@ test('an alias asked for with nothing left to fetch still moves the folder', asy
   assert.equal(document.result.counts.to_fetch, 0, 'nothing was left to fetch');
   assert.ok(existsSync(path.join(dir, 'douyin', '小明')), 'and the folder still moved');
   assert.ok(!existsSync(path.join(dir, 'douyin', 'MS4wSEC')));
+
+  // The other two of the rename's three writes.
+  assert.equal((await accountJson(path.join(dir, 'douyin', '小明'))).account.alias, '小明');
+  const cache = JSON.parse(await readFile(path.join(dir, 'archiver.json'), 'utf8'));
+  assert.equal(cache.accounts.douyin.MS4wSEC, '小明');
 });
 
 test('an archive whose root has moved says where the last run put it', async () => {

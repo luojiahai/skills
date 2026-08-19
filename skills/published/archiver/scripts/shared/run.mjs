@@ -367,6 +367,13 @@ export async function runAccount(base, argv, overrides = {}) {
       accountDir = await moveToAlias(descriptor, root, accountDir, {
         id: planned.plan.account?.id, alias, unalias,
       });
+      // The other two of the rename's three writes. Moving the folder and
+      // stopping leaves account.json naming the folder this run just left and
+      // archiver.json caching it — the archive disagreeing with itself until
+      // something else happens to write it.
+      await recordIdentity(descriptor, root, accountDir, {
+        account: planned.plan.account, url: target.url,
+      });
     } catch (error) {
       return refuseHere(refusalFields(error));
     }

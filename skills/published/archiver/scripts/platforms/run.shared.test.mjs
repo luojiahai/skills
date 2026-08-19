@@ -378,6 +378,24 @@ for (const bench of GALLERYDL) {
     assert.equal(existsSync(accountDirIn(root, bench)), false);
   });
 
+  test(at('a rename with nothing to fetch still lands all three writes'), async () => {
+    // The folder, then account.json inside it, then archiver.json. A run that
+    // moves the folder and stops leaves account.json naming the old folder and
+    // the root file caching it, which is the archive disagreeing with itself.
+    const root = await archivesRoot();
+    await run(bench, [bench.url, '--archives', root, '--yes']);
+
+    const { document } = await run(bench, [bench.url, '--archives', root, '--alias', 'mine', '--yes']);
+    assert.equal(document.result.counts.to_fetch, 0, 'nothing was left to fetch');
+
+    const moved = accountDirIn(root, bench, 'mine');
+    assert.equal(existsSync(moved), true, 'the folder moved');
+    assert.equal((await accountJson(moved)).account.alias, 'mine', 'account.json followed');
+
+    const cache = JSON.parse(await readFile(path.join(root, 'archiver.json'), 'utf8'));
+    assert.equal(cache.accounts[bench.name][bench.id], 'mine', 'archiver.json followed');
+  });
+
   test(at('one post id in two folders is reported'), async () => {
     const root = await archivesRoot();
     const id = bench.ids[0];
