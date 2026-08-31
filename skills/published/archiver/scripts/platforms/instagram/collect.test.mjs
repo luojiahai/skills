@@ -248,6 +248,21 @@ test('both feeds are enumerated, each at its own URL', async () => {
 
   assert.deepEqual(calls, [`${PROFILE}/posts`, `${PROFILE}/reels`]);
   assert.deepEqual(result.rows.map((r) => [r.shortcode, r.category]), [['A', 'posts'], ['B', 'reels']]);
+  assert.deepEqual(result.skipped, [], 'every feed enumerated leaves nothing skipped');
+});
+
+test('a caller-chosen subset enumerates those feeds alone and names the rest skipped', async () => {
+  // The skipped feeds are a fact on the result rather than a silence, so a
+  // plan built from fewer feeds than the profile has can say which are missing.
+  const { impl, calls } = feeds({
+    [`${PROFILE}/posts`]: { rows: [parsed('A')], account: ACCOUNT, stoppedEarly: false, failure: null },
+  });
+
+  const result = await collectFeeds({ url: PROFILE, categories: ['posts'], collectImpl: impl });
+
+  assert.deepEqual(calls, [`${PROFILE}/posts`]);
+  assert.deepEqual(result.skipped, ['reels']);
+  assert.deepEqual(result.sweeps, [{ category: 'posts', stoppedEarly: false }]);
 });
 
 test('each pass reports its own sweep, because each stops on its own', async () => {

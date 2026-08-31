@@ -33,6 +33,13 @@ import { httpStatus } from '../../shared/subprocess.mjs';
  * being read is the URL rather than a config key that has to agree with one.
  */
 export const POLICY = {
+  // Instagram binds a web session to the browser it was created in, and answers
+  // a mismatched client with an HTTP redirect to the home page. gallery-dl's
+  // default user-agent is Firefox's, so a session read from a Chrome-family
+  // browser is rejected on every request. A current Chrome UA matches the
+  // sessions this skill actually reads.
+  'extractor.instagram.user-agent':
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36',
   'extractor.instagram.videos': true,
   'extractor.instagram.previews': false,
   'extractor.instagram.audio': false,

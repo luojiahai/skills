@@ -228,6 +228,7 @@ The `--go` document is the run's whole result. Report it and stop.
 | `undated-posts` | Douyin. `count` posts filed under `undated_<id>`, because nothing would say when they were published. |
 | `duplicate-posts` | Any platform. `count` post ids found in two folders each. One answers for the post; the other's media is counted by nothing, so every figure beside it is short by that much. |
 | `sweep` | Any platform. `mode: "incremental"` with `stopped_early: true` is what a re-run against an up-to-date archive normally looks like: it stopped after `threshold` known posts rather than walking to the end. Report it plainly rather than as a warning — an unfinished download is not what this is, because that case sweeps `full` instead. `--full` is there for anyone who wants the whole feed walked anyway. A `--go` repeats the note its plan recorded, which may be up to a day old. **On Douyin it also says why figures are missing**: `stopped_early: true` is why `counts.platform.reported` and `counts.platform.unlisted` are `null` and why neither `hidden-posts` nor `unlisted-posts` is there — the listing is short on purpose, so those numbers would be wrong rather than merely unknown. **Instagram carries one of these per feed**, each with a `category` of `posts` or `reels`. `mode` is the same on both; `stopped_early` need not be, and one feed that ran to the end beside one that stopped early is worth naming. |
+| `feed-skipped` | Instagram. The `category` feed was never enumerated, because `--skip-reels` asked for the posts feed alone. Reels that appear in the profile grid still arrive through that feed; ones that do not are left unlisted. Say so — a plan built from fewer feeds than the profile has must never read as the whole account. |
 | `moving-to` | `--alias` will rename the folder to `dir` on the download step. Say it before they say yes; nothing has moved yet. |
 | `root-changed` | The last run archived into `previous`. Say it — otherwise an `on_disk` of zero reads as an archive that lost its files. |
 
@@ -479,8 +480,11 @@ permanent media and are the candidate for a later flag; they are not fetched
 today. A URL naming a story, the tagged tab or a single post is refused by name.
 
 `--full` collects the whole profile even when a re-run could stop early.
-`--cookies FILE` uses an exported `cookies.txt` instead of a browser or the
-cached session.
+`--skip-reels` enumerates only the posts feed, for when Instagram's clips API
+is refusing. Reels shown in the profile grid still arrive through that feed;
+ones outside it are left unlisted, and the plan carries a `feed-skipped` note
+saying so. `--cookies FILE` uses an exported `cookies.txt` instead of a browser
+or the cached session.
 
 **Posts and reels are collected separately**, because each has to be able to
 stop early without ending the other — so a run makes two passes and carries two

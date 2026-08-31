@@ -139,6 +139,16 @@
           }
         },
         {
+          "description": "A listing pass the run was told not to make, so the plan covers fewer feeds than the profile has.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["code", "category"],
+          "properties": {
+            "code": { "const": "feed-skipped" },
+            "category": { "enum": ["posts", "reels"] }
+          }
+        },
+        {
           "type": "object",
           "additionalProperties": false,
           "required": ["code", "count"],

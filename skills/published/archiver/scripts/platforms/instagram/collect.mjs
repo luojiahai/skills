@@ -217,6 +217,7 @@ export async function collectFeeds({
   cookies,
   onAccount,
   stopper,
+  categories = CATEGORIES,
   threshold = DEFAULT_ABORT,
   bin = toolPath('gallery-dl'),
   spawnImpl = spawn,
@@ -224,6 +225,7 @@ export async function collectFeeds({
 }) {
   const rows = [];
   const sweeps = [];
+  const skipped = CATEGORIES.filter((category) => !categories.includes(category));
   let account = null;
   let stopRule = null;
 
@@ -249,7 +251,7 @@ export async function collectFeeds({
     return (row) => stop(row.shortcode);
   };
 
-  for (const category of CATEGORIES) {
+  for (const category of categories) {
     const result = await collectImpl({
       url: feedUrl(url, category),
       cookies,
@@ -259,7 +261,7 @@ export async function collectFeeds({
     });
 
     if (result.failure) {
-      return { rows, account, sweeps, failure: result.failure, stderr: result.stderr, code: result.code };
+      return { rows, account, sweeps, skipped, failure: result.failure, stderr: result.stderr, code: result.code };
     }
 
     // Stamped from the pass that ran rather than read back out of the
@@ -269,7 +271,7 @@ export async function collectFeeds({
     sweeps.push({ category, stoppedEarly: result.stoppedEarly });
   }
 
-  return { rows, account, sweeps, failure: null, stderr: '', code: 0 };
+  return { rows, account, sweeps, skipped, failure: null, stderr: '', code: 0 };
 }
 
 // ---- rows into posts -------------------------------------------------------

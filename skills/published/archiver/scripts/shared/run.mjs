@@ -395,7 +395,7 @@ async function downloadAndReport(args) {
  * Throws its refusals rather than composing documents. `runAccount` owns the
  * envelope, so a `--yes` emits exactly one.
  */
-async function makePlan({ adapter, root, alias, aliasChecked, unalias, session, target, full }) {
+async function makePlan({ adapter, root, alias, aliasChecked, unalias, session, target, full, opts }) {
   const descriptor = adapter.account;
   const postIdKey = adapter.postIdKey;
 
@@ -413,6 +413,9 @@ async function makePlan({ adapter, root, alias, aliasChecked, unalias, session, 
     // The whole target as well as its URL, for a platform whose listing needs
     // what the URL was parsed into — Douyin reads the account's id out of it.
     target,
+    // The parsed flags as well, for a platform whose listing has flags of its
+    // own — Instagram's --skip-reels chooses which feeds are enumerated.
+    opts,
     session,
     adapter,
     threshold: adapter.threshold,
