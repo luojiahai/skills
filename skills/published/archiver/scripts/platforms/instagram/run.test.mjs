@@ -359,6 +359,25 @@ test('an unknown flag is the user typo to see, not a guess to make', async () =>
   assert.equal(document.error.details.flag, '--stories');
 });
 
+test('--skip-reels reaches the listing, and the plan names the feed it skipped', async () => {
+  // `emitted` validates the document against the output schema, so this also
+  // holds the `feed-skipped` note to the envelope contract.
+  const dir = await archivesRoot();
+  let handed = null;
+  const { document } = await run([PROFILE, '--archives', dir, '--skip-reels', '--plan'], {
+    collect: async (args) => {
+      handed = args.opts;
+      return collected({
+        sweeps: [{ category: 'posts', stoppedEarly: false }],
+        skipped: ['reels'],
+      });
+    },
+  });
+
+  assert.equal(handed.skip_reels, true, 'the flag reaches the listing');
+  assert.deepEqual(noteWith(document, 'feed-skipped'), { code: 'feed-skipped', category: 'reels' });
+});
+
 test('a flag given no value is refused rather than dropped', async () => {
   const { document } = await run([PROFILE, '--alias', '--plan']);
   assert.equal(document.error.code, 'flag-needs-value');

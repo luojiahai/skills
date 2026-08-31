@@ -32,7 +32,7 @@ const POST_ID_KEY = postIdKeyFor(PLATFORM);
 const STATE_DIR = stateDir(PLATFORM);
 
 /** What Instagram adds to the flags every platform shares. */
-const BOOLEAN_FLAGS = new Set([...COMMON_BOOLEAN_FLAGS, 'full']);
+const BOOLEAN_FLAGS = new Set([...COMMON_BOOLEAN_FLAGS, 'full', 'skip_reels']);
 const KNOWN_FLAGS = new Set([...COMMON_FLAGS, ...BOOLEAN_FLAGS, 'browser', 'cookies']);
 
 const USAGE = `Usage: archive.sh <url> [--archives DIR] [--alias NAME] [--plan|--go|--yes]
@@ -56,6 +56,9 @@ const USAGE = `Usage: archive.sh <url> [--archives DIR] [--alias NAME] [--plan|-
       --unalias         Put this account's folder back under its numeric id.
       --full            Collect the whole profile even when a re-run could
                         stop early.
+      --skip-reels      Enumerate only the posts feed. Reels that appear in
+                        the profile grid still arrive; ones that do not are
+                        left unlisted, and the plan says so.
       --browser NAME    Browser to read the Instagram session from the first
                         time (${BROWSERS.join(', ')}).
       --cookies FILE    Use this cookies.txt instead of a browser or the cache.
@@ -124,7 +127,7 @@ export const ADAPTER = {
 
   // Two listing passes, each stopping on its own, so the stopping rule arrives
   // as a factory and is called once per pass.
-  collect: ({ url, session, threshold, onAccount, stopper }) =>
+  collect: ({ url, opts, session, threshold, onAccount, stopper }) =>
     collectFeeds({
       url,
       cookies: session,
@@ -132,6 +135,11 @@ export const ADAPTER = {
       threshold,
       onAccount,
       stopper,
+      // The posts pass alone, on request. The reels a profile shows in its
+      // grid still arrive through it; the pass this skips is the one that
+      // needs Instagram's clips API, which is what --skip-reels is for when
+      // that API is refusing.
+      ...(opts?.skip_reels === true ? { categories: ['posts'] } : {}),
     }),
 
   fetch: ({ accountDir, posts, session, onPost }) =>
@@ -144,8 +152,12 @@ export const ADAPTER = {
     videos: counts.videos,
     reels: counts.reels,
   }),
-  planNotes: ({ incremental, result, threshold }) =>
-    sweepNotes({ incremental, sweeps: result.sweeps, threshold }),
+  planNotes: ({ incremental, result, threshold }) => [
+    ...sweepNotes({ incremental, sweeps: result.sweeps, threshold }),
+    // One note per feed that was never enumerated, so a plan built from fewer
+    // feeds than the profile has can never read as the whole account.
+    ...(result.skipped ?? []).map((category) => ({ code: 'feed-skipped', category })),
+  ],
   progressLabel: ({ post, done, total, ok }) =>
     ok
       ? `[instagram] ${done}/${total} — ${post.shortcode}`
