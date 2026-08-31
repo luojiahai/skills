@@ -10,7 +10,7 @@ npx skills@latest add luojiahai/skills
 
 The [root README](../README.md) covers the Claude Code plugin install too.
 
-Skills live in one of two tiers. `published/` is what installs; `deprecated/` holds the retired ones, listed at the bottom of this page for the record.
+Skills live in one of two tiers. `published/` is what installs; `deprecated/` holds retired ones, kept for the record and listed here when any exist.
 
 ## archiver
 
@@ -35,13 +35,3 @@ Skills live in one of two tiers. `published/` is what installs; `deprecated/` ho
 **You'll need `curl`, and nothing else.** The skill downloads and runs its own [yt-dlp](https://github.com/yt-dlp/yt-dlp), [gallery-dl](https://github.com/mikf/gallery-dl), Playwright and Chromium, at versions it pins — it never uses what's already on your machine, because a stale copy of a downloader is a breakage nobody can diagnose from the other end of an issue. They live in `~/.cache/archiver`, they're the only thing it puts on your disk outside your archives, and deleting that directory costs you nothing but a re-download; your sessions are kept somewhere else. The first run tells you what it's about to fetch and waits for your yes — and until you've said it, every command says the same thing, because the skill won't borrow a tool off your machine to get started either. `setup.sh douyin`, `setup.sh x` or `setup.sh instagram` builds it ahead of time — before a flight, say — and someone who only ever archives X or Instagram never downloads Chromium. If a platform changes before a fix ships, `setup.sh refresh` takes the downloaders at their latest release and keeps them there until a newer pin overtakes them.
 
 **It fetches; it doesn't publish.** Posts land in a folder on your own disk and nothing is uploaded anywhere. What you may keep, and what you may do with it, is between you, the platform's terms and the uploader's copyright — that call is yours, not the agent's. The pauses between requests are deliberate: a run with them removed gets cut off partway.
-
-## Retired
-
-Retired skills stay in the repo, under [`deprecated/`](./deprecated), because the work in them is still worth reading. They are not shipped, not installed by default, and not maintained. Each carries `metadata.internal: true` in its frontmatter, which is what keeps the skills.sh CLI from offering it — including under `--full-depth`. If you want one anyway:
-
-```bash
-INSTALL_INTERNAL_SKILLS=1 npx skills@latest add luojiahai/skills --skill <name>
-```
-
-- **[preparing-tax-return](./deprecated/preparing-tax-return/SKILL.md)** — Australia only: prepared an individual tax return for self-lodgement in myTax, walking you from documents through prefill reconciliation and deduction tests to a label-by-label worksheet. Retired because it is no longer maintained — and since it encodes rates and thresholds for a particular tax year, treat anything it tells you as out of date until you have checked it yourself.
