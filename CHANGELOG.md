@@ -1,5 +1,23 @@
 # luojiahai-skills
 
+## 0.1.42
+
+### Patch Changes
+
+- [#116](https://github.com/luojiahai/skills/pull/116) [`f54ffbf`](https://github.com/luojiahai/skills/commit/f54ffbf7ff3d5da13e03576fcc7048e956994491) Thanks [@luojiahai](https://github.com/luojiahai)! - archiver: Instagram gains `--skip-reels`, which enumerates the posts feed alone
+  for when Instagram's clips API is refusing. Reels shown in the profile grid
+  still arrive through that feed; ones outside it are left unlisted, and the plan
+  carries a `feed-skipped` note per feed that was never enumerated, so a plan
+  built from fewer feeds than the profile has can never read as the whole
+  account. Listing also now presents Instagram a current Chrome user-agent:
+  Instagram binds a web session to the browser it was created in, so a session
+  read from a Chrome-family browser was rejected on every request under the
+  default Firefox one.
+
+- [#118](https://github.com/luojiahai/skills/pull/118) [`eb13ca9`](https://github.com/luojiahai/skills/commit/eb13ca9ac77e644a87c5f31c87f068914a09d34e) Thanks [@luojiahai](https://github.com/luojiahai)! - Remove the retired preparing-tax-return skill from the repo. It was already
+  retired and never shipped by default; now it is gone entirely, including from
+  the `INSTALL_INTERNAL_SKILLS=1` escape hatch.
+
 ## 0.1.41
 
 ### Patch Changes
