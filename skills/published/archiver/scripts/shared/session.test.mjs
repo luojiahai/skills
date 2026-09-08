@@ -58,6 +58,25 @@ test('the export reads the browser once and writes what it found', () => {
   assert.equal(args.at(-1), 'https://x.com/jack');
 });
 
+test('minting a session asks the platform for nothing', async () => {
+  await isolated(async () => {
+    let argv;
+    await ensureCookies(DESCRIPTOR, {
+      browser: 'chrome',
+      url: 'https://x.com/jack',
+      spawnImpl: (bin, args) => {
+        argv = args;
+        return fakeExport(0)(bin, args);
+      },
+    });
+
+    // A mint that fetches the account fails whenever the platform is throttling
+    // it, and gallery-dl skips the export when it aborts — so a rate limit
+    // arrives as a session that could not be read.
+    assert.ok(!argv.some((arg) => arg.includes('x.com')));
+  });
+});
+
 test('an explicit cookies file is used as given and nothing is minted', async () => {
   await isolated(async () => {
     const spawnImpl = () => assert.fail('the browser must not be read when a file was named');
