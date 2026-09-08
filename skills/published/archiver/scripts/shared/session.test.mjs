@@ -45,7 +45,7 @@ test('a run always reads its session from a file, never the live browser', () =>
 });
 
 test('the export reads the browser once and writes what it found', () => {
-  const args = cookieExportArgs({ browser: 'chrome', cookies: '/c.txt', url: 'https://x.com/jack' });
+  const args = cookieExportArgs({ browser: 'chrome', cookies: '/c.txt' });
   assert.ok(args.includes('--config-ignore'));
   assert.deepEqual(args.slice(args.indexOf('--cookies-from-browser'), args.indexOf('--cookies-from-browser') + 2), [
     '--cookies-from-browser',
@@ -55,14 +55,31 @@ test('the export reads the browser once and writes what it found', () => {
   assert.ok(args.includes('/c.txt'));
   // It must download nothing: this invocation exists to mint a session.
   assert.ok(args.includes('--simulate'));
-  assert.equal(args.at(-1), 'https://x.com/jack');
+});
+
+test('minting a session asks the platform for nothing', async () => {
+  await isolated(async () => {
+    let argv;
+    await ensureCookies(DESCRIPTOR, {
+      browser: 'chrome',
+      spawnImpl: (bin, args) => {
+        argv = args;
+        return fakeExport(0)(bin, args);
+      },
+    });
+
+    // A mint that fetches the account fails whenever the platform is throttling
+    // it, and gallery-dl skips the export when it aborts — so a rate limit
+    // arrives as a session that could not be read.
+    assert.ok(!argv.some((arg) => arg.includes('x.com')));
+  });
 });
 
 test('an explicit cookies file is used as given and nothing is minted', async () => {
   await isolated(async () => {
     const spawnImpl = () => assert.fail('the browser must not be read when a file was named');
     assert.equal(
-      await ensureCookies(DESCRIPTOR, { cookies: '/given.txt', url: 'https://x.com/jack', spawnImpl }),
+      await ensureCookies(DESCRIPTOR, { cookies: '/given.txt', spawnImpl }),
       '/given.txt',
     );
   });
@@ -75,14 +92,14 @@ test('a cached session is preferred to reading the browser again', async () => {
     await writeFile(file, 'cached');
 
     const spawnImpl = () => assert.fail('a cached session must not prompt for Keychain access again');
-    assert.equal(await ensureCookies(DESCRIPTOR, { url: 'https://x.com/jack', spawnImpl }), file);
+    assert.equal(await ensureCookies(DESCRIPTOR, { spawnImpl }), file);
   });
 });
 
 test('with no cache and no browser named, the refusal is the user to act on', async () => {
   await isolated(async () => {
     await assert.rejects(
-      () => ensureCookies(DESCRIPTOR, { url: 'https://x.com/jack', spawnImpl: () => assert.fail('no spawn') }),
+      () => ensureCookies(DESCRIPTOR, { spawnImpl: () => assert.fail('no spawn') }),
       (error) => {
         assert.equal(error.code, 'no-session-source');
         // The label rather than a hardcoded platform: one module, two platforms.
@@ -101,7 +118,7 @@ test('a browser that could not be read is refused, naming the browser', async ()
       () =>
         ensureCookies(DESCRIPTOR, {
           browser: 'chrome',
-          url: 'https://x.com/jack',
+         
           spawnImpl: fakeExport(1, null),
         }),
       (error) => {
@@ -118,7 +135,7 @@ test('a minted session is readable by nobody else on the machine', async () => {
   await isolated(async () => {
     const file = await ensureCookies(DESCRIPTOR, {
       browser: 'chrome',
-      url: 'https://x.com/jack',
+     
       spawnImpl: fakeExport(0),
     });
 
@@ -134,7 +151,7 @@ test('each platform caches its session under its own name', async () => {
   await isolated(async () => {
     await ensureCookies(
       { platform: 'instagram', label: 'Instagram' },
-      { browser: 'chrome', url: 'https://www.instagram.com/someone', spawnImpl: fakeExport(0) },
+      { browser: 'chrome', spawnImpl: fakeExport(0) },
     );
 
     assert.equal(await readFile(cookieFile('instagram'), 'utf8'), 'cookie data');
@@ -149,7 +166,7 @@ test('discarding one platform session leaves the other alone', async () => {
     for (const platform of ['x', 'instagram']) {
       await ensureCookies(
         { platform, label: platform },
-        { browser: 'chrome', url: 'https://example.com', spawnImpl: fakeExport(0) },
+        { browser: 'chrome', spawnImpl: fakeExport(0) },
       );
     }
 

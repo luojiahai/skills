@@ -101,11 +101,10 @@ export const ADAPTER = {
   diff,
 
 
-  session: ({ opts, target, adapter }) =>
+  session: ({ opts, adapter }) =>
     ensureCookies(adapter.site, {
       cookies: optString(opts, 'cookies'),
       browser: optString(opts, 'browser'),
-      url: target.url,
       bin: toolPath('gallery-dl'),
     }),
   /** A rejected session is discarded, so the next run reads the browser again. */
