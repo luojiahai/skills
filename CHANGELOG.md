@@ -1,5 +1,11 @@
 # luojiahai-skills
 
+## 0.1.43
+
+### Patch Changes
+
+- [#119](https://github.com/luojiahai/skills/pull/119) [`238812d`](https://github.com/luojiahai/skills/commit/238812dcc1e17aa6135037d7c72fe93e96cae170) Thanks [@luojiahai](https://github.com/luojiahai)! - archiver: a rate-limited Instagram no longer looks like a broken login. Minting a session used to fetch the account being archived, so a platform refusing that request also lost the cookie export, and the run reported an unreadable session and told the user to sign in again. Reading a browser is now local work, and Instagram's home-page redirect is reported as the rate limit it is.
+
 ## 0.1.42
 
 ### Patch Changes
