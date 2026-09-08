@@ -182,7 +182,11 @@ test('failures are told apart, because zero posts is never up to date', () => {
   // produces, taken from the version this skill pins rather than guessed at.
   const cases = {
     'checkpoint-required': ['HTTP redirect to challenge page (https://www.instagram.com/challenge/)'],
-    'rate-limited': ['429 Too Many Requests', 'Please wait a few minutes before you try again.'],
+    'rate-limited': [
+      '429 Too Many Requests',
+      'Please wait a few minutes before you try again.',
+      'HTTP redirect to home page (https://www.instagram.com/)',
+    ],
     'session-rejected': [
       'HTTP redirect to login page (https://www.instagram.com/accounts/login/)',
       'authenticated cookies needed to access this resource',

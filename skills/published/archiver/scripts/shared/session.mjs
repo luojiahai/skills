@@ -37,8 +37,22 @@ export function cookieArgs({ cookies }) {
   return cookies ? ['--cookies', cookies] : [];
 }
 
+/**
+ * A URL gallery-dl answers from the string itself, so the export is written
+ * having made no request.
+ *
+ * The mint used to name the account being archived, which made seeding the
+ * cache depend on a live platform fetch. Instagram answers a throttled client
+ * with a 302 to its home page, gallery-dl aborts, and an abort skips the
+ * export — so a rate limit arrived as `session-unreadable`, sent the user to
+ * sign in again, and fired another request each time they did. Reading a
+ * browser is local work and stays local. Whether the session is any good is the
+ * collecting pass's question, and that pass has the codes to answer it.
+ */
+const NO_REQUEST_URL = 'https://example.com/a.jpg';
+
 /** Seed the cache: read the browser once, write what it found to `cookies`. */
-export function cookieExportArgs({ browser, cookies, url }) {
+export function cookieExportArgs({ browser, cookies }) {
   return [
     '--config-ignore',
     '--cookies-from-browser',
@@ -46,9 +60,7 @@ export function cookieExportArgs({ browser, cookies, url }) {
     '--cookies-export',
     cookies,
     '--simulate',
-    '--range',
-    '1',
-    url,
+    NO_REQUEST_URL,
   ];
 }
 
@@ -61,7 +73,7 @@ export function cookieExportArgs({ browser, cookies, url }) {
  */
 export async function ensureCookies(
   { platform, label },
-  { cookies, browser, url, bin, spawnImpl = spawn } = {},
+  { cookies, browser, bin, spawnImpl = spawn } = {},
 ) {
   if (cookies) return cookies;
 
@@ -99,7 +111,7 @@ export async function ensureCookies(
   await chmod(dir, 0o700).catch(() => {});
 
   const code = await new Promise((resolve) => {
-    const child = spawnImpl(bin, cookieExportArgs({ browser, cookies: file, url }), {
+    const child = spawnImpl(bin, cookieExportArgs({ browser, cookies: file }), {
       stdio: ['ignore', 'ignore', 'inherit'],
     });
     child.on('close', resolve);

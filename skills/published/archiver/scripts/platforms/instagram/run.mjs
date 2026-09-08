@@ -109,11 +109,10 @@ export const ADAPTER = {
   diff,
 
 
-  session: ({ opts, target, adapter }) =>
+  session: ({ opts, adapter }) =>
     ensureCookies(adapter.site, {
       cookies: optString(opts, 'cookies'),
       browser: optString(opts, 'browser'),
-      url: target.url,
       bin: toolPath('gallery-dl'),
     }),
   /**

@@ -33,11 +33,12 @@ import { httpStatus } from '../../shared/subprocess.mjs';
  * being read is the URL rather than a config key that has to agree with one.
  */
 export const POLICY = {
-  // Instagram binds a web session to the browser it was created in, and answers
-  // a mismatched client with an HTTP redirect to the home page. gallery-dl's
-  // default user-agent is Firefox's, so a session read from a Chrome-family
-  // browser is rejected on every request. A current Chrome UA matches the
-  // sessions this skill actually reads.
+  // gallery-dl's default user-agent is Firefox's, and the sessions this skill
+  // reads come from whatever browser the user signed in with. A current Chrome
+  // UA is the closest single match to those. It is not what decides whether a
+  // request is served: a throttled session is redirected to the home page under
+  // this UA too, which is `classifyFailure`'s to name rather than this key's to
+  // prevent.
   'extractor.instagram.user-agent':
     'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36',
   'extractor.instagram.videos': true,
@@ -215,6 +216,13 @@ export function classifyFailure(output) {
   }
 
   if (/\b429\b|Rate.?limit|too many requests|wait a few minutes/i.test(text)) return 'rate-limited';
+
+  // Instagram throttles its own web API by redirecting it to the home page
+  // rather than by refusing the request, and does it while the session stays
+  // signed in — the page it serves beside this one is a 429 whose markup says
+  // logged-in. A session that is genuinely dead answers 401 instead, which is
+  // the branch below, so the two do not collide.
+  if (/redirect to home page/i.test(text)) return 'rate-limited';
 
   if (
     /redirect to login page|accounts\/login\//i.test(text) ||
