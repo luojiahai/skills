@@ -60,6 +60,14 @@ rate-limits hard: an unthrottled batch starts failing partway through and can
 get the session challenged. Tuning these down to make a run finish faster is
 what stops it finishing.
 
+**Every request says it comes from the open platform.** Douyin's gateway wants a
+signature on the detail request yt-dlp makes, and only the obfuscated script on
+www.douyin.com can compute one; it waives that for `open.douyin.com`. So
+`fetch.mjs` sends that `Referer` and `Origin` on every invocation, and without
+them every post is a 403. The same detail request is answered with no session
+at all, which is why a 403 is `downloader-blocked` and keeps the session, and
+only a captcha or risk-control challenge is `session-rejected`.
+
 ## Files
 
 **This platform archives; the tool it drives downloads.** The run owns the

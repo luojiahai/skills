@@ -91,6 +91,7 @@ The codes worth knowing:
 | --- | --- |
 | `rate-limited` | Wait and come back later. **Do not re-run now.** Report what landed. |
 | `session-rejected` | The saved session was refused and thrown away. They sign in again. |
+| `downloader-blocked` | Douyin only. Douyin turned the downloader away, not the sign-in — the session has been kept, so **never tell them to sign in again**. Run `remedy.command` once, then the download again; if it stops the same way, say it waits on a downloader update. |
 | `checkpoint-required` | Instagram only. The account is held behind a challenge. **Not a sign-in problem** — the session still works and has been kept. They clear the prompt in the app or a browser, then this runs again. Never tell them to sign in again. |
 | `protected`, `suspended`, `no-such-account` | Three different things. Say which. **Never** "up to date". Instagram reports no `suspended`: it does not distinguish one from an account that never existed. |
 | `empty`, `empty-grid` | The account has nothing this skill can fetch. Also never "up to date". |
@@ -380,6 +381,10 @@ run that collects carries a `sweep` note; a re-run that stopped early sends both
 against the profile's own count or against the folder. **Never read those nulls
 as zero, and never compare `counts.found` against `reported` when it is one** —
 that comparison is exactly what the withheld figure exists to stop.
+
+A 403 while downloading is `downloader-blocked`, never a session problem:
+Douyin serves a post's details to anyone, so a refusal there is its gateway
+turning the downloader away. The session is kept and nobody signs in again.
 
 The one failure that needs a human is an expired session: `session-expired-grid`,
 which means the grid rendered nothing while the header still counted posts. That
