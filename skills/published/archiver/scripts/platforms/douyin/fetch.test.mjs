@@ -7,6 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import {
+  FATAL,
   classifyFailure,
   fetchArgs,
   fetchPosts,
@@ -289,12 +290,34 @@ test('a failure the next post would meet too is told apart from this post’s ow
   // into a limiter that has just said no. What is at risk is the account.
   assert.equal(classifyFailure('ERROR: [douyin] 7412: HTTP Error 429: Too Many Requests'), 'rate-limited');
   assert.equal(classifyFailure('ERROR: unable to download: 访问频繁，请稍后再试'), 'rate-limited');
-  assert.equal(classifyFailure('ERROR: [douyin] HTTP Error 403: Forbidden'), 'session-rejected');
   assert.equal(classifyFailure('WARNING: risk control triggered, 请完成验证码'), 'session-rejected');
 
   // This post's own business: the run steps over it and keeps going.
   assert.equal(classifyFailure('ERROR: Video unavailable'), null);
   assert.equal(classifyFailure(''), null);
+});
+
+test('a 403 is the downloader turned away, not the session', () => {
+  // Douyin answers a detail request with no session at all, so a 403 says
+  // nothing about the sign-in. Reading it as `session-rejected` would discard a
+  // working session and send somebody to sign in again for nothing.
+  const blocked =
+    'WARNING: [Douyin] 7412: Failed to download web detail JSON: HTTP Error 403: Forbidden\n' +
+    'ERROR: [Douyin] 7412: Fresh cookies (not necessarily logged in) are needed';
+  assert.equal(classifyFailure(blocked), 'downloader-blocked');
+  assert.equal(classifyFailure('ERROR: [douyin] HTTP Error 403: Forbidden'), 'downloader-blocked');
+  assert.ok(FATAL.has('downloader-blocked'));
+});
+
+test('both kinds of request say they come from the open platform', () => {
+  // The gateway waives its signature for open.douyin.com and for nothing else.
+  for (const args of [
+    fetchArgs({ url: 'u', dir: '/a', cookies: null }),
+    metadataArgs({ url: 'u', cookies: null }),
+  ]) {
+    const headers = args.flatMap((arg, i) => (args[i - 1] === '--add-headers' ? [arg] : []));
+    assert.deepEqual(headers, ['Referer:https://open.douyin.com/', 'Origin:https://open.douyin.com']);
+  }
 });
 
 test('a caption or a path is never read as a reason to stop', async () => {

@@ -300,6 +300,7 @@
             "no-douyin-id",
             "bad-account-id",
             "rate-limited",
+            "downloader-blocked",
             "protected",
             "suspended",
             "no-such-account",

@@ -104,6 +104,7 @@ export const ERROR_EXITS = {
   'no-douyin-id': EXIT.FAILED,
   'bad-account-id': EXIT.FAILED,
   'rate-limited': EXIT.FAILED,
+  'downloader-blocked': EXIT.FAILED,
   protected: EXIT.FAILED,
   suspended: EXIT.FAILED,
   'no-such-account': EXIT.FAILED,
