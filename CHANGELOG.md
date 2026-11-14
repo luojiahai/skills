@@ -1,5 +1,13 @@
 # luojiahai-skills
 
+## 0.1.43
+
+### Patch Changes
+
+- [#121](https://github.com/luojiahai/skills/pull/121) [`8774482`](https://github.com/luojiahai/skills/commit/8774482e437f43fa63165ef5f627a0aa330a6f91) Thanks [@luojiahai](https://github.com/luojiahai)! - archiver: Douyin downloads work again. Douyin's gateway now demands a signature yt-dlp cannot compute on every video-detail request, so each post failed with a 403; the downloader now sends those requests as Douyin's open platform, which the gateway waives. A 403 is also no longer read as a dead sign-in: it stops the run as `downloader-blocked`, keeps the session, and points at refreshing the downloaders instead of sending the user to sign in again.
+
+- [#119](https://github.com/luojiahai/skills/pull/119) [`238812d`](https://github.com/luojiahai/skills/commit/238812dcc1e17aa6135037d7c72fe93e96cae170) Thanks [@luojiahai](https://github.com/luojiahai)! - archiver: a rate-limited Instagram no longer looks like a broken login. Minting a session used to fetch the account being archived, so a platform refusing that request also lost the cookie export, and the run reported an unreadable session and told the user to sign in again. Reading a browser is now local work, and Instagram's home-page redirect is reported as the rate limit it is.
+
 ## 0.1.42
 
 ### Patch Changes
