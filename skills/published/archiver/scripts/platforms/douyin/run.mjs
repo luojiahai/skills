@@ -33,7 +33,7 @@ import { DEFAULT_ABORT, collect } from './collect.mjs';
 import { fetchPosts, outstanding } from './fetch.mjs';
 import { landedIds, unlistedIds } from '../../shared/landed.mjs';
 import { login } from './login.mjs';
-import { cookieFile, toolPath } from '../../shared/paths.mjs';
+import { cookieFile, setupScript, toolPath } from '../../shared/paths.mjs';
 import { PLATFORM, PROFILE_DIR, discardDerivedState, loadPlaywright } from './playwright.mjs';
 import { descriptorFor, postIdKeyFor } from '../../shared/platforms.mjs';
 import { listedIds, unlistedCountFromPlan } from '../../shared/plan.mjs';
@@ -95,6 +95,16 @@ const FAILURES = {
     remedy: {
       message: 'sign in to Douyin again in the browser this opens',
       run_by: 'user',
+    },
+  },
+  'downloader-blocked': {
+    message: 'Douyin refused the downloader itself — the session is fine and has been kept',
+    remedy: {
+      message:
+        'refresh the downloaders to their latest release, then run the download again; ' +
+        'if it stops the same way, the downloader has not caught up with Douyin yet',
+      command: `${quote(setupScript())} refresh`,
+      run_by: 'agent',
     },
   },
 };

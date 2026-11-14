@@ -56,6 +56,18 @@ export const THROTTLE = [
 const MEDIA_NAME = '%(playlist_index|1)s.%(ext)s';
 
 /**
+ * Who yt-dlp says is asking. Douyin's gateway demands a signature on the detail
+ * request yt-dlp makes, and only the obfuscated script on www.douyin.com can
+ * compute one — but it waives the signature for requests from the open
+ * platform. Without these headers every post is refused with a 403, signed in
+ * or not.
+ */
+export const ORIGIN = [
+  '--add-headers', 'Referer:https://open.douyin.com/',
+  '--add-headers', 'Origin:https://open.douyin.com',
+];
+
+/**
  * What that template resolves to, so a stray line of yt-dlp output cannot be
  * mistaken for a filename. `--print` implies `--quiet`, so stdout should carry
  * nothing else — this is the check that keeps "should" from becoming a
@@ -67,6 +79,7 @@ const MEDIA_LINE = /^\d+\.[A-Za-z0-9]+$/;
 export function fetchArgs({ url, dir, cookies }) {
   return [
     ...cookieArgs(cookies),
+    ...ORIGIN,
     ...THROTTLE,
     // Keys on the resolved path, so deleting a post's folder re-downloads it —
     // unlike --download-archive, which keys on ids and goes on claiming a
@@ -91,6 +104,7 @@ export function fetchArgs({ url, dir, cookies }) {
 export function metadataArgs({ url, cookies }) {
   return [
     ...cookieArgs(cookies),
+    ...ORIGIN,
     ...THROTTLE,
     '--skip-download',
     '--print', '%(timestamp|)s\t%(description,title|)s',
@@ -144,12 +158,13 @@ export function classifyFailure(output) {
     return 'rate-limited';
   }
 
-  if (
-    httpStatus(403, 'Forbidden').test(text) ||
-    /\brisk control\b|\bcaptcha\b|滑块|验证码/i.test(text)
-  ) {
-    return 'session-rejected';
-  }
+  // A challenge is put to an account, so it is the session that was refused.
+  if (/\brisk control\b|\bcaptcha\b|滑块|验证码/i.test(text)) return 'session-rejected';
+
+  // A 403 is not. Douyin answers a detail request anonymously, so a refusal
+  // there is the gateway turning the downloader away — and the session is kept,
+  // because discarding it sends somebody to sign in again for nothing.
+  if (httpStatus(403, 'Forbidden').test(text)) return 'downloader-blocked';
 
   return null;
 }
@@ -163,7 +178,7 @@ export function classifyFailure(output) {
  * `protected`, which its listing pass can report mid-download; Douyin answers
  * both of those long before here, with a grid that renders nothing.
  */
-export const FATAL = new Set(['rate-limited', 'session-rejected']);
+export const FATAL = new Set(['rate-limited', 'session-rejected', 'downloader-blocked']);
 
 /** The posts that still need fetching, in the order they were collected. */
 export const outstanding = (posts, archive) => outstandingIn(posts, archive, POST_ID_KEY);
